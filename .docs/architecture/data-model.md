@@ -10,21 +10,25 @@ Synthetic ERP fixtures are replaceable test infrastructure.
 | Tenant / membership | Business ID, configuration version; user, tenant, role |
 | Connection | Tenant, provider, external account mapping, secret reference, capabilities |
 | Contact identity | Tenant, channel, external identity, verified contact linkage |
+| Manager channel binding | Tenant, internal membership, connection, external actor, allowed context, verification and revocation status; separate from customer identity |
 | Inbox event | Deduplication key, receipt status, normalized payload/reference |
 | Enquiry | Tenant, customer, requested items/date, status, correlation ID |
 | Workflow run | Tenant, enquiry, graph version, opaque thread ID, state version |
 | Quotation / quotation version | Immutable lines, Decimal totals, currency, policy/source evidence, expiry, content hash |
 | Approval | Tenant, quotation version/hash, approver, decision, reason, validity, timestamp |
+| Approval action reference | Task/version, intended actor/connection, expiry, consumed status; opaque external reference |
 | Acceptance | Exact quotation version, verified customer evidence, expiry and processing state |
 | Order operation | Idempotency key, external reference, reservation ID, result/reconciliation status |
 | Job / outbox | Tenant, operation ID, due time, attempts, lease, next retry, payload reference |
 | Document | Tenant, object key, checksum, content type, retention and associated version |
 | Audit event | Tenant, actor, action, target/version, outcome, timestamp, correlation ID |
 
+Future negotiation case/round records are planned in [negotiation](../plan/negotiation.md); they are not part of the initial implemented schema. Approval audit also records transport and verified interaction evidence references without storing reusable secrets.
+
 ## Constraints
 Tenant-owned records have non-null tenant IDs; unique keys include tenant and appropriate connection identifiers.
 Tenant-safe foreign keys prevent linking a quotation to another tenant's customer.
-One accepted decision per approval/version under concurrency; one order operation per accepted version.
+One accepted decision per approval/version under concurrency; one order operation per accepted version plus a purchase-level guard across quote revisions. Creating a distinct repeat purchase requires an explicit new purchase identity.
 Money uses Decimal and database numeric fields; ISO currency and explicit rounding policy accompany values.
 Quantities carry units; timestamps use UTC, while customer locale/timezone remains explicit for date interpretation.
 Relative dates such as "next Friday" need receipt timezone context and clarification when delivery intent remains ambiguous.

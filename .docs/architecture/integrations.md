@@ -31,7 +31,13 @@ Capabilities include attachments, buttons, threading, message limits and permitt
 Provider-specific reply windows, consent, template requirements and permissions are adapter policy inputs and must be verified at implementation.
 Retries preserve operation identity. Delivery status distinguishes pending, provider_accepted, delivered, failed and unknown.
 
-## ERP/inventory adapters
+## Manager approval adapters
+Manager approval is an additional capability, not automatically granted by general send/receive support. An approval adapter renders a common review packet, verifies callback/message provenance, resolves an enrolled internal identity and maps the interaction to the shared approval decision command.
+Declare support for full review detail/document access, explicit decision actions, identity verification, task correlation, expiry and optional message updates. Tenant settings select permitted manager channels independently of customer channels.
+Do not route approval events through customer enquiry extraction or ask an LLM to authorize them. Uncorrelated or ambiguous replies remain undecided. Direct email reply approval is confirmed; verify enrolled sender, trusted provider evidence and exact task/version correlation, excluding quoted history and automated messages.
+See [approval contracts](approvals.md) and [extension boundaries](module-boundaries.md). Provider-specific permissions/capabilities must be verified before implementing each connector.
+
+## ERP operations
 Required read operations:
 - search_products(query, customer_context): SKU candidates with authoritative IDs, units and descriptions.
 - get_prices(skus, customer, currency, effective_at): price list/version, effective dates, currency, units and discount basis.

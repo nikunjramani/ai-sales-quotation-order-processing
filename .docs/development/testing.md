@@ -9,6 +9,22 @@
 - End-to-end: two tenants and two channels through approved PDF and sandbox ERP order.
 - Release tests: backup restore, migration/rollback strategy, deployment smoke tests and documented load profile.
 
+## Additional approval and extension coverage
+- Run the same approval contract cases through portal, fake channel and each supported real channel adapter.
+- Verify enrolled actor/tenant/context, forwarded actions, revoked roles, expired/stale buttons and conflicting portal/chat decisions.
+- Verify full quote review detail is accessible in-channel and provider limitations produce explicit fallback rather than silent approval.
+- Confirm notifications across channels reference one task; retries or failed confirmations never duplicate decisions/resumes.
+- Add import-boundary checks when modules exist; a new approval provider must not require financial-domain or graph-routing edits.
+- Deferred negotiation tests are defined in the [negotiation plan](../plan/negotiation.md); no feature pass is claimed before implementation.
+- Direct email decisions must exclude quoted approvals, automatic replies and ambiguous/conditional text, and verify sender plus exact task/version.
+- Deferred manager commands must distinguish read-only stock questions from scoped changes, reject ambiguous global price writes and require approval of every negotiated revision, even if the proposed discount is within policy limits.
+
+## Lifecycle and ingestion coverage
+- Unsupported, encrypted, oversized and scanned PDFs must not silently produce empty successful requirements. Preserve extraction evidence and route to clarification/review where unsupported.
+- Draft previews and final PDFs must match the exact reviewed quotation values/version; previews cannot be dispatched as approved offers.
+- Test human pause versus dispatch, authorized resume, cancellation versus order commitment, expired/withdrawn offers and acceptance across multiple revisions of one purchase.
+- Order confirmation requires confirmed ERP success; failed confirmation retries must never create another order.
+
 ## AI evaluation dataset
 Synthetic cases include aliases, misspellings, ambiguous SKUs, multiple items, missing quantities, conflicting dates, units, currencies, malicious instructions and unsupported attachment formats.
 Track field extraction correctness, SKU match correctness, appropriate clarification, invented factual values, latency and cost.

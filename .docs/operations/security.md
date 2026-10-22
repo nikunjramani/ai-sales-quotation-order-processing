@@ -13,3 +13,6 @@
 - Keep development, staging and production credentials/data separate.
 - Test tenant isolation in the real PostgreSQL runtime role, not only as database owner.
 - Document threat model and unresolved findings before pilot; do not claim regulatory certification.
+- Bind manager messaging identities to internal memberships with proof of control. Recheck role/revocation at decision time and restrict allowed conversation contexts.
+- Provider webhook verification is necessary but not sufficient: validate the acting manager, task/version, recipient binding and expiry. Forwarded actions and uncorrelated text must not approve anything.
+- Mobile channel review may expose commercial documents to provider storage; configure permitted channels and disclosure per tenant. Never include reusable action secrets in model input or logs.

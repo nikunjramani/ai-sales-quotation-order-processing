@@ -1,6 +1,6 @@
 # 0005: Version-bound internal approval and customer acceptance
 Date: 2026-10-22
-Status: accepted design; implementation pending
+Status: superseded by [0007](0007-channel-independent-approval.md). Historical decision retained; version-bound authorization and separate customer acceptance remain required.
 
 ## Context
 Notifications, commercial authorization and customer purchase acceptance are different actions.

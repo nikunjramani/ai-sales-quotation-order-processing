@@ -5,6 +5,9 @@ Learning must explain the real architecture; it must not weaken release requirem
 |---|---|---|
 | Tenant | One business using the application | Keep different businesses separate |
 | Adapter | Translator between our format and another system | Add an ERP or messaging channel |
+| Approval service | One place that checks and records a manager's decision | Portal and chat use identical business rules |
+| Identity binding | Verified link between a staff member and a messaging account | Recognize an authorized manager on Telegram |
+| Counteroffer | Customer asks for different price or terms | Future negotiation creates a revised quotation |
 | Port | Contract the translator must satisfy | All inventory adapters offer defined lookups |
 | LangChain | Model/tool integration building blocks | Ask a model for validated enquiry fields |
 | LangGraph | Controller for steps, branches and saved progress | Pause quotation processing for approval |

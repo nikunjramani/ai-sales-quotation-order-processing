@@ -14,6 +14,9 @@ flowchart LR
     W --> E[ERP adapters]
     E --> ERP[Business-owned inventory / pricing / orders]
     P[Authenticated staff portal] --> I
+    M[Manager messaging channels] --> A
+    I --> AP[Shared approval application service]
+    AP --> D
     W --> D
     D --> O[Outbound dispatcher]
     O --> C
@@ -31,6 +34,7 @@ flowchart LR
 - Scheduler: enqueue due follow-up/expiry/reconciliation work; no in-process multi-day sleeps.
 - Dispatcher: execute approved outbound intents and record acknowledgements/delivery events.
 - Portal: enquiries, exceptions, draft/approved quote versions, approval tasks, integrations and audit visibility.
+- Approval service: one authorization/version/decision boundary for portal and manager messaging adapters. Customer intake and manager approval use distinct actor resolution and commands.
 - n8n: optional integration glue; core approvals, financial rules and workflow state stay in Python/PostgreSQL.
 
 ## Reliability contract
@@ -38,3 +42,5 @@ Inbound receipt and job creation share a database transaction. Business changes 
 Graph checkpoint writes and business transactions are not assumed atomic together. Stable operation IDs and replay-safe nodes reconcile partial progress.
 Delivery is at least once. Idempotency, constraints and reconciliation prevent repeated business effects where providers permit; do not claim universal exactly-once external execution.
 No external network call is held inside a long DB transaction.
+
+See [module boundaries](module-boundaries.md) for independent contracts and [approvals](approvals.md) for in-channel manager review. Customer and manager channel preferences are independent. Negotiation is a deferred module reusing quotation, approval and order services, not a second commercial workflow per provider.

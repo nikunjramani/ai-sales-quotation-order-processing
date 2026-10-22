@@ -9,13 +9,13 @@ This is a target flow, not a description of existing code. Update with actual mo
 | 4 Resolve products | Search ERP; select supported matches with evidence | Ambiguous/no match -> ask or review; never invent SKU |
 | 5 Retrieve facts | Fetch prices, units, stock and delivery inputs | Missing/stale/failed lookup -> retry or exception; no fallback invented values |
 | 6 Calculate | Deterministic Decimal arithmetic and tenant policy | Draft immutable version with calculation explanation |
-| 7 Request approval | Persist approval task + outbox intent; graph interrupt | Pending state survives process restart |
-| 8 Resume | Authorized version-bound decision creates resume job | Reject -> closed/revision; approve -> validate and prepare delivery |
+| 7 Request approval | Shared approval service persists task + review-packet outbox intent for configured manager channels; graph interrupt | Portal or supported in-channel review; pending state survives process restart |
+| 8 Resume | Portal/channel adapter submits verified decision to the same approval service; authorized version-bound decision creates resume job | Reject -> closed/revision; approve -> validate and prepare delivery; stale/unauthorized action fails |
 | 9 Deliver | Render approved version PDF; persist immutable object; send via outbox | Track acknowledgement/delivery; unknown result -> reconcile |
-| 10 Await response | Persist wait and due follow-up jobs | Reply -> correlate; reject/expiry/opt-out -> stop follow-ups |
+| 10 Await response | Persist wait and due follow-up jobs | Reply -> correlate; counteroffer -> human review initially, future negotiation module later; reject/expiry/opt-out -> stop follow-ups |
 | 11 Accept | Verify customer/version; revalidate ERP facts | Changed material terms -> new quote; duplicate -> existing result |
 | 12 Commit order | Reserve if supported; create with stable external reference | Store ERP ID; partial/unknown result -> reconciliation |
-| 13 Finish | Update business status; optional CRM synchronization | CRM failure is retried independently; never recreate successful ERP order |
+| 13 Finish | Persist confirmed ERP order and customer confirmation intent; optional CRM synchronization | Notification/CRM failures retry independently; never recreate successful order or announce unknown outcome as success |
 
 ## State design
 Store tenant/run/enquiry IDs, normalized requirements, evidence references, quote version, approval/acceptance references, pending operation IDs, status and schema version.
@@ -33,9 +33,20 @@ Jobs use leases, lease renewal for long calls, expiry recovery and fencing/versi
 Lock/serialize per workflow, including approval and customer reply races. Recheck cancellation/version immediately before an irreversible intent is dispatched.
 
 ## Order partial failures
+Before automatic order creation, enforce a business-level purchase identity across quote revisions. Repeated acceptance of another version cannot silently create a second order for the same intended purchase. Partial acceptance, quantity edits and substitutions route to reviewed revision until explicitly supported.
 If reservation succeeds but order creation fails conclusively, release or expire the reservation according to ERP policy.
 If creation outcome is unknown, reconcile before releasing/retrying; do not cancel stock belonging to an order that actually exists.
 Record compensating actions and unresolved exceptions for an operator.
 
-## Workflow upgrades
+## Human ownership and cancellation
+Persist manual owner, pause reason and resume authority. Human takeover suspends automated commercial writes and ordinary follow-ups; resume is authorized and audited. Pausing cannot undo a remote operation already sent, so reconcile in-flight/unknown outcomes.
+Cancellation/withdrawal before order commitment stops eligible pending actions and invalidates relevant approval/acceptance actions under the configured offer policy. A completed ERP order cannot be undone by editing workflow state: route later changes/cancellation to an explicit human/ERP process.
+Preserve the calculation policy snapshot and recheck current permissions at execution. Before M6, define which policy/source changes require recalculation; any material revised offer requires fresh manager approval and customer acceptance.
+
+## Extension routing
+Manager channel adapters never resume the graph directly; an accepted decision persists the durable resume intent. Changing approval channels does not change the graph's decision contract.
+Negotiation is deferred: see [future negotiation](../plan/negotiation.md). When implemented, its proposals use existing quotation/version/approval/delivery services and serialize against customer acceptance/order commitment.
+Every negotiated revision requires manager approval. Future [manager enquiries/commands](../plan/manager-operations.md) route verified stock questions to read-only ERP lookups and scoped price/discount requests to validated proposed revisions; they do not bypass approval or imply catalogue-write authority.
+
+## Workflow upgrades and version compatibility
 Persist graph/schema version. Keep compatible handlers for waiting runs or provide tested migrations; never assume a deployment can resume old checkpoints safely.

@@ -4,6 +4,7 @@ Build a reusable multi-business sales quotation/order automation product while l
 
 ## Agreed direction
 Multiple channel adapters, existing ERP integrations, deterministic commercial rules, internal approval separate from customer acceptance, documentation-first implementation.
+Manager review/approval must support configured messaging channels as well as the portal through one shared approval service. Direct email reply approval is confirmed. Provider extensions must not rewrite business rules. Customer negotiation and manager stock enquiries/price-change/discount commands are planned for M11 only. Every negotiated revision requires manager approval; AI must not negotiate autonomously, even within configured limits. Price-change scope must be clarified rather than assuming global ERP writes.
 Use PostgreSQL from the foundation, a modular Python application, LangGraph for persisted workflow, and durable jobs/outbox for external effects.
 See accepted [ADRs](adr/README.md). These are design commitments; code is not implemented.
 

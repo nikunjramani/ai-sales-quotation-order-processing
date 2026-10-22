@@ -6,13 +6,18 @@ Status: design baseline, 2026-10-22. All application behaviour below is planned 
 - [Milestones from setup to release](plan/roadmap.md)
 - [Technology and access requirements](plan/stack-and-access.md)
 - [Open decisions and risks](plan/open-decisions.md)
+- [Future quotation negotiation](plan/negotiation.md)
+- [Future manager enquiries and commercial commands](plan/manager-operations.md)
+- [Pre-implementation plan review](plan/readiness-review.md)
 
 ## Architecture
 - [System boundaries and components](architecture/system.md)
+- [System flowcharts](architecture/flowcharts.md)
 - [Channel and business-system contracts](architecture/integrations.md)
 - [Data ownership and tenant isolation](architecture/data-model.md)
 - [Execution flow and recovery](architecture/execution-flow.md)
 - [Approval and customer acceptance](architecture/approvals.md)
+- [Module boundaries and extension rules](architecture/module-boundaries.md)
 - [Architecture decision records](adr/README.md)
 
 ## Engineering and operations

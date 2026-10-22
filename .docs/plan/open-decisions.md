@@ -15,8 +15,17 @@ These are implementation gates, not reasons to block documentation.
 | Hosting, expected volume and SLOs | Single-region initial deployment | M8 capacity testing |
 | Channel order | Email + Telegram first, Meta channels later | Revisit if business priority differs |
 | Approval thresholds/delegation | All quotes need one authorized internal approver | M4; multi-level policy may follow |
+| Direct email approval verification | User selected direct reply; define trusted inbound evidence and task/version correlation | Before email decision implementation |
+| Manager commercial-command scope | Stock enquiries, price changes and discounts requested; quotation vs price-list/catalogue scope needs explicit resolution | M11; never assume global ERP write authority |
+| Approval enrollment/context | Define proof-of-control, allowed private/shared contexts, revocation and additional verification | M4 contract; before each real approval connector |
+| Negotiation commercial policy | No assumed discounts, rounds or old-offer validity rules | M11; see negotiation plan |
+| Attachment/OCR support | Bounded text/PDF processing; define scanned-PDF/OCR engine, languages, limits and unsupported-file response | M2/M3 before claiming format support |
+| Offer lifecycle | Define expiry, withdrawal/replacement, policy-change revalidation and partial acceptance handling; never silently accept different terms | M6; pilot business validates policy |
+| Human handoff | Define pause owner, authorized resume and post-order change/cancellation escalation | M4/M6 |
 
 ## Risks and mitigations
+Confirmed decisions: direct email reply approval is required; all future negotiated revisions require manager approval. AI must not negotiate autonomously, even within configured limits.
+
 - Provider account review can delay a channel: use adapters and sandbox intake; do not bypass provider restrictions.
 - ERP semantics vary: capability discovery, field mapping, timestamped evidence and contract tests.
 - Remote writes can succeed before a timeout: persist intent, reconcile by external reference, escalate unresolved outcomes.

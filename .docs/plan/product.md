@@ -9,6 +9,7 @@ A tenant means one business using the platform. A contact means that business's 
 - Channel adapters normalize messages; the core workflow does not assume email.
 - ERP/inventory systems remain authoritative. The platform is an automation layer, not a required replacement inventory database.
 - Human review is required for quotation sending in the first release.
+- Managers can review and decide through the portal or configured, verified messaging approval adapters. Customer channels and internal manager channels are independently configurable.
 - Explicit customer acceptance and order revalidation follow internal approval.
 - Begin with physical B2B goods and one configured currency per quotation. Mixed currencies, autonomous negotiation, payment execution, manufacturing planning, and shipping execution are outside the first release.
 - Tax, delivery, discount, and expiry rules are configured and validated for each pilot business; sample policies are not universal tax advice.
@@ -18,6 +19,9 @@ Core: tenant administration, role-based portal, enquiry handling, product matchi
 Adapters: authenticated manual/API intake, one real email connector, Telegram as a second channel, simulated ERP and one selected real ERP sandbox connector.
 WhatsApp and Instagram: supported architecture and planned adapters; provider onboarding gates their actual delivery. Do not advertise an adapter as supported before contract tests and end-to-end validation pass.
 Other ERP/CRM connectors follow demand; an optional CRM connector must not block the core order workflow.
+The first release must demonstrate direct email reply approval and in-channel manager review/decisions through a supported real messaging connector, using the same approval service as the portal. WhatsApp/Instagram approval requires separate capability validation as those connectors are added.
+Customer negotiation is a [later planned feature](negotiation.md). Before it exists, counteroffers go to human review rather than automatic discounts or order acceptance.
+All future negotiated revisions require manager approval; AI is not allowed to negotiate autonomously. Later [manager operations](manager-operations.md) include stock enquiries and price/discount change requests through email and supported messaging channels.
 
 ## Observable acceptance scenarios
 1. Equivalent email and Telegram requests produce equivalent normalized requirements.
@@ -32,6 +36,9 @@ Other ERP/CRM connectors follow demand; an optional CRM connector must not block
 10. Follow-ups stop after rejection, acceptance, opt-out, or case closure.
 11. A tenant can connect an ERP without manually importing all stock into this platform.
 12. Every externally committed action has a traceable actor, version, result, and correlation ID.
+13. A manager can review and decide in a configured supported messaging channel without opening the portal for every quote.
+14. Concurrent portal/channel decisions affect one approval task; forwarded or obsolete actions cannot authorize a quote.
+15. A new approval connector passes the shared contract suite without changing pricing/order rules or graph resume logic.
 
 ## Business onboarding
 Create tenant -> assign administrators/approvers -> connect channels and ERP -> map fields, units and currencies -> configure policies -> run sandbox scenarios -> authorize production activation.
