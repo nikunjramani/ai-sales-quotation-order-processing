@@ -1,5 +1,25 @@
-# Proposed code map
-Status: these application directories do not exist yet. Create only as milestones require.
+# Code map
+Status: only the M0 foundation below exists. The later module map remains a plan.
+
+## Implemented foundation
+| Actual file | Responsibility |
+|---|---|
+| [pyproject.toml](../../pyproject.toml) / [uv.lock](../../uv.lock) | Package configuration, quality checks and reproducible dependencies |
+| [config.py](../../src/quotation_app/config.py) | Environment/.env validation and secret wrappers |
+| [app.py](../../src/quotation_app/api/app.py) | Application factory, lifecycle and health routes |
+| [database.py](../../src/quotation_app/persistence/database.py) | Bounded connection pool and schema/runtime-role readiness |
+| [models.py](../../src/quotation_app/persistence/models.py) | Initial Tenant registry metadata |
+| [0001_tenants.py](../../migrations/versions/0001_tenants.py) | Initial schema, forced RLS and runtime read grants |
+| [env.py](../../migrations/env.py) | Alembic execution with separate owner credentials |
+| [seed.py](../../src/quotation_app/persistence/seed.py) | Idempotent development/test-only fictional tenant fixtures |
+| [compose.yaml](../../compose.yaml) / [init.sql](../../infra/postgres/init.sql) | Local database container, persistent volume and role bootstrap |
+| [init_local_env.py](../../scripts/init_local_env.py) | Generate ignored local credentials without overwriting |
+| [check_database.py](../../scripts/check_database.py) | Run local migration/schema/integration checks |
+| [test_config.py](../../tests/test_config.py) / [test_health.py](../../tests/test_health.py) | Offline configuration/API behaviour |
+| [test_database.py](../../tests/integration/test_database.py) | Opt-in PostgreSQL role, seed and RLS checks |
+| [ci.yml](../../.github/workflows/ci.yml) | Automated offline and live PostgreSQL checks; remote execution pending |
+
+## Planned modules
 
 | Proposed location | Responsibility |
 |---|---|

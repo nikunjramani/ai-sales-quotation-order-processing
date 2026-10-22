@@ -1,7 +1,9 @@
 # Sales Quotation & Order Processing
 A planned multi-business automation platform that turns customer enquiries into reviewed quotations and confirmed sales orders.
 
-**Status: documentation baseline only. No application, integrations, or deployments exist yet.**
+**Status: M0 foundation implemented and verified against local PostgreSQL; remote CI run pending. Business workflows and integrations are not implemented yet.**
+
+Start development with the [setup walkthrough](.docs/development/setup.md). It explains the Python environment, health API, local PostgreSQL service, migrations and checks. Docker Desktop must be running before the database checks.
 
 Public repository: [nikunjramani/ai-sales-quotation-order-processing](https://github.com/nikunjramani/ai-sales-quotation-order-processing).
 

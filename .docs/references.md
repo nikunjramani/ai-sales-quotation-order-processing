@@ -10,3 +10,9 @@ Reviewed 2026-10-22. Recheck current provider requirements and exact library ver
 - [Instagram messaging API](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api): reference URL; fetch returned HTTP 429 during planning. Validate current permissions, supported account types and messaging restrictions before adapter implementation.
 
 Architectural decisions are project choices. These sources establish relevant platform capabilities, not proof that this application already implements them.
+
+## M0 implementation references
+- [uv projects](https://docs.astral.sh/uv/guides/projects/): project environments and lockfiles.
+- [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/): environment-driven configuration.
+- [Alembic tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html): explicit versioned migrations.
+- [Official PostgreSQL image](https://hub.docker.com/_/postgres): PostgreSQL 17 image family and container initialization.

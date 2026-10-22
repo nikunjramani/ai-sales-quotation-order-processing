@@ -1,6 +1,6 @@
 # Stack and access
 ## Planned stack
-Exact versions are intentionally unpinned in this documentation-only baseline. M0 verifies compatibility and creates a reproducible lockfile.
+M0 targets Python 3.13 and has a reproducible [uv lockfile](../../uv.lock). Runtime packages include FastAPI 0.159.1, SQLAlchemy 2.0.55, Alembic 1.20.1 and psycopg 3.3.6. Offline and live local PostgreSQL 17.11 checks pass. Future AI/provider libraries are not installed yet.
 
 | Component | Choice | Purpose |
 |---|---|---|

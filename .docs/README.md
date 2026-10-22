@@ -1,5 +1,5 @@
 # Documentation index
-Status: design baseline, 2026-10-22. All application behaviour below is planned unless the handoff explicitly records implementation.
+Status: M0 foundation code exists, 2026-10-22. Live PostgreSQL verification passed locally on 2026-10-22; the remote GitHub Actions run is still pending. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)
@@ -21,7 +21,9 @@ Status: design baseline, 2026-10-22. All application behaviour below is planned 
 - [Architecture decision records](adr/README.md)
 
 ## Engineering and operations
-- [Proposed code map](development/code-map.md)
+- [Local setup and M0 walkthrough](development/setup.md)
+- [Configuration and health API](development/configuration.md)
+- [Code map (implemented and planned)](development/code-map.md)
 - [Documentation policy and templates](development/documentation-policy.md)
 - [Testing and evaluation](development/testing.md)
 - [Security and privacy](operations/security.md)

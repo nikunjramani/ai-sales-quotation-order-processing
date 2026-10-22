@@ -1,5 +1,5 @@
 # Delivery roadmap
-Status: every milestone is pending. Documentation exists; application implementation has not started.
+Status: M0 local exit checks pass (live migrations, downgrade/re-upgrade, seed, RLS integration tests and API smoke, 2026-10-22). M0 closes once the GitHub Actions workflow passes remotely. M1-M11 are not implemented.
 Complete each exit gate before claiming the milestone finished. Tests and documentation accompany every milestone.
 
 | Milestone | Deliverables | Dependencies and exit gate |

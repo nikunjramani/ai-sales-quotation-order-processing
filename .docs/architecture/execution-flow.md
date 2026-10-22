@@ -1,5 +1,16 @@
 # Planned execution flow
-This is a target flow, not a description of existing code. Update with actual module/symbol links as implementation lands.
+The sales workflow table below remains a target. M0 only implements the foundation trace described here.
+
+## Implemented M0 trace
+1. Uvicorn calls [create_app](../../src/quotation_app/api/app.py); [Settings](../../src/quotation_app/config.py) validates configuration and hides secrets.
+2. [build_engine](../../src/quotation_app/persistence/database.py) configures a bounded pool. Creating the app does not connect, migrate or seed the database.
+3. GET /health/live returns 200 without a database query.
+4. GET /health/ready reads the schema revision and checks the connected role. Missing/unreachable/unmigrated DB, unexpected revision or privileged role returns sanitized 503; a valid connection/schema/role returns 200.
+5. Application shutdown disposes the engine.
+6. Separately, Alembic uses migration credentials to create the tenant table and RLS. The [seed](../../src/quotation_app/persistence/seed.py) sets transaction-local tenant context and inserts fictional fixtures idempotently; it refuses production mode.
+No business HTTP routes, authenticated tenant context, workflow engine or external actions exist yet. Migration, seed, RLS and readiness behaviour were executed against local PostgreSQL on 2026-10-22. See [setup](../development/setup.md).
+
+## Planned sales workflow
 
 | Step | Input and action | Output / failure branch |
 |---|---|---|
