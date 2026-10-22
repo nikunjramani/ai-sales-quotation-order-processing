@@ -1,6 +1,6 @@
 # 0012: Provider-independent enquiry extraction with LangGraph and verbatim checks
 Date: 2026-10-22
-Status: implemented in M3; verified locally
+Status: accepted and implemented in M3 (commit 52cccd7, [CI run 39747434193](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39747434193) passed)
 
 ## Context
 M3 turns enquiry text and attachments into structured requirements. The user wants a free model now and the freedom to switch to any provider later. Models can misread, invent facts or follow injected instructions, so their output must never set prices, stock or permissions.

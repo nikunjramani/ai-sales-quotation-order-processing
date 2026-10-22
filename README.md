@@ -4,7 +4,7 @@ A multi-business platform, still being built, that turns customer enquiries into
 
 The goal is a reusable product that many businesses (tenants) can use with their own email or messaging channels and their existing ERP or inventory system. It is also a learning project for LangChain, LangGraph and reliable workflow engineering, so every part is documented in plain language.
 
-> **Status (2026-10-22):** M0-M2 are complete (local and CI). M3 (requirement extraction with LangGraph, provider-independent models, free by default) is implemented and verified locally. Approvals, PDFs, email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
+> **Status (2026-10-22):** M0-M3 are complete (local and CI), including requirement extraction with LangGraph and provider-independent models (free by default). Approvals, PDFs, email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
 
 ## What it will do
 1. Receive an enquiry from email, Telegram, an API and later WhatsApp or Instagram.
@@ -28,7 +28,7 @@ The goal is a reusable product that many businesses (tenants) can use with their
 | Approvals, PDFs, email/Telegram, orders | ⏳ Planned (M4-M7) |
 
 ## Tech stack
-Python 3.13, [uv](https://docs.astral.sh/uv/), FastAPI, SQLAlchemy 2, Alembic, PostgreSQL 17 (Docker Compose), pytest, Ruff, mypy (strict) and GitHub Actions. LangChain and LangGraph arrive with M3.
+Python 3.13, [uv](https://docs.astral.sh/uv/), FastAPI, SQLAlchemy 2, Alembic, PostgreSQL 17 (Docker Compose), pytest, Ruff, mypy (strict) and GitHub Actions. LangChain and LangGraph power requirement extraction (M3).
 
 ## Quick start
 **Prerequisites:** Python 3.13, uv 0.13+, Git, and Docker Desktop with Linux containers running. On Windows, Docker needs the WSL / Virtual Machine Platform features enabled.

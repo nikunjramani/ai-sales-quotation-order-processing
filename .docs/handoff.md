@@ -2,8 +2,8 @@
 Updated: 2026-10-22.
 
 ## Current state
-- **M0, M1 and M2 are COMPLETE** (local and CI). M1 is commit 5d1ae69 ([CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222)); M2 is commit d7707eb ([CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875)). Both are on origin/main.
-- **Current milestone: M3 (AI and graph)** is implemented and verified locally, but not yet committed. M3 is marked complete once CI passes on the pushed commit.
+- **M0, M1, M2 and M3 are COMPLETE** (local and CI). M1 is commit 5d1ae69 ([CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222)); M2 is commit d7707eb ([CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875)). M3 is commit 52cccd7 ([CI run 39747434193](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39747434193)). All are on origin/main.
+- **Next milestone: M4 (approval core and portal).** It needs the identity provider (OIDC) decision first.
 - **User decisions (2026-10-22):**
   - Use a free model now and keep switching to another provider easy. Implemented as option 1: provider-independent `EnquiryInterpreter`, with the free `rules` default and an optional free local `ollama` adapter.
   - No paid or live calls for now.
@@ -48,7 +48,6 @@ Updated: 2026-10-22.
   - API role denied the checkpoint tables.
 - **Not run:**
   - Live Ollama evaluation: the user tried to install Ollama on 2026-10-22 and could not (corporate VM, 16 GB RAM, no GPU). M3 ships with the free `rules` interpreter; the Ollama adapter is covered only by unit tests with a scripted fake model.
-  - GitHub Actions for M3 (needs push).
 - **Known CI warnings:** actions/checkout@v4 and setup-python@v5 target deprecated Node 20; ubuntu-latest is migrating to Ubuntu 26.
 
 ## Known gaps (tracked)
@@ -60,11 +59,10 @@ Updated: 2026-10-22.
 - **Still open from M2:** no malware scanner, no orphan-file cleanup, no dead-job view, and local storage only.
 
 ## Next task
-1. With user authorization, commit M3 and push. Confirm CI passes, then mark M3 complete in the roadmap, ADR 0012 and this handoff.
-2. Optional, if Ollama can be installed later (it could not be on 2026-10-22):
+1. Optional, if Ollama can be installed later (it could not be on 2026-10-22):
    - pull a small model;
    - run `scripts/evaluate_extraction.py --provider ollama --model <name>`;
    - record the results here and in testing.md.
-3. Then M4 (approval core and portal): shared approval service, identity/channel-binding contracts, review packets from ready enquiries (draft quotation via the M1 calculator, immutable versions), a mobile-friendly portal, simulated channel actions and LangGraph resume dispatch.
+2. M4 (approval core and portal): shared approval service, identity/channel-binding contracts, review packets from ready enquiries (draft quotation via the M1 calculator, immutable versions), a mobile-friendly portal, simulated channel actions and LangGraph resume dispatch.
    - **Needs first:** the identity provider decision (OIDC); see open decisions.
 - Update this handoff in every change; never mark milestones complete without evidence.
