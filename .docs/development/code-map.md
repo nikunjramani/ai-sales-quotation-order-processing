@@ -17,7 +17,7 @@ Status: only the M0 foundation below exists. The later module map remains a plan
 | [check_database.py](../../scripts/check_database.py) | Run local migration/schema/integration checks |
 | [test_config.py](../../tests/test_config.py) / [test_health.py](../../tests/test_health.py) | Offline configuration/API behaviour |
 | [test_database.py](../../tests/integration/test_database.py) | Opt-in PostgreSQL role, seed and RLS checks |
-| [ci.yml](../../.github/workflows/ci.yml) | Automated offline and live PostgreSQL checks; remote execution pending |
+| [ci.yml](../../.github/workflows/ci.yml) | Automated offline and live PostgreSQL checks; passing on main |
 
 ## Planned modules
 

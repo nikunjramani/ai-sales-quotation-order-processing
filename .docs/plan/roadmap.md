@@ -1,5 +1,5 @@
 # Delivery roadmap
-Status: M0 local exit checks pass (live migrations, downgrade/re-upgrade, seed, RLS integration tests and API smoke, 2026-10-22). M0 closes once the GitHub Actions workflow passes remotely. M1-M11 are not implemented.
+Status: M0 complete 2026-10-22 (live migrations, downgrade/re-upgrade, seed, RLS integration tests and API smoke passed locally; fresh-setup [CI run](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed). M1 is next. M1-M11 are not implemented.
 Complete each exit gate before claiming the milestone finished. Tests and documentation accompany every milestone.
 
 | Milestone | Deliverables | Dependencies and exit gate |

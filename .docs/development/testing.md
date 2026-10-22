@@ -3,7 +3,7 @@
 Run uv run ruff check ., uv run ruff format --check ., uv run mypy and uv run pytest from the root. Offline result: 6 passed; 3 PostgreSQL tests explicitly skipped.
 The live suite checks actual runtime readiness, rejection of owner-role readiness, idempotent synthetic seeding, tenant-filtered visibility, context clearing on pooled connection reuse and denied runtime writes.
 Run [check_database.py](../../scripts/check_database.py) only after local PostgreSQL starts. It applies/checks migrations and enables integration tests with explicit URLs. Missing test URLs fail when integration tests are enabled; default skipping is visible.
-CI also downgrades/re-upgrades its disposable schema and repeats tests. Local live result 2026-10-22: check_database.py 9 passed; downgrade base -> upgrade head -> 9 passed again. The remote GitHub Actions run has not happened yet (changes unpushed).
+CI also downgrades/re-upgrades its disposable schema and repeats tests. Local live result 2026-10-22: check_database.py 9 passed; downgrade base -> upgrade head -> 9 passed again. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the same sequence from a fresh environment.
 
 ## Planned business suites
 - Domain unit tests: Decimal totals, rounding, quantity/unit validation, expiry, pricing policies, missing values.

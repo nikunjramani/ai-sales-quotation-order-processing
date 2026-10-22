@@ -1,7 +1,7 @@
 # Sales Quotation & Order Processing
 A planned multi-business automation platform that turns customer enquiries into reviewed quotations and confirmed sales orders.
 
-**Status: M0 foundation implemented and verified against local PostgreSQL; remote CI run pending. Business workflows and integrations are not implemented yet.**
+**Status: M0 foundation complete (verified locally and in GitHub Actions); next milestone M1. Business workflows and integrations are not implemented yet.**
 
 Start development with the [setup walkthrough](.docs/development/setup.md). It explains the Python environment, health API, local PostgreSQL service, migrations and checks. Docker Desktop must be running before the database checks.
 

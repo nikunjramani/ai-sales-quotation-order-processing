@@ -1,5 +1,5 @@
 # Local setup and M0 walkthrough
-Status: foundation implemented. Live PostgreSQL verification passed locally on 2026-10-22; the remote GitHub Actions run is still pending.
+Status: foundation implemented. Live PostgreSQL verification passed locally and in GitHub Actions on 2026-10-22.
 
 ## Concepts
 Python runs the application. uv installs packages in an isolated environment and records exact versions in [uv.lock](../../uv.lock).
@@ -30,7 +30,7 @@ uv run alembic upgrade head --sql
 ```
 This was verified; generating SQL does not prove it executed on PostgreSQL.
 
-## Database prerequisite and pending checks
+## Database prerequisite and checks
 Verified workstation: Python 3.13.14, uv 0.13.1, Git, Docker Desktop 4.96.1 (engine 29.9.2, Linux containers) and Compose v5.6.0.
 Docker Desktop needs the Windows Virtual Machine Platform/WSL features (administrator access and a restart). If `docker compose` reports a missing dockerDesktopLinuxEngine pipe, the engine is not running: start Docker Desktop or run `docker desktop start`, then confirm `docker info` shows a Server section. OS setup can require administrator access and a restart; these changes were not attempted automatically.
 See [Docker Windows setup](https://docs.docker.com/desktop/setup/install/windows-install/).

@@ -1,5 +1,5 @@
 # Documentation index
-Status: M0 foundation code exists, 2026-10-22. Live PostgreSQL verification passed locally on 2026-10-22; the remote GitHub Actions run is still pending. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
+Status: M0 foundation code exists, 2026-10-22. M0 is complete: live PostgreSQL checks passed locally and in GitHub Actions on 2026-10-22. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)
