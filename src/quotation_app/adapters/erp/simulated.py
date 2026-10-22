@@ -4,6 +4,7 @@ Each tenant has its own catalogue. Tests can inject failures per operation to pr
 surface ERP errors instead of inventing values.
 """
 
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -34,6 +35,17 @@ class SimulatedCatalogue:
     # A SKU missing here has no stock record; a None value means "ERP cannot say".
     stock: dict[str, Decimal | None] = field(default_factory=dict)
     warehouse: str = "MAIN"
+
+
+def _search_words(text: str) -> set[str]:
+    """Lower-case words of 2+ characters, with a simple plural 's' removed (fans -> fan)."""
+    words = set()
+    for word in re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)*", text.casefold()):
+        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+            word = word[:-1]
+        if len(word) >= 2:
+            words.add(word)
+    return words
 
 
 def _utc_now() -> datetime:
@@ -68,13 +80,15 @@ class SimulatedErp:
         if not query.strip() or not 1 <= limit <= 50:
             raise ErpError(ErpErrorCode.INVALID_REQUEST, "Query and a limit of 1-50 required")
         catalogue = self._catalogue(context, "search_products")
-        needle = query.strip().casefold()
-        matches = [
-            product
-            for sku, product in sorted(catalogue.products.items())
-            if needle in sku.casefold() or needle in product.description.casefold()
-        ]
-        return matches[:limit]
+        wanted = _search_words(query)
+        scored = []
+        for sku, product in sorted(catalogue.products.items()):
+            words = _search_words(f"{sku} {sku.replace('-', ' ')} {product.description}")
+            score = len(wanted & words)
+            if score:
+                scored.append((-score, sku, product))
+        # Best word overlap first, like a typical ERP keyword search.
+        return [product for _, _, product in sorted(scored)][:limit]
 
     def get_products(self, context: TenantContext, skus: Sequence[str]) -> Mapping[str, Product]:
         catalogue = self._catalogue(context, "get_products")
@@ -156,6 +170,8 @@ def demo_catalogues(industrial_tenant: UUID, office_tenant: UUID) -> dict[UUID, 
                 "IND-CABLE-2C", "2-core power cable", "metre", Decimal(1), Decimal("0.5")
             ),
             "IND-PUMP-2HP": each("IND-PUMP-2HP", "2 HP centrifugal pump"),
+            # A second fan size makes "exhaust fans" genuinely ambiguous in demos and tests.
+            "IND-FAN-600": each("IND-FAN-600", "Industrial exhaust fan 600 mm"),
         },
         prices={
             "IND-FAN-450": (
@@ -168,6 +184,9 @@ def demo_catalogues(industrial_tenant: UUID, office_tenant: UUID) -> dict[UUID, 
                     _PRICES_FROM,
                 ),
                 SimulatedPrice(Decimal("4250.00"), "INR", "STD-2026", "1", _PRICES_FROM),
+            ),
+            "IND-FAN-600": (
+                SimulatedPrice(Decimal("6890.00"), "INR", "STD-2026", "1", _PRICES_FROM),
             ),
             "IND-BOLT-M8": (
                 SimulatedPrice(Decimal("2.375"), "INR", "STD-2026", "1", _PRICES_FROM),
@@ -182,6 +201,7 @@ def demo_catalogues(industrial_tenant: UUID, office_tenant: UUID) -> dict[UUID, 
             "IND-BOLT-M8": Decimal(5000),
             "IND-CABLE-2C": None,
             "IND-PUMP-2HP": Decimal(4),
+            "IND-FAN-600": Decimal(15),
         },
     )
     office = SimulatedCatalogue(

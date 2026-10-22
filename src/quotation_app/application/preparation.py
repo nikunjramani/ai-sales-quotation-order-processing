@@ -42,7 +42,7 @@ class EnquiryPreparationHandler:
                 )
             all_clean = all_clean and status is AttachmentStatus.CLEAN
         final = EnquiryStatus.READY_FOR_EXTRACTION if all_clean else EnquiryStatus.NEEDS_REVIEW
-        self._store.set_enquiry_status(job.tenant_id, enquiry_id, final)
+        self._store.finish_preparation(job.tenant_id, enquiry_id, final, job.correlation_id)
 
     def _inspect(
         self, tenant_id: UUID, attachment_id: UUID, declared_content_type: str

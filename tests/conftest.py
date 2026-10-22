@@ -254,3 +254,33 @@ def intake_store() -> FakeIntakeStore:
 @pytest.fixture
 def api_key_reader() -> FakeApiKeys:
     return FakeApiKeys()
+
+
+def build_text_pdf(lines: list[str]) -> bytes:
+    """Minimal one-page PDF with a real text layer (Helvetica), built by hand for tests."""
+    escaped = [line.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)") for line in lines]
+    stream = "BT /F1 12 Tf 50 750 Td 16 TL " + " ".join(f"({line}) Tj T*" for line in escaped)
+    stream += " ET"
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        "/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    output = "%PDF-1.4\n"
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(output.encode("latin-1")))
+        output += f"{number} 0 obj\n{body}\nendobj\n"
+    xref = len(output.encode("latin-1"))
+    output += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n"
+    output += "".join(f"{offset:010d} 00000 n \n" for offset in offsets)
+    output += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    return output.encode("latin-1")
+
+
+@pytest.fixture
+def make_pdf() -> Callable[[list[str]], bytes]:
+    return build_text_pdf

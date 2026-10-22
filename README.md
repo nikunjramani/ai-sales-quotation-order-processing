@@ -4,7 +4,7 @@ A multi-business platform, still being built, that turns customer enquiries into
 
 The goal is a reusable product that many businesses (tenants) can use with their own email or messaging channels and their existing ERP or inventory system. It is also a learning project for LangChain, LangGraph and reliable workflow engineering, so every part is documented in plain language.
 
-> **Status (2026-10-22):** M0 (foundation), M1 (tenancy, deterministic pricing) and M2 (durable enquiry intake API, background job worker, attachment quarantine) are complete and verified locally and in CI. AI extraction, approvals, PDFs, email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
+> **Status (2026-10-22):** M0-M2 are complete (local and CI). M3 (requirement extraction with LangGraph, provider-independent models, free by default) is implemented and verified locally. Approvals, PDFs, email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
 
 ## What it will do
 1. Receive an enquiry from email, Telegram, an API and later WhatsApp or Instagram.
@@ -24,7 +24,8 @@ The goal is a reusable product that many businesses (tenants) can use with their
 | ERP contract plus a simulated ERP with two fictional businesses | ✅ M1 |
 | Enquiry intake API with API keys, replay-safe idempotency keys and durable receipt | ✅ M2 |
 | Background worker with leased, retried, crash-safe jobs; attachment quarantine and inspection | ✅ M2 |
-| AI extraction, LangGraph workflow, approvals, PDFs, email/Telegram, orders | ⏳ Planned (M3-M7) |
+| Requirement extraction (LangGraph, checkpoints): free rules interpreter or local Ollama model, swappable; verbatim checks, ERP matching, clarification questions | ✅ M3 |
+| Approvals, PDFs, email/Telegram, orders | ⏳ Planned (M4-M7) |
 
 ## Tech stack
 Python 3.13, [uv](https://docs.astral.sh/uv/), FastAPI, SQLAlchemy 2, Alembic, PostgreSQL 17 (Docker Compose), pytest, Ruff, mypy (strict) and GitHub Actions. LangChain and LangGraph arrive with M3.
@@ -54,6 +55,9 @@ uv run python scripts/demo_quotation.py
 # 7. Create an API key for intake (token printed once) and run the background worker
 uv run python scripts/create_api_key.py --tenant 11111111-1111-4111-8111-111111111111 --role intake_service --name "local test"
 uv run python -m quotation_app.worker
+
+# 8. Score the enquiry interpreter on the synthetic dataset (free rules interpreter by default)
+uv run python scripts/evaluate_extraction.py
 ```
 Submitting an enquiry with the key is shown in the [setup guide](.docs/development/setup.md#enquiry-intake-m2). An existing M0/M1 database needs a one-time [upgrade step](.docs/development/setup.md#upgrading-an-existing-local-database-m0m1-to-m2).
 
@@ -83,12 +87,14 @@ src/quotation_app/
   domain/        Pure business rules: money, tenancy, catalogue facts, pricing
   ports/         Contracts (interfaces) that adapters implement, e.g. ErpReader
   application/   Use cases: tenant context, pricing, enquiry intake, job running
-  adapters/      Implementations of ports: simulated ERP, local file storage
-  persistence/   Database models, tenant-scoped repositories, job queue, demo seed
+  adapters/      Implementations of ports: simulated ERP, file storage, PDF reading, interpreters
+  workflows/     LangGraph workflows (enquiry extraction)
+  persistence/   Database models, tenant-scoped repositories, job queue, checkpoints, demo seed
   api/           FastAPI app: health and /api/v1/enquiries
   worker.py      Background job worker process
   config.py      Validated settings from environment / .env
 migrations/      Alembic schema migrations
+evals/           Synthetic evaluation dataset for enquiry interpreters
 scripts/         Local helpers: credentials, database checks, pricing demo, API keys
 tests/
   conftest.py    Shared fixtures (tenants, contexts, policies, simulated ERP)
@@ -111,7 +117,7 @@ Domain code imports no framework, database or provider code; [a test](tests/unit
 - [Documentation index](.docs/README.md): start here.
 - [Roadmap](.docs/plan/roadmap.md) and [current handoff](.docs/handoff.md): what is done and what is next.
 - [System architecture](.docs/architecture/system.md) and [execution flow](.docs/architecture/execution-flow.md).
-- [Quotation pricing (M1)](.docs/features/quotation-pricing.md), [enquiry intake (M2)](.docs/features/enquiry-intake.md) and [code map](.docs/development/code-map.md).
+- [Quotation pricing (M1)](.docs/features/quotation-pricing.md), [enquiry intake (M2)](.docs/features/enquiry-intake.md), [enquiry extraction (M3)](.docs/features/enquiry-extraction.md) and [code map](.docs/development/code-map.md).
 - [Architecture decisions (ADRs)](.docs/adr/README.md) and the [learning guide](.docs/learning/guide.md).
 
 ## Contributing

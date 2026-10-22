@@ -4,11 +4,12 @@
 tests/
   conftest.py          Shared options, fixtures and in-memory fakes for every test
   unit/                Offline; folders mirror src/quotation_app
-    domain/  application/  ports/  adapters/erp/  adapters/storage/  api/  persistence/
-    test_config.py  test_architecture.py
+    domain/  application/  ports/  workflows/  api/  persistence/
+    adapters/erp/  adapters/storage/  adapters/documents/  adapters/interpreters/
+    test_config.py  test_architecture.py  test_evaluation.py
   integration/         Real PostgreSQL (quotation_test only); auto-marked `integration`
     conftest.py        Database settings, engines, cleanup, API-key and storage fixtures
-    api/  persistence/
+    api/  persistence/  workflows/
 ```
 Rules:
 - A unit test for `src/quotation_app/<path>/<module>.py` lives in `tests/unit/<path>/test_<module>.py`. Integration tests follow the same mirroring under `tests/integration/`.
@@ -30,6 +31,7 @@ Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
 | `memory_storage` | In-memory ObjectStorage; `.objects` to inspect, `.fail_puts` to simulate disk errors |
 | `intake_store` | In-memory IntakeStore; `.fail_record` and `.concurrent_winner` simulate failures and lost races |
 | `api_key_reader` | In-memory ApiKeyReader; tests add records to `.records` |
+| `make_pdf(lines)` | Builds a small synthetic PDF with a real text layer |
 
 [tests/integration/conftest.py](../../tests/integration/conftest.py) adds:
 
@@ -41,10 +43,10 @@ Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
 | `make_api_key(tenant_id, role)` | Creates a key with owner credentials and returns its token |
 | `storage` | LocalObjectStorage under the temporary storage folder |
 
-## Current checks (M0-M2)
+## Current checks (M0-M3)
 Run uv run ruff check ., uv run ruff format --check ., uv run mypy and uv run pytest from the root; `uv run pytest tests/unit` runs only the unit tests.
 
-Result on 2026-10-22: 153 unit tests passed and 23 integration tests were skipped. With PostgreSQL via `check_database.py --cycle`, all 176 passed, then passed again after a downgrade to empty and re-upgrade.
+Result on 2026-10-22 (M3): 206 unit tests passed and 27 integration tests were skipped. With PostgreSQL via `check_database.py --cycle`, all 233 passed, then passed again after a downgrade to empty and re-upgrade. Run `uv sync --locked --all-extras` first so the optional Ollama adapter is installed.
 
 | Suite | Checks |
 |---|---|
@@ -62,16 +64,23 @@ Result on 2026-10-22: 153 unit tests passed and 23 integration tests were skippe
 | [unit/adapters/storage/test_local.py](../../tests/unit/adapters/storage/test_local.py) | Put/get/move/delete, no leftover temp files, path traversal and non-generated keys rejected |
 | [unit/api/test_enquiries.py](../../tests/unit/api/test_enquiries.py) | 202/200/409 replay contract, tenant-scoped 404, 401 variants, `tenant_id` in body rejected, 422/403, missing key, 413, 503 stores nothing |
 | [unit/api/test_app.py](../../tests/unit/api/test_app.py), [unit/test_config.py](../../tests/unit/test_config.py), [unit/persistence/test_seed.py](../../tests/unit/persistence/test_seed.py) | Health endpoints, settings validation, production seed refusal |
-| [unit/test_architecture.py](../../tests/unit/test_architecture.py) | Domain/ports/application/adapters import boundaries |
+| [unit/test_architecture.py](../../tests/unit/test_architecture.py) | Domain/ports/application stay stdlib-only; providers only in adapters; LangGraph only in workflows |
+| [unit/domain/test_requirements.py](../../tests/unit/domain/test_requirements.py) | Unit aliases, invented quotes/products/numbers flagged, ERP-only matching, ready/clarify/review rules and template questions |
+| [unit/adapters/interpreters/](../../tests/unit/adapters/interpreters/test_rules.py) | Rules phrasing and verbatim quotes; LangChain adapter with a scripted fake model (valid JSON, price/discount fields rejected, tag break-out neutralised); provider factory |
+| [unit/adapters/documents/test_text.py](../../tests/unit/adapters/documents/test_text.py) | PDF text read; scanned, encrypted, broken PDFs, images and oversized text reported, never emptied |
+| [unit/workflows/test_enquiry.py](../../tests/unit/workflows/test_enquiry.py) | Graph branches, PDF attachment reading, invented item and invalid answer go to review, crash resumes without a second model call, finished runs not repeated, other tenant's products and enquiries invisible |
+| [unit/test_evaluation.py](../../tests/unit/test_evaluation.py) | Synthetic dataset passes 12/12 with the rules interpreter and 0 invented facts; evaluation detects failures |
+| [unit/persistence/test_checkpoint_schema.py](../../tests/unit/persistence/test_checkpoint_schema.py) | Frozen LangGraph checkpoint schema equals the installed library's |
 | [integration/persistence/test_tenancy.py](../../tests/integration/persistence/test_tenancy.py) | Runtime role: cross-tenant membership denied, rows invisible without/across context, cannot add memberships or change policies, per-tenant policies, end-to-end pricing |
 | [integration/api/test_enquiries.py](../../tests/integration/api/test_enquiries.py) | API to worker to status end to end; replay/conflict store one row; 8 concurrent duplicates create exactly one enquiry and one file; failed transaction leaves no rows or files; cross-tenant 404, revoked key 401; API role cannot read jobs |
 | [integration/persistence/test_jobs.py](../../tests/integration/persistence/test_jobs.py) | Cross-tenant claims with SKIP LOCKED, crashed worker reclaimed and stale completion rejected, backoff delays claims, expired final attempt becomes dead, worker role sees only the queue |
 | [integration/persistence/test_api_keys.py](../../tests/integration/persistence/test_api_keys.py) | API role sees no keys, or only the presented one |
+| [integration/workflows/test_enquiry.py](../../tests/integration/workflows/test_enquiry.py) | API to worker to LangGraph (PostgreSQL checkpoints) to extracted lines (incl. a PDF attachment) priced by the M1 calculator; clarification path; resume after a simulated worker restart without a second model call; API role cannot read checkpoints; runs isolated per tenant |
 | [integration/persistence/test_database.py](../../tests/integration/persistence/test_database.py), [test_seed.py](../../tests/integration/persistence/test_seed.py), [integration/api/test_app.py](../../tests/integration/api/test_app.py) | Readiness and owner-role rejection, idempotent seed, tenant visibility, context cleared on pooled connections, denied runtime writes |
 
 Run [check_database.py](../../scripts/check_database.py) only after local PostgreSQL starts. It migrates and checks `quotation_dev` and `quotation_test`, then runs every test against `quotation_test`. With integration tests enabled, missing or non-`_test` URLs make the run fail; by default they are skipped visibly.
 
-CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the M0 sequence; [CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222) and [CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875) passed for M1 and M2.
+CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the M0 sequence; CI for M3 runs after push; [CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222) and [CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875) passed for M1 and M2.
 
 ## Planned business suites
 - Domain unit tests: Decimal totals, rounding, quantity/unit validation, expiry, pricing policies, missing values.
@@ -100,6 +109,9 @@ CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Action
 - Order confirmation requires confirmed ERP success; failed confirmation retries must never create another order.
 
 ## AI evaluation dataset
+Implemented in M3: [evals/enquiry_extraction.jsonl](../../evals/enquiry_extraction.jsonl) (12 synthetic cases: single and multiple items, units, ambiguous and unknown products, missing quantity, fractional counts, prompt injection, no items, cross-tenant product, measurements that are not quantities). `uv run python scripts/evaluate_extraction.py [--provider ollama --model <name>]` runs them through the real graph and reports pass/fail, invented facts, errors and latency. Rules interpreter 2026-10-22: 12/12, 0 invented facts, about 0.01 s per case. Ollama: not yet run (could not be installed on this corporate VM, 2026-10-22).
+Planned extensions follow below.
+
 Synthetic cases include aliases, misspellings, ambiguous SKUs, multiple items, missing quantities, conflicting dates, units, currencies, malicious instructions and unsupported attachment formats.
 Track field extraction correctness, SKU match correctness, appropriate clarification, invented factual values, latency and cost.
 Release blocking invariants: no model-origin price/stock accepted as authoritative; no tool authorization from model text; no bypass of approval/tenant checks.

@@ -24,6 +24,14 @@ All three use forced RLS on `app.tenant_id`. The runtime role has SELECT only; t
 
 All use forced tenant RLS. The worker role additionally sees all `jobs` rows (`worker_queue` policy) to claim work. Composite `(tenant_id, id)` foreign keys stop a child row pointing at another tenant's parent.
 
+### Added in M3
+| Table | Contents and rules |
+|---|---|
+| workflow_runs | Tenant, enquiry (composite tenant FK), graph version (unique per enquiry), status, outcome JSON (items, matches, lines, questions, review reasons). The run ID is the LangGraph thread ID. API can read; worker writes |
+| checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations | LangGraph's own schema (frozen copy). No tenant column, so no RLS: only the worker role has access, and only through a workflow_runs row. API and public access revoked |
+
+Enquiry statuses now also include `ready_for_quotation` and `needs_clarification`.
+
 ## Planned entities
 | Entity | Important contents |
 |---|---|

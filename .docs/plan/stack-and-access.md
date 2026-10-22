@@ -1,6 +1,6 @@
 # Stack and access
 ## Planned stack
-M0 targets Python 3.13 and has a reproducible [uv lockfile](../../uv.lock). Runtime packages include FastAPI 0.159.1, SQLAlchemy 2.0.55, Alembic 1.20.1 and psycopg 3.3.6. Offline and live local PostgreSQL 17.11 checks pass. Future AI/provider libraries are not installed yet.
+M0 targets Python 3.13 and has a reproducible [uv lockfile](../../uv.lock). Runtime packages include FastAPI 0.159.1, SQLAlchemy 2.0.55, Alembic 1.20.1 and psycopg 3.3.6. Offline and live local PostgreSQL 17.11 checks pass. M3 adds LangGraph 1.2.16, langgraph-checkpoint-postgres 3.2.0, langchain-core 1.6.13 and pypdf 6.21.2; langchain-ollama 1.1.0 is an optional extra (`ollama`). No paid AI provider is installed or required.
 
 | Component | Choice | Purpose |
 |---|---|---|

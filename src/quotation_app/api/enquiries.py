@@ -69,6 +69,19 @@ class AttachmentOut(BaseModel):
     rejection_reason: str | None
 
 
+class LineOut(BaseModel):
+    sku: str
+    quantity: str
+    unit: str
+
+
+class ExtractionOut(BaseModel):
+    outcome: str
+    lines: list[LineOut]
+    questions: list[str]
+    review_reasons: list[str]
+
+
 class EnquiryOut(BaseModel):
     enquiry_id: UUID
     channel: str
@@ -77,6 +90,7 @@ class EnquiryOut(BaseModel):
     received_at: datetime
     correlation_id: UUID
     attachments: list[AttachmentOut]
+    extraction: ExtractionOut | None = None
 
 
 def _to_submission(body: EnquiryIn) -> EnquirySubmission:
@@ -109,6 +123,17 @@ def _view(enquiry: EnquiryView) -> EnquiryOut:
             )
             for item in enquiry.attachments
         ],
+        extraction=None
+        if enquiry.extraction is None
+        else ExtractionOut(
+            outcome=enquiry.extraction.outcome,
+            lines=[
+                LineOut(sku=line.sku, quantity=line.quantity, unit=line.unit)
+                for line in enquiry.extraction.lines
+            ],
+            questions=list(enquiry.extraction.questions),
+            review_reasons=list(enquiry.extraction.review_reasons),
+        ),
     )
 
 

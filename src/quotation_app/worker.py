@@ -9,6 +9,9 @@ import argparse
 import logging
 import time
 
+from quotation_app.adapters.documents.text import PdfAndTextReader
+from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
+from quotation_app.adapters.interpreters.factory import build_interpreter
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.application.jobs import JobRunner
 from quotation_app.application.preparation import EnquiryPreparationHandler
@@ -17,6 +20,13 @@ from quotation_app.domain.jobs import JobKind
 from quotation_app.persistence.database import build_engine
 from quotation_app.persistence.intake import SqlPreparationStore
 from quotation_app.persistence.jobs import SqlJobQueue
+from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
+from quotation_app.persistence.workflow import SqlWorkflowStore, open_checkpointer
+from quotation_app.workflows.enquiry import (
+    EnquiryWorkflowDeps,
+    ExtractionJobHandler,
+    build_enquiry_graph,
+)
 
 
 def main() -> None:
@@ -29,17 +39,37 @@ def main() -> None:
     settings = Settings()
     engine = build_engine(settings.worker_url())
     storage = LocalObjectStorage(settings.storage_dir)
-    runner = JobRunner(
-        SqlJobQueue(engine),
-        {JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(SqlPreparationStore(engine), storage)},
+    interpreter = build_interpreter(
+        settings.model_provider,
+        settings.model_name,
+        settings.ollama_base_url,
+        settings.model_timeout_seconds,
     )
+    # Only the simulated ERP exists until a pilot ERP is connected (M7).
+    erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
+    workflow_store = SqlWorkflowStore(engine)
+    logging.info("Enquiry interpreter: %s", settings.model_provider)
     try:
-        while True:
-            while runner.run_once():
-                pass
-            if arguments.once:
-                return
-            time.sleep(arguments.poll_seconds)
+        with open_checkpointer(settings.worker_url()) as checkpointer:
+            graph = build_enquiry_graph(
+                EnquiryWorkflowDeps(workflow_store, storage, PdfAndTextReader(), interpreter, erp),
+                checkpointer,
+            )
+            runner = JobRunner(
+                SqlJobQueue(engine),
+                {
+                    JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(
+                        SqlPreparationStore(engine), storage
+                    ),
+                    JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(graph, workflow_store),
+                },
+            )
+            while True:
+                while runner.run_once():
+                    pass
+                if arguments.once:
+                    return
+                time.sleep(arguments.poll_seconds)
     except KeyboardInterrupt:
         logging.info("Worker stopped")
     finally:

@@ -1,5 +1,5 @@
 # Code map
-Status: the M0 foundation, M1 domain/tenancy and M2 intake/jobs modules below exist. The remaining module map is a plan.
+Status: the M0 foundation, M1 domain/tenancy, M2 intake/jobs and M3 extraction modules below exist. The remaining module map is a plan.
 
 ## Implemented foundation
 | Actual file | Responsibility |
@@ -62,6 +62,24 @@ Entry points: the HTTP API ([api/app.py](../../src/quotation_app/api/app.py)) an
 | [create_api_key.py](../../scripts/create_api_key.py) | Create (token shown once) or revoke API keys |
 | [tests/unit/application/](../../tests/unit/application/test_intake.py), [tests/unit/api/test_enquiries.py](../../tests/unit/api/test_enquiries.py) | Use-case and HTTP contract tests over in-memory fakes |
 | [tests/integration/api/test_enquiries.py](../../tests/integration/api/test_enquiries.py), [test_jobs.py](../../tests/integration/persistence/test_jobs.py) | End-to-end intake, races, durability, crash recovery and role isolation on PostgreSQL |
+
+## Implemented M3 extraction workflow
+Entry point: `extract_requirements` jobs in the worker ([worker.py](../../src/quotation_app/worker.py)). See [enquiry extraction](../features/enquiry-extraction.md). Import rules: `workflows` may use domain, ports, application, `langgraph` and `langchain_core`; provider SDKs stay in `adapters`.
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/requirements.py](../../src/quotation_app/domain/requirements.py) | RequestedItem, verbatim checks, unit aliases, decide_match, assess and template questions |
+| [ports/interpretation.py](../../src/quotation_app/ports/interpretation.py) | EnquiryInterpreter (the swap point for models), DocumentReader, DocumentText |
+| [ports/workflow.py](../../src/quotation_app/ports/workflow.py) | WorkflowStore: enquiry content, run/thread mapping, outcome recording |
+| [workflows/enquiry.py](../../src/quotation_app/workflows/enquiry.py) | LangGraph graph (extract -> match -> assess -> ready/clarify/review) and ExtractionJobHandler |
+| [adapters/interpreters/rules.py](../../src/quotation_app/adapters/interpreters/rules.py) | Free offline rules interpreter (default) |
+| [adapters/interpreters/langchain.py](../../src/quotation_app/adapters/interpreters/langchain.py) | Any LangChain chat model: JSON + strict Pydantic, data-tagged prompts |
+| [adapters/interpreters/factory.py](../../src/quotation_app/adapters/interpreters/factory.py) | Provider selection (`rules`, `ollama`); where new providers are added |
+| [adapters/documents/text.py](../../src/quotation_app/adapters/documents/text.py) | Bounded PDF/text reading; unsupported reasons instead of empty text |
+| [persistence/workflow.py](../../src/quotation_app/persistence/workflow.py) | SqlWorkflowStore and the worker-role PostgreSQL checkpointer |
+| [0004_workflow.py](../../migrations/versions/0004_workflow.py) | workflow_runs, frozen LangGraph checkpoint tables, M3 enquiry statuses, worker grants |
+| [evaluation.py](../../src/quotation_app/evaluation.py) / [evaluate_extraction.py](../../scripts/evaluate_extraction.py) / [dataset](../../evals/enquiry_extraction.jsonl) | Provider evaluation through the real graph |
+| [tests/unit/workflows/test_enquiry.py](../../tests/unit/workflows/test_enquiry.py), [tests/integration/workflows/test_enquiry.py](../../tests/integration/workflows/test_enquiry.py) | Branches, invented facts, crash/resume, isolation; Postgres end to end including M1 pricing |
 
 ## Planned modules
 

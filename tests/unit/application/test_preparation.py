@@ -42,7 +42,9 @@ class FakePreparationStore:
         )
         self.reasons[attachment_id] = reason
 
-    def set_enquiry_status(self, tenant_id: UUID, enquiry_id: UUID, status: EnquiryStatus) -> None:
+    def finish_preparation(
+        self, tenant_id: UUID, enquiry_id: UUID, status: EnquiryStatus, correlation_id: UUID
+    ) -> None:
         self.enquiry_status = status
 
 

@@ -1,5 +1,5 @@
 # Module boundaries and extension rules
-Status: M1-M2 implement domain, ports, application (tenancy, pricing, intake, preparation, job running), the simulated ERP and local storage adapters, with import rules enforced by [test_architecture.py](../../tests/unit/test_architecture.py). The API and worker are composition roots. Other modules are planned.
+Status: M1-M3 implement domain, ports, application (tenancy, pricing, intake, preparation, job running), workflows (LangGraph enquiry extraction), the simulated ERP, local storage, document and interpreter adapters, with import rules enforced by [test_architecture.py](../../tests/unit/test_architecture.py). The API and worker are composition roots. Other modules are planned.
 
 ## What independent means
 Modules have explicit inputs, outputs and responsibilities, and can be tested with fake dependencies. They remain in one application initially. Independence does not mean every module needs its own server, database or AI agent.

@@ -24,7 +24,10 @@ from quotation_app.persistence.seed import seed_demo_tenants
 
 type ApiKeyFactory = Callable[[UUID, Role], str]
 
-_INTAKE_TABLES = "jobs, attachments, enquiries, inbox_events, api_keys"
+_INTAKE_TABLES = (
+    "checkpoint_writes, checkpoint_blobs, checkpoints, workflow_runs, "
+    "jobs, attachments, enquiries, inbox_events, api_keys"
+)
 
 
 def _required_test_url(name: str) -> str:

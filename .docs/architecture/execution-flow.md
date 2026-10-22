@@ -1,5 +1,5 @@
 # Planned execution flow
-The sales workflow table below remains a target. M0-M2 implement only the traces described here.
+The sales workflow table below remains a target. M0-M3 implement only the traces described here.
 
 ## Implemented M0 trace
 1. Uvicorn calls [create_app](../../src/quotation_app/api/app.py); [Settings](../../src/quotation_app/config.py) validates configuration and hides secrets.
@@ -29,6 +29,15 @@ Entry point: `POST /api/v1/enquiries`. See [enquiry intake](../features/enquiry-
 6. The worker claims the job with a lease (`FOR UPDATE SKIP LOCKED`) and sets the job's tenant context. It inspects each file: clean ones move to `clean/`, rejected ones stay quarantined. The enquiry becomes `ready_for_extraction` or `needs_review`, and the job completes, fenced by its lease token.
 7. Failures retry with backoff, up to 5 attempts, then `dead`. A crashed worker's job is reclaimed when its lease expires.
 Implemented reliability: durable receipt before acknowledgement, inbox dedupe, an atomic business change plus job intent, leased and fenced jobs, and idempotent handlers. Not yet implemented: the outbox for external sends (M5) and graph resume jobs (M3/M4).
+
+## Implemented M3 trace (requirement extraction)
+Entry point: the `extract_requirements` job, queued atomically by preparation when all attachments are clean. See [enquiry extraction](../features/enquiry-extraction.md).
+1. ExtractionJobHandler gets or creates the tenant's `workflow_runs` row (thread ID), then starts the graph, or resumes it if a checkpoint shows unfinished steps.
+2. **extract:** read the enquiry text and clean attachments, then call the interpreter. A verbatim quote check flags invented items; invalid output skips to review.
+3. **match:** an ERP search per verified item. The interpreter may choose only among ERP candidates.
+4. **assess:** deterministic outcome with template questions or review reasons.
+5. **ready / clarify / review:** store the outcome in `workflow_runs` and update the enquiry status. Each step is checkpointed in PostgreSQL.
+Not yet implemented: human interrupts and approval resume (M4), automatic drafting/pricing of ready enquiries (M4), and sending clarification questions (M5/M7).
 
 ## Planned sales workflow
 

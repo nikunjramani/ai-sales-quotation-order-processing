@@ -28,6 +28,9 @@ class EnquiryStatus(StrEnum):
     RECEIVED = "received"
     READY_FOR_EXTRACTION = "ready_for_extraction"
     NEEDS_REVIEW = "needs_review"
+    # Set by the extraction workflow (M3):
+    READY_FOR_QUOTATION = "ready_for_quotation"
+    NEEDS_CLARIFICATION = "needs_clarification"
 
 
 @dataclass(frozen=True)

@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     worker_database_url: SecretStr | None = None
     # Private attachment storage root; tenant folders and quarantine live underneath it.
     storage_dir: Path = Path("var/storage")
+    # Enquiry interpretation. "rules" is free and offline (no AI); "ollama" uses a free local
+    # model. Adding a provider: see adapters/interpreters/factory.py.
+    model_provider: Literal["rules", "ollama"] = "rules"
+    model_name: str | None = None
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    model_timeout_seconds: float = 120.0
 
     @field_validator("database_url", "migration_database_url", "worker_database_url")
     @classmethod

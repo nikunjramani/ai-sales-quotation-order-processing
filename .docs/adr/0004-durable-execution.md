@@ -1,6 +1,6 @@
 # 0004: Persisted graph with durable jobs and outbox
 Date: 2026-10-22
-Status: accepted; partially implemented (M2: inbox dedupe, atomic receipt plus job, leased/fenced PostgreSQL job queue with backoff - see ADR 0011). Outbox, scheduler and LangGraph checkpoints pending.
+Status: accepted; partially implemented (M2: inbox dedupe, atomic receipt plus job, leased/fenced PostgreSQL job queue with backoff - see ADR 0011). M3: LangGraph with PostgreSQL checkpoints and resume-after-crash (ADR 0012). Outbox, scheduler and human-interrupt resume pending.
 
 ## Context
 Workflows wait days, workers crash and remote calls have uncertain outcomes.

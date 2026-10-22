@@ -1,5 +1,6 @@
 """Durable intake records (API runtime role) and preparation updates (worker role)."""
 
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, Engine, func, select, update
@@ -8,9 +9,16 @@ from sqlalchemy.dialects.postgresql import insert
 from quotation_app.domain.attachments import AttachmentStatus
 from quotation_app.domain.intake import Channel, EnquiryStatus, InboundEnvelope
 from quotation_app.domain.jobs import JobKind, JobStatus
-from quotation_app.persistence.models import Attachment, Enquiry, InboxEvent, Job
+from quotation_app.persistence.models import Attachment, Enquiry, InboxEvent, Job, WorkflowRun
 from quotation_app.persistence.tenancy import tenant_transaction
-from quotation_app.ports.intake import AttachmentView, EnquiryView, Receipt, StoredAttachment
+from quotation_app.ports.intake import (
+    AttachmentView,
+    EnquiryView,
+    ExtractedLineView,
+    ExtractionView,
+    Receipt,
+    StoredAttachment,
+)
 
 MAX_JOB_ATTEMPTS = 5
 
@@ -170,6 +178,16 @@ class SqlIntakeStore:
                 .where(Attachment.tenant_id == tenant_id, Attachment.enquiry_id == enquiry_id)
                 .order_by(Attachment.created_at, Attachment.id)
             ).all()
+            run = connection.execute(
+                select(WorkflowRun.status, WorkflowRun.outcome)
+                .where(
+                    WorkflowRun.tenant_id == tenant_id,
+                    WorkflowRun.enquiry_id == enquiry_id,
+                    WorkflowRun.outcome.is_not(None),
+                )
+                .order_by(WorkflowRun.updated_at.desc())
+                .limit(1)
+            ).one_or_none()
         return EnquiryView(
             enquiry_id=enquiry.id,
             channel=Channel(enquiry.channel),
@@ -188,7 +206,20 @@ class SqlIntakeStore:
                 )
                 for row in attachments
             ),
+            extraction=None if run is None else _extraction_view(run.status, run.outcome),
         )
+
+
+def _extraction_view(status: str, outcome: dict[str, Any]) -> ExtractionView:
+    return ExtractionView(
+        outcome=status,
+        lines=tuple(
+            ExtractedLineView(str(line["sku"]), str(line["quantity"]), str(line["unit"]))
+            for line in outcome.get("lines", [])
+        ),
+        questions=tuple(str(question) for question in outcome.get("questions", [])),
+        review_reasons=tuple(str(reason) for reason in outcome.get("review_reasons", [])),
+    )
 
 
 class SqlPreparationStore:
@@ -236,10 +267,30 @@ class SqlPreparationStore:
                 )
             )
 
-    def set_enquiry_status(self, tenant_id: UUID, enquiry_id: UUID, status: EnquiryStatus) -> None:
+    def finish_preparation(
+        self, tenant_id: UUID, enquiry_id: UUID, status: EnquiryStatus, correlation_id: UUID
+    ) -> None:
         with tenant_transaction(self._engine, tenant_id) as connection:
-            connection.execute(
+            # Only the first completion moves the enquiry on, so a re-run cannot queue twice.
+            changed = connection.execute(
                 update(Enquiry)
-                .where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
+                .where(
+                    Enquiry.tenant_id == tenant_id,
+                    Enquiry.id == enquiry_id,
+                    Enquiry.status == EnquiryStatus.RECEIVED.value,
+                )
                 .values(status=status.value, updated_at=func.now())
-            )
+            ).rowcount
+            if changed and status is EnquiryStatus.READY_FOR_EXTRACTION:
+                connection.execute(
+                    insert(Job).values(
+                        id=uuid4(),
+                        tenant_id=tenant_id,
+                        kind=JobKind.EXTRACT_REQUIREMENTS.value,
+                        payload={"enquiry_id": str(enquiry_id)},
+                        status=JobStatus.PENDING.value,
+                        max_attempts=MAX_JOB_ATTEMPTS,
+                        run_at=func.now(),
+                        correlation_id=correlation_id,
+                    )
+                )

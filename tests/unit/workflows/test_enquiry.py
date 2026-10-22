@@ -1,0 +1,199 @@
+"""The LangGraph extraction workflow: branches, invented facts, crash/resume and isolation."""
+
+from collections.abc import Callable, Sequence
+from decimal import Decimal
+from typing import Any
+from uuid import UUID, uuid4
+
+import pytest
+from langgraph.checkpoint.memory import InMemorySaver
+
+from quotation_app.adapters.documents.text import PdfAndTextReader
+from quotation_app.adapters.erp.simulated import SimulatedErp
+from quotation_app.adapters.interpreters.rules import RulesInterpreter
+from quotation_app.domain.attachments import StorageArea, attachment_key
+from quotation_app.domain.catalogue import Product
+from quotation_app.domain.jobs import JobKind, PermanentJobError
+from quotation_app.domain.requirements import (
+    ExtractedRequirements,
+    ExtractionOutcome,
+    RequestedItem,
+)
+from quotation_app.evaluation import InMemoryWorkflowStore
+from quotation_app.ports.erp import ErpError, ErpErrorCode
+from quotation_app.ports.interpretation import DocumentText, InterpretationRejected
+from quotation_app.ports.jobs import ClaimedJob
+from quotation_app.ports.workflow import CleanAttachment, EnquiryContent
+from quotation_app.workflows.enquiry import (
+    EnquiryWorkflowDeps,
+    ExtractionJobHandler,
+    build_enquiry_graph,
+)
+
+
+class CountingInterpreter:
+    """Wraps another interpreter (or a scripted answer) and counts model calls."""
+
+    def __init__(self, answer: ExtractedRequirements | Exception | None = None) -> None:
+        self.answer = answer
+        self.extract_calls = 0
+        self.rules = RulesInterpreter()
+
+    def extract(self, text: str, documents: Sequence[DocumentText]) -> ExtractedRequirements:
+        self.extract_calls += 1
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer or self.rules.extract(text, documents)
+
+    def choose_product(self, item: RequestedItem, candidates: Sequence[Product]) -> str | None:
+        return self.rules.choose_product(item, candidates)
+
+
+class Harness:
+    def __init__(self, erp: SimulatedErp, storage: Any, interpreter: CountingInterpreter) -> None:
+        self.store = InMemoryWorkflowStore()
+        self.storage = storage
+        self.interpreter = interpreter
+        self.erp = erp
+        self.checkpointer = InMemorySaver()
+
+    def handler(self) -> ExtractionJobHandler:
+        """A fresh graph over the same checkpointer, as after a worker restart."""
+        deps = EnquiryWorkflowDeps(
+            self.store, self.storage, PdfAndTextReader(), self.interpreter, self.erp
+        )
+        return ExtractionJobHandler(build_enquiry_graph(deps, self.checkpointer), self.store)
+
+    def enquiry(self, tenant: UUID, text: str, attachments: Sequence[CleanAttachment] = ()) -> UUID:
+        enquiry_id = uuid4()
+        self.store.contents[(tenant, enquiry_id)] = EnquiryContent(text, tuple(attachments))
+        return enquiry_id
+
+    def run(self, tenant: UUID, enquiry_id: UUID) -> tuple[ExtractionOutcome, dict[str, Any]]:
+        job = ClaimedJob(uuid4(), tenant, JobKind.EXTRACT_REQUIREMENTS,
+                         {"enquiry_id": str(enquiry_id)}, 1, 5, uuid4(), uuid4())  # fmt: skip
+        self.handler()(job)
+        outcome, details = self.store.outcomes[enquiry_id]
+        return outcome, dict(details)
+
+
+@pytest.fixture
+def make_harness(simulated_erp: SimulatedErp, memory_storage: Any) -> Callable[..., Harness]:
+    def build(answer: ExtractedRequirements | Exception | None = None) -> Harness:
+        return Harness(simulated_erp, memory_storage, CountingInterpreter(answer))
+
+    return build
+
+
+def test_clear_request_is_ready_for_quotation(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID
+) -> None:
+    harness = make_harness()
+    enquiry = harness.enquiry(
+        industrial_tenant, "Please quote 2 x IND-FAN-450 and 150 pcs M8 bolts"
+    )
+    outcome, details = harness.run(industrial_tenant, enquiry)
+    assert outcome is ExtractionOutcome.READY_FOR_QUOTATION
+    assert details["lines"] == [
+        {"sku": "IND-FAN-450", "quantity": "2", "unit": "each"},
+        {"sku": "IND-BOLT-M8", "quantity": "150", "unit": "each"},
+    ]
+
+
+def test_ambiguous_request_asks_a_question(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID
+) -> None:
+    harness = make_harness()
+    outcome, details = harness.run(
+        industrial_tenant, harness.enquiry(industrial_tenant, "Please quote 50 exhaust fans")
+    )
+    assert outcome is ExtractionOutcome.NEEDS_CLARIFICATION
+    assert "IND-FAN-450" in details["questions"][0] and "IND-FAN-600" in details["questions"][0]
+
+
+def test_pdf_attachment_is_read_and_image_goes_to_review(
+    make_harness: Callable[..., Harness],
+    industrial_tenant: UUID,
+    memory_storage: Any,
+    make_pdf: Callable[[list[str]], bytes],
+) -> None:
+    harness = make_harness()
+    pdf_id, image_id = uuid4(), uuid4()
+    pdf_key = attachment_key(industrial_tenant, pdf_id, StorageArea.CLEAN)
+    image_key = attachment_key(industrial_tenant, image_id, StorageArea.CLEAN)
+    memory_storage.put(pdf_key, make_pdf(["Order list", "Please supply 150 pcs M8 bolts"]))
+    memory_storage.put(image_key, b"\x89PNG\r\n\x1a\n")
+    attachments = [
+        CleanAttachment(pdf_id, "order.pdf", "application/pdf", pdf_key),
+        CleanAttachment(image_id, "sketch.png", "image/png", image_key),
+    ]
+    outcome, details = harness.run(
+        industrial_tenant, harness.enquiry(industrial_tenant, "See attached.", attachments)
+    )
+    assert details["items"][0]["product_text"] == "M8 bolts"  # read from the PDF
+    assert outcome is ExtractionOutcome.NEEDS_REVIEW
+    assert "sketch.png (image_requires_ocr)" in details["review_reasons"][0]
+
+
+def test_invented_item_is_never_quoted(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID
+) -> None:
+    invented = ExtractedRequirements(
+        (RequestedItem("100 x IND-PUMP-2HP", "IND-PUMP-2HP", Decimal(100), None),)
+    )
+    harness = make_harness(invented)
+    outcome, details = harness.run(
+        industrial_tenant, harness.enquiry(industrial_tenant, "Please quote 2 x IND-FAN-450")
+    )
+    assert outcome is ExtractionOutcome.NEEDS_REVIEW
+    assert details["lines"] == []
+
+
+def test_invalid_model_answer_goes_to_review(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID
+) -> None:
+    harness = make_harness(InterpretationRejected("bad json"))
+    outcome, details = harness.run(
+        industrial_tenant, harness.enquiry(industrial_tenant, "Please quote 2 x IND-FAN-450")
+    )
+    assert outcome is ExtractionOutcome.NEEDS_REVIEW
+    assert "required format" in details["review_reasons"][0]
+
+
+def test_crash_resumes_without_asking_the_model_again(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID
+) -> None:
+    harness = make_harness()
+    enquiry = harness.enquiry(industrial_tenant, "Please quote 2 x IND-FAN-450")
+    harness.erp.failures["search_products"] = ErpError(ErpErrorCode.TEMPORARY_UNAVAILABLE, "down")
+    with pytest.raises(ErpError):
+        harness.run(industrial_tenant, enquiry)  # extract succeeded, match failed
+    assert harness.interpreter.extract_calls == 1
+
+    del harness.erp.failures["search_products"]
+    outcome, _ = harness.run(industrial_tenant, enquiry)  # new graph instance, same checkpoints
+    assert outcome is ExtractionOutcome.READY_FOR_QUOTATION
+    assert harness.interpreter.extract_calls == 1  # resumed at "match"
+
+    harness.run(industrial_tenant, enquiry)  # finished runs are not repeated
+    assert harness.interpreter.extract_calls == 1
+
+
+def test_other_tenants_products_are_not_matched(
+    make_harness: Callable[..., Harness], office_tenant: UUID
+) -> None:
+    harness = make_harness()
+    outcome, details = harness.run(
+        office_tenant, harness.enquiry(office_tenant, "Please quote 4 x IND-FAN-450")
+    )
+    assert outcome is ExtractionOutcome.NEEDS_CLARIFICATION
+    assert "could not identify" in details["questions"][0]
+
+
+def test_missing_enquiry_is_permanent(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID, office_tenant: UUID
+) -> None:
+    harness = make_harness()
+    enquiry = harness.enquiry(industrial_tenant, "Please quote 2 x IND-FAN-450")
+    with pytest.raises(PermanentJobError):
+        harness.run(office_tenant, enquiry)  # right ID, wrong tenant

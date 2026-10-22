@@ -33,6 +33,23 @@ class AttachmentView:
 
 
 @dataclass(frozen=True)
+class ExtractedLineView:
+    sku: str
+    quantity: str
+    unit: str
+
+
+@dataclass(frozen=True)
+class ExtractionView:
+    """Latest workflow result: requested lines ready for pricing, or what is still needed."""
+
+    outcome: str
+    lines: tuple[ExtractedLineView, ...]
+    questions: tuple[str, ...]
+    review_reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class EnquiryView:
     enquiry_id: UUID
     channel: Channel
@@ -41,6 +58,7 @@ class EnquiryView:
     received_at: datetime
     correlation_id: UUID
     attachments: tuple[AttachmentView, ...]
+    extraction: ExtractionView | None = None
 
 
 class IntakeStore(Protocol):
@@ -85,6 +103,9 @@ class PreparationStore(Protocol):
         storage_key: str,
     ) -> None: ...
 
-    def set_enquiry_status(
-        self, tenant_id: UUID, enquiry_id: UUID, status: EnquiryStatus
-    ) -> None: ...
+    def finish_preparation(
+        self, tenant_id: UUID, enquiry_id: UUID, status: EnquiryStatus, correlation_id: UUID
+    ) -> None:
+        """Set the enquiry status; if READY_FOR_EXTRACTION, queue the extraction job in the
+        same transaction so the next step can never be lost."""
+        ...

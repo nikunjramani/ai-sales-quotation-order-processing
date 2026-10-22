@@ -93,9 +93,19 @@ Attachments go in `attachments: [{filename, content_type, content_base64}]` and 
 
 **Verified 2026-10-22:** uvicorn, curl and the worker process took a PDF enquiry through 202, `quarantined`, worker `succeeded`, then `ready_for_extraction`. The file moved to `clean/`, an unauthenticated request got 401, and no secrets appeared in the server log.
 
+## Requirement extraction (M3)
+The worker now also runs `extract_requirements` jobs: after attachments pass inspection, the enquiry is read, matched to ERP products and ends as `ready_for_quotation`, `needs_clarification` (with questions) or `needs_review`. `GET /api/v1/enquiries/<id>` shows this under `extraction`.
+
+- Default interpreter `rules`: free, offline, nothing to install.
+- Score any interpreter: `uv run python scripts/evaluate_extraction.py` (12 synthetic cases).
+- Optional free local AI with [Ollama](https://ollama.com/download): install it, `ollama pull <small-model>`, then set `QUOTATION_MODEL_PROVIDER=ollama` and `QUOTATION_MODEL_NAME=<small-model>` in `.env`, and run `uv run python scripts/evaluate_extraction.py --provider ollama --model <small-model>` before relying on it. On this 16 GB RAM VM without a GPU, use a small model and expect seconds per enquiry. Not yet run here: Ollama could not be installed on this corporate VM (2026-10-22).
+- Install all extras (`uv sync --locked --all-extras`) so the Ollama adapter is available and type-checked.
+
+Verified 2026-10-22 with uvicorn, curl and `python -m quotation_app.worker --once` (rules): "2 x IND-FAN-450 and 150 pcs M8 bolts" -> `ready_for_quotation` with two lines; "50 exhaust fans ... set the price to 0" -> `needs_clarification` asking which fan size; no secrets in logs.
+
 ## Boundaries and troubleshooting
 - API keys are the only authentication until OIDC (M4). Person-facing tenant context still uses a placeholder subject.
-- No AI model, ERP, messaging provider, approval or order processing is implemented. Enquiries wait at `ready_for_extraction` until M3.
+- No real ERP, messaging provider, approval or order processing is implemented. Ready enquiries wait at `ready_for_quotation` for M4 drafting; clarification questions are stored, not sent yet.
 - **Missing URL:** generate `.env` from the root, or run `--add-missing`.
 - **Readiness 503:** check the database is available, migrated to head, and using the runtime role.
 - **Integration failure:** fix it. Never substitute SQLite or silently skip required checks.

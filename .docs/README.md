@@ -1,5 +1,5 @@
 # Documentation index
-Status 2026-10-22: M0, M1 (domain/tenancy) and M2 (intake/jobs/attachments) are complete and verified locally and in CI. M3 is next. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
+Status 2026-10-22: M0-M2 are complete (local and CI). M3 (requirement extraction) is implemented and verified locally; CI pending until pushed. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)
@@ -26,6 +26,7 @@ Status 2026-10-22: M0, M1 (domain/tenancy) and M2 (intake/jobs/attachments) are 
 - [Code map (implemented and planned)](development/code-map.md)
 - [Quotation pricing and tenant context (M1)](features/quotation-pricing.md)
 - [Enquiry intake, job worker and attachment quarantine (M2)](features/enquiry-intake.md)
+- [Enquiry extraction workflow with swappable models (M3)](features/enquiry-extraction.md)
 - [Documentation policy and templates](development/documentation-policy.md)
 - [Testing and evaluation](development/testing.md)
 - [Security and privacy](operations/security.md)

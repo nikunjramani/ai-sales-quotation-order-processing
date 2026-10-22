@@ -35,8 +35,16 @@ Learning must explain the real architecture; it must not weaken release requirem
 | Backoff with jitter | Wait longer after each failure, randomly within a limit | Retries do not overwhelm a recovering service |
 | Quarantine | Holding area until a file is checked | Unsafe uploads never reach extraction |
 | API key | A password for a system, tied to one business and role | The website form submits enquiries for one tenant only |
+| Node / edge | A workflow step, and the arrow to the next step | extract -> match -> assess |
+| Conditional edge | Choose the next step from the result | assess -> ready, clarify or review |
+| Thread | One saved run of a workflow | One per enquiry, stored in workflow_runs |
+| Verbatim check | The model must copy the customer's exact words; we verify them | Invented items are caught and sent to a person |
+| Structured output | The model answers in a fixed JSON shape, checked strictly | Extra fields like a price make the answer invalid |
+| Prompt injection | Customer text trying to give the AI orders | Treated as data; prices never come from the model |
+| Evaluation dataset | Fixed test enquiries with expected answers | Compare free rules, Ollama or a paid model fairly |
 
 M1 trace: run `uv run python scripts/demo_quotation.py`. Every price, unit and stock number comes from the ERP; the calculator only does arithmetic and checks rules. No AI is involved yet.
+M3 trace: run `uv run python scripts/evaluate_extraction.py`, then submit "Please quote 50 exhaust fans" and "Please quote 2 x IND-FAN-450" through the API and run the worker - one asks which fan size, the other is ready for pricing.
 M2 trace: follow [enquiry intake in the setup guide](../development/setup.md#enquiry-intake-m2) - submit twice with the same Idempotency-Key, run the worker, and watch the status and the files move from quarantine to clean.
 
 Teaching sequence: business scenario -> term -> minimal example -> production implementation -> trace inputs/outputs -> test failure -> explain tradeoffs.

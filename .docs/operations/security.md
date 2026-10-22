@@ -17,6 +17,12 @@
 - Provider webhook verification is necessary but not sufficient: validate the acting manager, task/version, recipient binding and expiry. Forwarded actions and uncorrelated text must not approve anything.
 - Mobile channel review may expose commercial documents to provider storage; configure permitted channels and disclosure per tenant. Never include reusable action secrets in model input or logs.
 
+## Implemented controls (M3)
+- Model output is untrusted: strict JSON schemas with no extra fields, verbatim quote checks against the customer's text, product choices limited to ERP candidates, template (not model-written) customer questions. Prices, stock and permissions never come from a model.
+- Customer content is wrapped in data tags; attempts to close the tag are neutralised. Invalid answers go to human review.
+- LangGraph checkpoints have no tenant column: only the worker role can access them, always through a tenant-scoped workflow_runs row; API and public access revoked. Document text is not stored in checkpoints.
+- Default interpreter is offline; with Ollama, data stays on the local machine. Any hosted provider must be reviewed for data handling before real customer data.
+
 ## Implemented controls (M2)
 - API keys: 256-bit secrets, only SHA-256 hashes stored, constant-time comparison, one generic 401 for every failure, per-tenant scope and role, revocation. Tokens are printed once and never logged.
 - Tenant identity for intake comes only from the key; request bodies with unknown fields (including `tenant_id`) are rejected.

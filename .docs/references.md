@@ -16,3 +16,10 @@ Architectural decisions are project choices. These sources establish relevant pl
 - [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/): environment-driven configuration.
 - [Alembic tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html): explicit versioned migrations.
 - [Official PostgreSQL image](https://hub.docker.com/_/postgres): PostgreSQL 17 image family and container initialization.
+
+## M3 implementation references
+- [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence): checkpoints, threads and resuming.
+- [LangChain output parsers](https://python.langchain.com/docs/concepts/output_parsers/): parsing model text into validated structures.
+- [pypdf text extraction](https://pypdf.readthedocs.io/en/stable/user/extract-text.html): PDF text layers and their limits.
+- [Ollama](https://ollama.com/): free local model runtime; [langchain-ollama](https://python.langchain.com/docs/integrations/chat/ollama/) adapter.
+- [OWASP LLM prompt injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/): why model input is treated as untrusted data.

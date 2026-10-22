@@ -95,6 +95,10 @@ class TenantPricingPolicy(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+ENQUIRY_STATUS_CHECK = (
+    "status IN ('received', 'ready_for_extraction', 'needs_review', "
+    "'ready_for_quotation', 'needs_clarification')"
+)
 ROLE_CHECK = "role IN ('administrator', 'sales_operator', 'approver', 'viewer', 'intake_service')"
 
 
@@ -150,7 +154,7 @@ class Enquiry(Base):
         UniqueConstraint("inbox_event_id", name="uq_enquiries_inbox_event_id"),
         UniqueConstraint("tenant_id", "id", name="uq_enquiries_tenant_id_id"),
         CheckConstraint(
-            "status IN ('received', 'ready_for_extraction', 'needs_review')",
+            ENQUIRY_STATUS_CHECK,
             name="ck_enquiries_status",
         ),
     )
@@ -220,5 +224,37 @@ class Job(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(500))
     correlation_id: Mapped[UUID] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkflowRun(Base):
+    """Maps one tenant's enquiry to a LangGraph thread (run ID = thread ID) and its outcome.
+
+    Checkpoint tables have no tenant column, so they are only ever opened through this mapping.
+    """
+
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "enquiry_id"],
+            ["enquiries.tenant_id", "enquiries.id"],
+            name="fk_workflow_runs_enquiry",
+        ),
+        UniqueConstraint(
+            "tenant_id", "enquiry_id", "graph_version", name="uq_workflow_runs_enquiry_version"
+        ),
+        CheckConstraint(
+            "status IN ('running', 'ready_for_quotation', 'needs_clarification', 'needs_review')",
+            name="ck_workflow_runs_status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    enquiry_id: Mapped[UUID] = mapped_column()
+    graph_version: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(32))
+    outcome: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -7,6 +7,10 @@ Implemented in [Settings](../../src/quotation_app/config.py). Explicit construct
 | QUOTATION_MIGRATION_DATABASE_URL | Owner URL, needed only for migrations, seed and API-key management; never used as a fallback |
 | QUOTATION_WORKER_DATABASE_URL | Worker-role URL, needed only by `python -m quotation_app.worker`; never used as a fallback |
 | QUOTATION_STORAGE_DIR | Attachment storage root (default `var/storage`, ignored by Git) |
+| QUOTATION_MODEL_PROVIDER | Enquiry interpreter: `rules` (default, free, offline) or `ollama` (free local model) |
+| QUOTATION_MODEL_NAME | Model name, required for `ollama` (any model you have pulled) |
+| QUOTATION_OLLAMA_BASE_URL | Ollama server (default `http://127.0.0.1:11434`) |
+| QUOTATION_MODEL_TIMEOUT_SECONDS | Per-call model timeout (default 120) |
 | QUOTATION_ENVIRONMENT | `development` (default), `test` or `production`; production rejects demo seeding |
 | POSTGRES_PASSWORD | Compose bootstrap superuser password |
 | POSTGRES_OWNER_PASSWORD / POSTGRES_APP_PASSWORD / POSTGRES_WORKER_PASSWORD | Compose passwords for quotation_owner, quotation_app and quotation_worker |
@@ -27,7 +31,7 @@ Connect, statement and pool-wait timeouts are 3 seconds, with a pool of 5 and no
 |---|---|
 | quotation_owner | Migrations, seed, API-key creation and revocation, test-table truncation. FORCE RLS still applies to row access. |
 | quotation_app (API) | SELECT tenants, memberships, pricing policies and alembic_version. SELECT/INSERT inbox_events, enquiries and attachments. INSERT jobs (cannot read them). SELECT only the API key whose ID it presents. |
-| quotation_worker | SELECT/UPDATE jobs for all tenants. SELECT inbox_events; SELECT/UPDATE enquiries and attachments, only with the job's tenant context. Nothing else. |
+| quotation_worker | SELECT/UPDATE/INSERT jobs for all tenants. SELECT inbox_events; SELECT/UPDATE enquiries and attachments; SELECT/INSERT/UPDATE workflow_runs, all only with the job's tenant context. Full access to the LangGraph checkpoint tables (no tenant column), opened only via workflow_runs. Nothing else. |
 
 All tenant tables use forced RLS on `app.tenant_id`, so without context nothing is visible.
 
@@ -35,7 +39,7 @@ All tenant tables use forced RLS on `app.tenant_id`, so without context nothing 
 - `GET /health/live`: 200 with `{"status":"ok"}`, independent of PostgreSQL.
 - `GET /health/ready`: 200 with `{"status":"ready"}`, or 503 with `{"status":"not_ready"}`.
 
-Both are read-only and unauthenticated, and neither exposes tenant data. Readiness checks the migration head (`EXPECTED_REVISION`, currently `0003_intake`) and rejects superuser, bypass-RLS and migration-owner connections. It is not a complete authorization audit.
+Both are read-only and unauthenticated, and neither exposes tenant data. Readiness checks the migration head (`EXPECTED_REVISION`, currently `0004_workflow`) and rejects superuser, bypass-RLS and migration-owner connections. It is not a complete authorization audit.
 
 ## Enquiry API contract
 `POST /api/v1/enquiries` and `GET /api/v1/enquiries/{id}` require `Authorization: Bearer <API key>`; POST also requires `Idempotency-Key`. Status codes, the request shape and limits are in [enquiry intake](../features/enquiry-intake.md). The OpenAPI schema is served at `/docs`.

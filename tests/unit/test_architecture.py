@@ -8,12 +8,19 @@ import pytest
 
 PACKAGE = Path(__file__).resolve().parents[2] / "src" / "quotation_app"
 
-# Layer -> internal layers it may import. Third-party imports are forbidden in these layers.
+# Layer -> internal layers it may import.
 ALLOWED = {
     "domain": {"domain"},
     "ports": {"domain", "ports"},
     "application": {"domain", "ports", "application"},
     "adapters": {"domain", "ports", "adapters"},
+    "workflows": {"domain", "ports", "application", "workflows"},
+}
+# Layer -> third-party packages it may import. Domain, ports and application use only stdlib,
+# so business rules never depend on a framework, database or AI provider.
+THIRD_PARTY = {
+    "adapters": {"pypdf", "langchain_core", "langchain_ollama", "pydantic"},
+    "workflows": {"langgraph", "langchain_core"},
 }
 
 
@@ -38,7 +45,9 @@ def test_layer_imports_respect_boundaries(layer: str) -> None:
             if parts[0] == "quotation_app":
                 allowed = len(parts) > 1 and parts[1] in ALLOWED[layer]
             else:
-                allowed = parts[0] in sys.stdlib_module_names
+                allowed = parts[0] in sys.stdlib_module_names or parts[0] in THIRD_PARTY.get(
+                    layer, set()
+                )
             if not allowed:
                 violations.append(f"{path.relative_to(PACKAGE)} imports {name}")
     assert violations == []
