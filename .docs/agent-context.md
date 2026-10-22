@@ -1,0 +1,22 @@
+# Portable agent context
+## User intent
+Build a reusable multi-business sales quotation/order automation product while learning LangChain, LangGraph and workflow engineering. Explain everything simply. User expects AI-written code to have durable documentation and wants future tools/sessions to recover context.
+
+## Agreed direction
+Multiple channel adapters, existing ERP integrations, deterministic commercial rules, internal approval separate from customer acceptance, documentation-first implementation.
+Use PostgreSQL from the foundation, a modular Python application, LangGraph for persisted workflow, and durable jobs/outbox for external effects.
+See accepted [ADRs](adr/README.md). These are design commitments; code is not implemented.
+
+## Constraints
+No forced inventory migration. No model-invented prices or stock. No cross-tenant access. No unapproved quotation sends. No blind retries of uncertain order writes.
+Plans and ADRs live in [plan](plan/) and [adr](adr/); other code and operations documentation lives in this documentation tree.
+Do not rely on conversation memory. Do not silently change scope or defer production requirements because the user is learning.
+No delegation is currently authorized.
+
+## Starting prompt for any agent
+"Read AGENTS.md, .docs/README.md, .docs/agent-context.md and .docs/handoff.md. Inspect the actual repository. Continue the next agreed milestone, explaining new concepts simply. Update relevant docs and handoff with implementation and verification evidence. Do not assume planned files or integrations exist."
+
+## Skills and tool portability
+Repository instructions, ADRs and documented constraints are portable. Installed skills and provider tools are environment-specific and cannot be guaranteed by these files.
+Use available applicable skills according to their instructions. If a required capability is unavailable, record the limitation and use an authorized alternative.
+No project-specific executable skills have been created in this baseline. If reusable skills are added later, version their instructions and list paths/prerequisites here.

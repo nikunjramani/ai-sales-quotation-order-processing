@@ -1,0 +1,18 @@
+# 0003: Existing ERP remains authoritative
+Date: 2026-10-22
+Status: accepted design; implementation pending
+
+## Context
+Businesses already manage stock and pricing elsewhere.
+
+## Decision
+Read current business facts through ERP adapters. Store immutable quote evidence and optional disposable caches, not a replacement stock ledger. Use a simulated ERP for development and a real sandbox before release.
+
+## Alternatives considered
+Require catalogue/stock migration; let AI estimate facts; treat cached stock as a reservation.
+
+## Consequences
+Vendor mappings and capabilities vary; unsupported or unavailable writes require explicit exception paths.
+
+## Verification
+Same ERP contract suite for simulated and real implementations; stale data and unknown-price tests.

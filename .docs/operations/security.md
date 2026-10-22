@@ -1,0 +1,15 @@
+# Security and privacy plan
+- Use OIDC authentication and tenant-scoped roles: administrator, sales operator, approver and viewer; service accounts have narrower scopes.
+- Authenticate callbacks with provider-supported verification, replay protection/deduplication and rate limits.
+- Store credential references in business tables; keep encrypted secrets in managed secret storage or protected local environment configuration for development.
+- Never send credentials to models. Minimize customer data in prompts; redact sensitive logs/traces.
+- Treat PDFs and messages as untrusted. Bound file size/pages/time, validate content types, scan/quarantine before parsing, and isolate risky document processing.
+- Do not fetch arbitrary user URLs: constrain attachment retrieval to validated provider/object paths to mitigate SSRF.
+- Protect portal sessions with secure cookies, CSRF defenses and output escaping.
+- Private documents require authorized short-lived downloads. PDF rendering must not execute untrusted HTML/scripts or fetch unrestricted URLs.
+- Audit approvals, external writes, administrative changes and support access. Make audit mutation restricted and observable.
+- Bound model calls, token budgets, tool access and retries per tenant. Prompt text never grants permissions.
+- Define retention, export and deletion policies before real data; include checkpoints, attachments, tracing and backups.
+- Keep development, staging and production credentials/data separate.
+- Test tenant isolation in the real PostgreSQL runtime role, not only as database owner.
+- Document threat model and unresolved findings before pilot; do not claim regulatory certification.
