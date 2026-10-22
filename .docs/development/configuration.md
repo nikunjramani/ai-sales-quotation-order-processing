@@ -20,7 +20,7 @@ Runtime connect, statement and pool wait timeouts are three seconds; pool size i
 - GET /health/live: 200 with {"status":"ok"}; independent of PostgreSQL.
 - GET /health/ready: 200 with {"status":"ready"} or 503 with {"status":"not_ready"}.
 Both are read-only and unauthenticated; neither exposes tenant data.
-Readiness checks migration revision 0001_tenants and rejects superuser, bypass-RLS and migration-owner membership. It is not a complete authorization audit.
+Readiness checks the migration head (`EXPECTED_REVISION`, currently 0002_memberships_policies) and rejects superuser, bypass-RLS and migration-owner membership. It is not a complete authorization audit.
 
-The owner role creates schema objects. Runtime has SELECT on tenants and alembic_version only.
+The owner role creates schema objects. Runtime has SELECT only on tenants, memberships, tenant_pricing_policies and alembic_version. Pricing policy values live in the database per tenant, not in environment variables.
 Tenant RLS denies visibility without context and filters a supplied context. Database credentials must remain private: trusted application identity/tenant authorization is still required before business endpoints exist.

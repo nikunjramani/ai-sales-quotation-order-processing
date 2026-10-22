@@ -41,8 +41,14 @@ plugins = ["pydantic.mypy"]
 python_version = "3.13"
 strict = true
 files = ["src", "tests", "migrations", "scripts"]
+# Test folders mirror src and have no __init__.py, so test file names repeat
+# (e.g. unit/domain/test_pricing.py and unit/application/test_pricing.py).
+# These settings name modules by their path, so the duplicates stay distinct.
+mypy_path = "src"
+explicit_package_bases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# importlib mode allows repeated test file names without __init__.py files in tests/.
+addopts = "-ra --strict-markers --import-mode=importlib"
 markers = ["integration: requires an explicitly configured disposable PostgreSQL database"]

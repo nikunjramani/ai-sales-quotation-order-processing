@@ -1,5 +1,5 @@
 # Integration contracts
-Contracts below are design schemas, not implemented endpoints or classes.
+Contracts below are design schemas unless marked implemented. The ERP read contract is implemented in M1 as [ErpReader](../../src/quotation_app/ports/erp.py).
 
 ## Channel adapters
 A channel adapter verifies provider events and maps them into a common envelope:
@@ -38,6 +38,7 @@ Do not route approval events through customer enquiry extraction or ask an LLM t
 See [approval contracts](approvals.md) and [extension boundaries](module-boundaries.md). Provider-specific permissions/capabilities must be verified before implementing each connector.
 
 ## ERP operations
+Implemented M1 signatures take a trusted TenantContext and add `get_products(skus)` so quantity rules (unit, minimum, step) come from the ERP. Customer-specific pricing (`customer_context`), requested quantities in availability and discount basis are deferred. Unknown SKUs are omitted, never zero-filled. The [contract suite](../../tests/unit/ports/test_erp_contract.py) applies to every adapter.
 Required read operations:
 - search_products(query, customer_context): SKU candidates with authoritative IDs, units and descriptions.
 - get_prices(skus, customer, currency, effective_at): price list/version, effective dates, currency, units and discount basis.

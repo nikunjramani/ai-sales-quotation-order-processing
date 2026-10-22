@@ -1,5 +1,5 @@
 # Planned execution flow
-The sales workflow table below remains a target. M0 only implements the foundation trace described here.
+The sales workflow table below remains a target. M0 and M1 implement only the traces described here.
 
 ## Implemented M0 trace
 1. Uvicorn calls [create_app](../../src/quotation_app/api/app.py); [Settings](../../src/quotation_app/config.py) validates configuration and hides secrets.
@@ -9,6 +9,15 @@ The sales workflow table below remains a target. M0 only implements the foundati
 5. Application shutdown disposes the engine.
 6. Separately, Alembic uses migration credentials to create the tenant table and RLS. The [seed](../../src/quotation_app/persistence/seed.py) sets transaction-local tenant context and inserts fictional fixtures idempotently; it refuses production mode.
 No business HTTP routes, authenticated tenant context, workflow engine or external actions exist yet. Migration, seed, RLS and readiness behaviour were executed against local PostgreSQL on 2026-10-22. See [setup](../development/setup.md).
+
+## Implemented M1 trace (pricing a draft)
+Entry point: `QuotationPricingService.price`; see [quotation pricing](../features/quotation-pricing.md). No HTTP route calls it yet.
+1. [TenantContextResolver](../../src/quotation_app/application/tenancy.py) asks the membership repository for the subject's roles inside a transaction whose tenant context is set. No roles: `AccessDenied`.
+2. The service requires `quotations:draft`; viewers and approvers get `PermissionDenied` before any ERP call.
+3. The tenant's pricing policy is read through RLS; a missing policy raises `PricingPolicyNotConfigured`.
+4. The ERP port returns products, prices effective now in the policy currency, and stock, all stamped with source and fetch time. ERP errors propagate.
+5. [calculate_quotation](../../src/quotation_app/domain/pricing.py) validates every line, computes rounded line totals, a subtotal, tax on the subtotal and a total, and attaches price evidence plus one of five stock statuses. Any blocking issue returns `PricingRejected` listing all issues.
+Nothing is stored or sent. Persisted quotation versions arrive with approval (M4).
 
 ## Planned sales workflow
 

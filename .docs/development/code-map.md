@@ -1,5 +1,5 @@
 # Code map
-Status: only the M0 foundation below exists. The later module map remains a plan.
+Status: the M0 foundation and M1 domain/tenancy modules below exist. The remaining module map is a plan.
 
 ## Implemented foundation
 | Actual file | Responsibility |
@@ -8,16 +8,36 @@ Status: only the M0 foundation below exists. The later module map remains a plan
 | [config.py](../../src/quotation_app/config.py) | Environment/.env validation and secret wrappers |
 | [app.py](../../src/quotation_app/api/app.py) | Application factory, lifecycle and health routes |
 | [database.py](../../src/quotation_app/persistence/database.py) | Bounded connection pool and schema/runtime-role readiness |
-| [models.py](../../src/quotation_app/persistence/models.py) | Initial Tenant registry metadata |
+| [models.py](../../src/quotation_app/persistence/models.py) | Tenant, Membership and TenantPricingPolicy table metadata |
 | [0001_tenants.py](../../migrations/versions/0001_tenants.py) | Initial schema, forced RLS and runtime read grants |
 | [env.py](../../migrations/env.py) | Alembic execution with separate owner credentials |
-| [seed.py](../../src/quotation_app/persistence/seed.py) | Idempotent development/test-only fictional tenant fixtures |
+| [seed.py](../../src/quotation_app/persistence/seed.py) | Idempotent development/test-only fictional tenants, memberships and policies |
 | [compose.yaml](../../compose.yaml) / [init.sql](../../infra/postgres/init.sql) | Local database container, persistent volume and role bootstrap |
 | [init_local_env.py](../../scripts/init_local_env.py) | Generate ignored local credentials without overwriting |
 | [check_database.py](../../scripts/check_database.py) | Run local migration/schema/integration checks |
-| [test_config.py](../../tests/test_config.py) / [test_health.py](../../tests/test_health.py) | Offline configuration/API behaviour |
-| [test_database.py](../../tests/integration/test_database.py) | Opt-in PostgreSQL role, seed and RLS checks |
+| [tests/](../../tests/conftest.py) | `unit/` mirrors `src/quotation_app`; `integration/` needs PostgreSQL; shared fixtures in conftest files. See [testing](testing.md) |
 | [ci.yml](../../.github/workflows/ci.yml) | Automated offline and live PostgreSQL checks; passing on main |
+
+## Implemented M1 domain and tenancy
+Dependency direction: application -> ports -> domain; adapters and persistence implement ports. [test_architecture.py](../../tests/unit/test_architecture.py) enforces the domain/ports/application/adapters import rules.
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/money.py](../../src/quotation_app/domain/money.py) | Decimal Money, currency codes, rounding modes, exact multiplication |
+| [domain/tenancy.py](../../src/quotation_app/domain/tenancy.py) | Roles, permissions, TenantContext, authorization errors |
+| [domain/catalogue.py](../../src/quotation_app/domain/catalogue.py) | ERP fact values: Product, PriceQuote, StockLevel |
+| [domain/pricing.py](../../src/quotation_app/domain/pricing.py) | PricingPolicy and the deterministic `calculate_quotation` rules |
+| [ports/erp.py](../../src/quotation_app/ports/erp.py) | ErpReader protocol and normalized ErpError codes |
+| [ports/tenancy.py](../../src/quotation_app/ports/tenancy.py) | Membership and pricing-policy reader contracts |
+| [application/tenancy.py](../../src/quotation_app/application/tenancy.py) | TenantContextResolver: subject + stored membership -> context |
+| [application/pricing.py](../../src/quotation_app/application/pricing.py) | QuotationPricingService use case (read-only) |
+| [adapters/erp/simulated.py](../../src/quotation_app/adapters/erp/simulated.py) | Per-tenant in-memory ERP, failure injection, synthetic demo catalogues |
+| [persistence/tenancy.py](../../src/quotation_app/persistence/tenancy.py) | `tenant_transaction` and SQL membership/policy readers |
+| [0002_memberships_policies.py](../../migrations/versions/0002_memberships_policies.py) | Membership and pricing-policy tables, forced RLS, runtime SELECT grants |
+| [demo_quotation.py](../../scripts/demo_quotation.py) | Prints a pricing trace and access-denial examples |
+| [tests/unit/domain/](../../tests/unit/domain/test_pricing.py) | Rule tests: rounding, quantities, units, prices, stock, roles |
+| [tests/unit/application/](../../tests/unit/application/test_pricing.py) / [test_erp_contract.py](../../tests/unit/ports/test_erp_contract.py) | Use-case behaviour and the shared ERP adapter contract suite |
+| [tests/integration/persistence/test_tenancy.py](../../tests/integration/persistence/test_tenancy.py) | Two-tenant negative tests through the PostgreSQL runtime role |
 
 ## Planned modules
 

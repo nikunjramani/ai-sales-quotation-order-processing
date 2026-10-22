@@ -40,7 +40,9 @@ Once Docker works:
 docker compose up -d --wait
 uv run python scripts/check_database.py
 uv run python -m quotation_app.persistence.seed
+uv run python scripts/demo_quotation.py
 ```
+The demo (M1) resolves a seeded user's tenant context, prices synthetic requests through the simulated ERP and prints the calculation, blocked issues and access denials. It stores and sends nothing.
 Verified 2026-10-22: the container became healthy, the helper reported no schema drift and 9 tests passed, and the seed ran twice without changes. The helper restricts its target to local quotation_dev, upgrades migrations, checks model/schema consistency and runs integration tests. It passes credentials to subprocesses in memory, without printing them. Fixtures insert two fictional tenants; the helper does not downgrade/drop the database.
 
 Compose binds PostgreSQL to loopback port 55432. Bootstrap creates separate migration-owner and runtime roles and runs only on first volume initialization. Editing .env later does not change passwords in an existing database; use an explicit rotation procedure.
@@ -55,6 +57,6 @@ Verified against live PostgreSQL: /health/live 200 ok, /health/ready 200 ready, 
 Liveness returns 200 when the application works. Readiness requires the expected schema and an acceptable runtime role; it returns sanitized 503 when the database is missing or unsuitable.
 
 ## Boundaries and troubleshooting
-The initial tenant registry and RLS are persistence groundwork, not complete request authorization. No endpoint exposes tenant data. M1 adds trusted tenant context/repositories; M4 adds real identity integration.
+Tenant context is resolved from stored membership (M1), but the subject is still a placeholder string: no endpoint exposes tenant data until real identity integration in M4.
 No AI model, ERP, messaging provider, approval or order processing is implemented.
 Missing URL: generate .env from the root or configure settings explicitly. Readiness 503: check database availability, migrations and runtime role. Integration failure: fix it; never substitute SQLite or silently skip required checks.

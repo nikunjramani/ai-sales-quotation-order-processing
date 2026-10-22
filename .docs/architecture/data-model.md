@@ -4,6 +4,15 @@ ERP owns SKUs, current prices, stock and final order records. The platform owns 
 A quote stores the exact commercial values reviewed, their source and timestamp. This is evidence, not a second live inventory system.
 Synthetic ERP fixtures are replaceable test infrastructure.
 
+## Implemented tables (M0-M1)
+| Table | Contents and rules |
+|---|---|
+| tenants | Business ID and name; RLS by `id` |
+| memberships | Tenant, authenticated subject, role (checked list); unique per tenant/subject/role; tenant FK; RLS by `tenant_id` |
+| tenant_pricing_policies | One current policy per tenant: version, currency, minor units, rounding mode, tax rate numeric(7,6), max price/stock age; RLS by `tenant_id` |
+
+All three use forced RLS on `app.tenant_id`. The runtime role has SELECT only; the owner role seeds and migrates. Policy history (keeping old versions) is not implemented yet.
+
 ## Planned entities
 | Entity | Important contents |
 |---|---|

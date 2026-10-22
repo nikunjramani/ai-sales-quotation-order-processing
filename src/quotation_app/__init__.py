@@ -1,1 +1,1 @@
-"""Sales automation application; M0 provides configuration and health checks only."""
+"""Sales automation application: foundation, tenancy and deterministic quotation pricing."""

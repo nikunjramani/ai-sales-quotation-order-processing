@@ -8,7 +8,7 @@ These are implementation gates, not reasons to block documentation.
 | Email provider | One sandbox integration first | M5 |
 | Model provider/model | Structured-output capable; evaluate cost/quality | M3 |
 | Identity provider | OIDC with tenant role assignments | M4 |
-| Tax, delivery, discounts, currencies | Synthetic rules; configurable per tenant | Before pilot |
+| Tax, delivery, discounts, currencies | M1 implements per-line rounding, one tenant tax rate on the subtotal, one currency, no discounts or unit conversion (ADR 0010); values are synthetic | Before pilot; may require per-line/multiple taxes or price lists |
 | Quote validity and reservations | No stock reservation on draft; recheck at order | Before M6 |
 | Customer acceptance verification | Authenticated portal or scoped expiring acceptance token | M6 threat model and business sign-off |
 | Retention and data region | Minimize PII; no invented compliance promise | Before pilot data |

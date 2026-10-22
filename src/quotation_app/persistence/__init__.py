@@ -1,1 +1,1 @@
-"""Database infrastructure; no business repositories are exposed yet."""
+"""Database infrastructure and tenant-scoped repositories."""

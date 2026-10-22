@@ -1,6 +1,6 @@
 # 0003: Existing ERP remains authoritative
 Date: 2026-10-22
-Status: accepted design; implementation pending
+Status: accepted; partially implemented (M1: ErpReader port, simulated ERP, shared contract suite). Real sandbox adapter pending (M7).
 
 ## Context
 Businesses already manage stock and pricing elsewhere.

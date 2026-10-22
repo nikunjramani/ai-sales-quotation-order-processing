@@ -2,27 +2,45 @@
 Updated: 2026-10-22.
 
 ## Current state
-M0 foundation is COMPLETE (2026-10-22): exit checks passed against live local PostgreSQL and in a fresh GitHub Actions run. Foundation commit c6d163c is pushed to main. No business workflow, AI integration, provider connection, approval/order feature or deployment exists.
-Git is on main with the public [repository](https://github.com/nikunjramani/ai-sales-quotation-order-processing). Planning commit f8c2af1 and foundation commit c6d163c are on origin/main. The user's local .vscode/settings.json is intentionally untracked.
-Implemented: Python package/lockfile, validated settings, ignored local credential generator, FastAPI health endpoints, PostgreSQL Compose/bootstrap roles, Alembic tenant migration/RLS, synthetic seed, offline and opt-in integration tests, and a GitHub Actions workflow. See [setup](development/setup.md) and [configuration](development/configuration.md).
-User requested planning/documentation first, with reusable multi-channel and ERP integration design.
-User subsequently authorized creation of this public GitHub repository and publication of the project. A root .gitignore excludes local secrets, Python environments, generated files and runtime data. The initial commit publishes the documentation baseline; it does not implement M0.
+Current milestone: M1 (domain and tenancy) is implemented and verified against local PostgreSQL. It is not yet committed or pushed, so the CI run for M1 is pending.
+M0 foundation is COMPLETE: exit checks passed locally and in a fresh GitHub Actions run. Foundation commits c6d163c and c6c63dc are on origin/main.
+Public [repository](https://github.com/nikunjramani/ai-sales-quotation-order-processing), branch main. The user's local .vscode/settings.json is intentionally untracked.
+No HTTP business route, AI integration, real provider/ERP connection, approval/order feature or deployment exists.
+
+## Implemented
+- M0: uv-locked Python package, validated settings, local credential generator, FastAPI health endpoints, PostgreSQL Compose with owner/runtime roles, tenant table with forced RLS, synthetic seed, offline/integration tests and CI. See [setup](development/setup.md) and [configuration](development/configuration.md).
+- M1, described in [quotation pricing](features/quotation-pricing.md), [ADR 0010](adr/0010-deterministic-pricing-and-tenant-context.md) and the [code map](development/code-map.md):
+  - Decimal money with named rounding.
+  - Roles, permissions and a membership-based `TenantContextResolver`.
+  - ERP fact types and the `ErpReader` port with normalized `ErpError`.
+  - The deterministic `calculate_quotation` (absent price never zero; five stock statuses).
+  - The read-only `QuotationPricingService`, a per-tenant simulated ERP with demo catalogues, and SQL membership/policy repositories.
+  - Migration 0002 (memberships and pricing policies, forced RLS, runtime SELECT only), extended seed, the demo script, and import-boundary tests.
 
 ## Decisions recorded
-Final pre-implementation [review](plan/readiness-review.md) and [flowcharts](architecture/flowcharts.md) remain the target plan. ADR 0009 records the new foundation implementation and its verification limits.
-Latest user request authorized starting M0. Preserve manager channel approval, portal access, provider extension boundaries and deferred negotiation.
-ADR 0007 supersedes portal-only ADR 0005 while preserving version-bound authorization. ADR 0008 records deferred negotiation scope. New module-boundary and negotiation documents define extension contracts.
-User confirmed direct email reply approval and mandatory manager approval for every future negotiated revision; AI must not negotiate autonomously. Added a deferred manager-operations plan for stock enquiries and price/discount requests through email and supported messaging channels at M11. Exact price-change scope (quotation vs price list/catalogue) remains a future clarification; no global write authority is assumed.
-See [ADR index](adr/README.md): adapter boundaries, tenant isolation, ERP authority, durable workflows/jobs, approval/versioning and documentation portability.
+- ADR 0010: per-line rounding with the tenant's mode; one tenant tax rate on the subtotal; one currency; no unit conversion or discounts; stock never blocks calculation but is always reported; administrators do not approve unless also approvers.
+- The ERP contract adds `get_products`; customer-specific pricing is deferred.
+- These are synthetic defaults that the pilot business must validate.
+- Earlier decisions still stand: ADR 0007 supersedes 0005; ADR 0008 defers negotiation; every negotiated revision needs manager approval; direct email reply approval is confirmed; manager commercial commands wait for M11 with no assumed global price-write authority. See the [ADR index](adr/README.md).
 
-## Verification
-Python 3.13.14, uv 0.13.1, Git 2.55.0, Docker Desktop 4.96.1 (engine 29.9.2, Linux) and Compose v5.6.0 are available. The user enabled the Windows virtualization/WSL prerequisites; the engine was started with docker desktop start. Locked dependencies installed; Ruff lint/format and mypy pass. Offline pytest: 6 passed, 3 PostgreSQL tests explicitly skipped. Offline migration SQL generated and Compose/CI YAML parsed. In-process smoke: liveness 200; readiness 503 with DB absent, as intended.
-Live local results 2026-10-22: docker compose up -d --wait -> postgres:17.11-bookworm healthy on 127.0.0.1:55432. scripts/check_database.py -> upgrade head, alembic check reported no drift, 9 passed (3 integration). alembic downgrade base -> upgrade head -> pytest --run-integration 9 passed. Seed ran twice (idempotent). uvicorn smoke: /health/live 200 ok, /health/ready 200 ready, /docs 200; server stopped, log contained no credentials. alembic current: 0001_tenants (head). The local database container is left running with its named volume. Remote [GitHub Actions run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) on c6d163c passed in 42s: lint, format, mypy, offline pytest 6 passed/3 skipped; fresh credentials and Compose DB healthy; alembic check no drift; integration 9 passed; downgrade base/upgrade head; 9 passed again. CI warnings to address later: actions/checkout@v4 and setup-python@v5 target deprecated Node 20, and ubuntu-latest is migrating to Ubuntu 26. Nine ADRs exist; 0005 is superseded by 0007. Ignored .env was generated locally without printing secrets. No application server remains running.
-Documentation validation: 39 Markdown files and 107 local links checked, no broken links. git diff --check and obvious credential-pattern scan passed; .env and .venv are ignored by Git.
-Documentation review 2026-10-22: offline checks re-run (Ruff, format, mypy pass; pytest 6 passed, 3 skipped), documented package versions match uv.lock, httpx2 confirmed as Starlette's required test-client dependency (pydantic/httpx2). Stale Docker/push/status statements corrected.
-External official references reviewed where accessible. Meta documentation returned HTTP 429; channel-specific eligibility and policy remain implementation verification gates.
+## Verification (M1, 2026-10-22)
+- Ruff lint/format and mypy (strict, 47 files) pass.
+- Offline pytest: 73 unit passed, 11 integration skipped. Tests were reorganized into tests/unit (mirrors src) and tests/integration with shared conftest fixtures; see [testing](development/testing.md).
+- `scripts/check_database.py` on local PostgreSQL 17.11: upgrade to 0002, `alembic check` reported no drift, 84 passed.
+- `alembic downgrade 0001_tenants` left only `tenants` and `alembic_version`. `downgrade base` -> `upgrade head` -> 84 passed again.
+- psql confirmed RLS is enabled and forced on tenants, memberships and tenant_pricing_policies.
+- Seed is idempotent.
+- `scripts/demo_quotation.py`:
+  - Valid INR quote: subtotal 9336.25, tax 1680.53, total 11016.78, cable stock unknown.
+  - Blocked request: price_missing, quantity_not_multiple, product_not_found (another tenant's SKU).
+  - Cross-tenant access denied; viewer drafting denied.
+- The local DB container remains running with its named volume. No app server is running.
+- Not yet run: GitHub Actions for M1 (needs push).
+- Known CI warnings: actions/checkout@v4 and setup-python@v5 target deprecated Node 20; ubuntu-latest is migrating to Ubuntu 26.
 
 ## Next task
-Start M1 (domain and tenancy): trusted tenant context, role model, product/price/stock contracts, Decimal quotation calculator and simulated ERP, with two-tenant negative tests and rule tests per the roadmap exit gate. Optional maintenance: bump CI actions off Node 20 and consider pinning the runner image.
-Before model integration choose provider/budget; before real integrations identify pilot ERP and email provider. These choices do not block M0.
-Update this handoff in every implementation change; never mark future milestones complete without evidence.
+1. With user authorization, commit M1 and push to main. Confirm CI passes, then mark M1 complete in the roadmap, ADR 0010 and this handoff.
+2. Then start M2 (intake): manual/API intake, canonical event schema, inbox dedupe, durable job worker, and private attachment storage/quarantine.
+   - M2 needs an authenticated API boundary. Until OIDC (M4), decide with the user how API callers are authenticated in development, for example service tokens per tenant. Do not expose tenant data without authentication.
+- Before M3 choose the model provider and budget. Before M5/M7 choose the email provider and pilot ERP.
+- Update this handoff in every change; never mark milestones complete without evidence.

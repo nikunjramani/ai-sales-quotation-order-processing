@@ -1,9 +1,52 @@
 # Testing and AI evaluation
-## Current M0 checks
-Run uv run ruff check ., uv run ruff format --check ., uv run mypy and uv run pytest from the root. Offline result: 6 passed; 3 PostgreSQL tests explicitly skipped.
-The live suite checks actual runtime readiness, rejection of owner-role readiness, idempotent synthetic seeding, tenant-filtered visibility, context clearing on pooled connection reuse and denied runtime writes.
+## Test layout
+```text
+tests/
+  conftest.py          Shared options and fixtures for every test
+  unit/                Offline; folders mirror src/quotation_app
+    domain/  application/  ports/  adapters/erp/  api/  persistence/
+    test_config.py  test_architecture.py
+  integration/         Real PostgreSQL; auto-marked `integration`
+    conftest.py        Database settings and engine fixtures
+    api/  persistence/
+```
+Rules:
+- A unit test for `src/quotation_app/<path>/<module>.py` lives in `tests/unit/<path>/test_<module>.py`. Integration tests follow the same mirroring under `tests/integration/`.
+- `tests/` has no `__init__.py` files. Pytest runs with `--import-mode=importlib` and mypy with `explicit_package_bases`, so names such as `domain/test_pricing.py` and `application/test_pricing.py` can coexist.
+- Shared setup lives in fixtures, not copied helpers. Test modules never import `conftest.py`.
+- Every test under `tests/integration/` is marked `integration` automatically. A test elsewhere can opt in with the marker, for example a future real-ERP contract case.
+
+Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
+
+| Fixture | Provides |
+|---|---|
+| `now` | Fixed timezone-aware "current time" used by test clocks |
+| `industrial_tenant`, `office_tenant` | The two seeded demo tenant IDs |
+| `make_context(tenant_id, role)` | A TenantContext with one role |
+| `make_policy(tenant_id, currency)` | Synthetic pricing policy (2 decimals, half_up, 18% tax, 15/5 min freshness) |
+| `simulated_erp` | Demo catalogues for both tenants, ERP clock fixed at `now`; `.failures` injects errors |
+| `membership_reader`, `policy_reader` | In-memory fakes; tests edit `.rows` / `.policies` |
+
+[tests/integration/conftest.py](../../tests/integration/conftest.py) adds `integration_settings` (built only from explicit `TEST_*` URLs), `owner_engine`, and `runtime_engine` (restricted role, seeded data).
+
+## Current checks (M0-M1)
+Run uv run ruff check ., uv run ruff format --check ., uv run mypy and uv run pytest from the root. `uv run pytest tests/unit` runs only unit tests. Result 2026-10-22: 73 unit tests passed with 11 integration tests skipped. With PostgreSQL via check_database.py, 84 passed.
+
+| Suite | Checks |
+|---|---|
+| [unit/domain/test_pricing.py](../../tests/unit/domain/test_pricing.py) | Exact totals, tenant rounding mode, absent price never zero, quantity/minimum/step/unit rules, stale/not-effective/wrong-currency/wrong-unit prices, five stock statuses, all issues reported together |
+| [unit/domain/test_money.py](../../tests/unit/domain/test_money.py) / [unit/domain/test_tenancy.py](../../tests/unit/domain/test_tenancy.py) | Float rejection, rounding, precision-loss trap, role permissions |
+| [unit/application/test_pricing.py](../../tests/unit/application/test_pricing.py) | Permission checked before ERP calls, cross-tenant SKU invisible, ERP errors propagate, stale ERP data, missing/foreign policy refused |
+| [unit/application/test_tenancy.py](../../tests/unit/application/test_tenancy.py) | Membership-based tenant resolution |
+| [unit/ports/test_erp_contract.py](../../tests/unit/ports/test_erp_contract.py) | Shared ERP contract; register new adapters in `ADAPTERS` |
+| [unit/adapters/erp/test_simulated.py](../../tests/unit/adapters/erp/test_simulated.py) | Simulated-ERP specifics: unconfigured tenant, failure injection, unknown stock, warehouse, invalid search |
+| [unit/api/test_app.py](../../tests/unit/api/test_app.py), [unit/test_config.py](../../tests/unit/test_config.py), [unit/persistence/test_seed.py](../../tests/unit/persistence/test_seed.py) | Health endpoints, settings validation, production seed refusal |
+| [unit/test_architecture.py](../../tests/unit/test_architecture.py) | Domain/ports/application/adapters import boundaries |
+| [integration/persistence/test_tenancy.py](../../tests/integration/persistence/test_tenancy.py) | Runtime role: cross-tenant membership denied, rows invisible without/across context, cannot add memberships or change policies, per-tenant policies, end-to-end pricing |
+| [integration/persistence/test_database.py](../../tests/integration/persistence/test_database.py), [test_seed.py](../../tests/integration/persistence/test_seed.py), [integration/api/test_app.py](../../tests/integration/api/test_app.py) | Readiness and owner-role rejection, idempotent seed, tenant visibility, context cleared on pooled connections, denied runtime writes |
+
 Run [check_database.py](../../scripts/check_database.py) only after local PostgreSQL starts. It applies/checks migrations and enables integration tests with explicit URLs. Missing test URLs fail when integration tests are enabled; default skipping is visible.
-CI also downgrades/re-upgrades its disposable schema and repeats tests. Local live result 2026-10-22: check_database.py 9 passed; downgrade base -> upgrade head -> 9 passed again. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the same sequence from a fresh environment.
+CI also downgrades/re-upgrades its disposable schema and repeats tests. Local live result 2026-10-22 (M1): check_database.py 84 passed with no schema drift; downgrade base -> upgrade head -> 84 passed again; downgrade to 0001 removed only the M1 tables. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the M0 sequence from a fresh environment; M1 CI runs after push.
 
 ## Planned business suites
 - Domain unit tests: Decimal totals, rounding, quantity/unit validation, expiry, pricing policies, missing values.
