@@ -19,7 +19,9 @@ These are implementation gates, not reasons to block documentation.
 | Manager commercial-command scope | Stock enquiries, price changes and discounts requested; quotation vs price-list/catalogue scope needs explicit resolution | M11; never assume global ERP write authority |
 | Approval enrollment/context | Define proof-of-control, allowed private/shared contexts, revocation and additional verification | M4 contract; before each real approval connector |
 | Negotiation commercial policy | No assumed discounts, rounds or old-offer validity rules | M11; see negotiation plan |
-| Attachment/OCR support | Bounded text/PDF processing; define scanned-PDF/OCR engine, languages, limits and unsupported-file response | M2/M3 before claiming format support |
+| Attachment/OCR support | M2 accepts PDF, plain text, PNG and JPEG up to 5 MiB, with magic-byte, encrypted and active-PDF checks. OCR engine, languages and scanned-PDF handling are still open | M3 before claiming extraction support |
+| Malware scanning | Not implemented; M2 inspection is not antivirus. Choose a scanner/sandbox (e.g. ClamAV or a cloud service) | Before accepting real customer files (M8 gate) |
+| Production object storage | Local disk behind the ObjectStorage port; choose S3-compatible/cloud storage with encryption and retention | Deployment (M8) |
 | Offer lifecycle | Define expiry, withdrawal/replacement, policy-change revalidation and partial acceptance handling; never silently accept different terms | M6; pilot business validates policy |
 | Human handoff | Define pause owner, authorized resume and post-order change/cancellation escalation | M4/M6 |
 

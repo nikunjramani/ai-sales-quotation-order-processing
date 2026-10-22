@@ -7,6 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run the local environment setup script first}
       POSTGRES_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?Missing owner password}
       POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Missing app password}
+      POSTGRES_WORKER_PASSWORD: ${POSTGRES_WORKER_PASSWORD:?Missing worker password; run init_local_env.py --add-missing}
     ports:
       - "127.0.0.1:55432:5432"
     volumes:

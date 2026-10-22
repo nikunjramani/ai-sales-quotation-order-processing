@@ -4,7 +4,7 @@ ERP owns SKUs, current prices, stock and final order records. The platform owns 
 A quote stores the exact commercial values reviewed, their source and timestamp. This is evidence, not a second live inventory system.
 Synthetic ERP fixtures are replaceable test infrastructure.
 
-## Implemented tables (M0-M1)
+## Implemented tables (M0-M2)
 | Table | Contents and rules |
 |---|---|
 | tenants | Business ID and name; RLS by `id` |
@@ -12,6 +12,17 @@ Synthetic ERP fixtures are replaceable test infrastructure.
 | tenant_pricing_policies | One current policy per tenant: version, currency, minor units, rounding mode, tax rate numeric(7,6), max price/stock age; RLS by `tenant_id` |
 
 All three use forced RLS on `app.tenant_id`. The runtime role has SELECT only; the owner role seeds and migrates. Policy history (keeping old versions) is not implemented yet.
+
+### Added in M2
+| Table | Contents and rules |
+|---|---|
+| api_keys | Tenant, name, role (incl. `intake_service`), SHA-256 of secret, revoked_at. API role sees only the presented key (`api_key_lookup` policy) |
+| inbox_events | Canonical envelope (JSONB), payload fingerprint, received_at, correlation ID; unique (tenant, channel, connection, provider event ID) |
+| enquiries | Tenant, inbox event (composite tenant FK, unique), channel, status (`received`, `ready_for_extraction`, `needs_review`), customer reference, text |
+| attachments | Tenant, enquiry (composite tenant FK), display filename, declared/detected type, size, SHA-256, status, rejection reason, storage key |
+| jobs | Tenant, kind, payload (references only), status, attempts/max, run_at, lease token/expiry, last error (type only), correlation ID |
+
+All use forced tenant RLS. The worker role additionally sees all `jobs` rows (`worker_queue` policy) to claim work. Composite `(tenant_id, id)` foreign keys stop a child row pointing at another tenant's parent.
 
 ## Planned entities
 | Entity | Important contents |

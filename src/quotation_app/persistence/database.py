@@ -3,7 +3,7 @@
 from sqlalchemy import Engine, create_engine, text
 
 # Readiness requires exactly this migration head; update it with every new migration.
-EXPECTED_REVISION = "0002_memberships_policies"
+EXPECTED_REVISION = "0003_intake"
 
 
 def build_engine(url: str) -> Engine:

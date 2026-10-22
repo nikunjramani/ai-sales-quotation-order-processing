@@ -8,8 +8,14 @@ from fastapi import FastAPI, Response
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
+from quotation_app.adapters.storage.local import LocalObjectStorage
+from quotation_app.api.enquiries import build_enquiry_router
+from quotation_app.application.api_keys import ApiKeyAuthenticator
+from quotation_app.application.intake import EnquiryIntakeService
 from quotation_app.config import Settings
+from quotation_app.persistence.api_keys import SqlApiKeyReader
 from quotation_app.persistence.database import build_engine, database_ready
+from quotation_app.persistence.intake import SqlIntakeStore
 
 
 class HealthResponse(BaseModel):
@@ -48,4 +54,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response.status_code = 503
         return HealthResponse(status="ready" if available else "not_ready")
 
+    # Composition root: wire adapters to application services. Nothing connects until used.
+    intake = EnquiryIntakeService(
+        SqlIntakeStore(engine), LocalObjectStorage(configuration.storage_dir)
+    )
+    app.include_router(build_enquiry_router(ApiKeyAuthenticator(SqlApiKeyReader(engine)), intake))
     return app

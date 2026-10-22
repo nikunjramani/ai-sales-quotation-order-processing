@@ -1,5 +1,6 @@
 """Validated configuration. Database credentials are never included in object reprs."""
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr, field_validator
@@ -20,8 +21,11 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     database_url: SecretStr
     migration_database_url: SecretStr | None = None
+    worker_database_url: SecretStr | None = None
+    # Private attachment storage root; tenant folders and quarantine live underneath it.
+    storage_dir: Path = Path("var/storage")
 
-    @field_validator("database_url", "migration_database_url")
+    @field_validator("database_url", "migration_database_url", "worker_database_url")
     @classmethod
     def postgres_url(cls, value: SecretStr | None) -> SecretStr | None:
         if value is None:
@@ -39,3 +43,9 @@ class Settings(BaseSettings):
         if self.migration_database_url is None:
             raise ValueError("QUOTATION_MIGRATION_DATABASE_URL is required for migrations/seed")
         return self.migration_database_url.get_secret_value()
+
+    def worker_url(self) -> str:
+        """The worker uses its own role; never fall back to the API or owner role."""
+        if self.worker_database_url is None:
+            raise ValueError("QUOTATION_WORKER_DATABASE_URL is required for the job worker")
+        return self.worker_database_url.get_secret_value()

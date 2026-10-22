@@ -1,13 +1,14 @@
-# Local setup and M0 walkthrough
-Status: foundation implemented. Live PostgreSQL verification passed locally and in GitHub Actions on 2026-10-22.
+# Local setup walkthrough
+Status: M0-M2 commands below were run on 2026-10-22 against local PostgreSQL. M0 was also verified in GitHub Actions.
 
 ## Concepts
-Python runs the application. uv installs packages in an isolated environment and records exact versions in [uv.lock](../../uv.lock).
-FastAPI provides HTTP endpoints. SQLAlchemy manages database connections and describes tables. Alembic applies versioned schema changes called migrations.
-PostgreSQL stores records; row-level security filters them by tenant context. Docker Compose defines the local database service.
-Ruff checks style, mypy checks types, pytest tests behaviour, and GitHub Actions describes automated checks. Starlette's test client requires httpx2 (the maintained successor of httpx), so it is a dev dependency.
+- **Python** runs the application. **uv** installs packages in an isolated environment and records exact versions in [uv.lock](../../uv.lock).
+- **FastAPI** provides HTTP endpoints. **SQLAlchemy** manages database connections and describes tables. **Alembic** applies versioned schema changes, called migrations.
+- **PostgreSQL** stores records, and row-level security filters them by tenant context. **Docker Compose** defines the local database service.
+- A separate **worker** process runs background jobs from a database queue (M2).
+- **Ruff** checks style, **mypy** checks types, **pytest** tests behaviour, and **GitHub Actions** runs the automated checks. Starlette's test client requires httpx2 (the maintained successor of httpx), so it is a dev dependency.
 
-## Verified offline commands
+## Offline checks
 Run from the repository root:
 ```powershell
 uv sync --locked
@@ -16,47 +17,85 @@ uv run ruff format --check .
 uv run mypy
 uv run pytest
 ```
-Default pytest explicitly skips PostgreSQL integration tests. Passing this subset does not complete M0.
+By default, pytest skips the PostgreSQL integration tests and says so.
 
 Generate local credentials once:
 ```powershell
 uv run python scripts/init_local_env.py
 ```
-Already run on this workstation. It creates an ignored .env with random development-only passwords, prints no secrets and refuses to overwrite an existing file.
+This creates an ignored `.env` with random development-only passwords for the owner, API and worker roles. It prints no secrets and refuses to overwrite an existing file.
 
-Preview schema changes:
-```powershell
-uv run alembic upgrade head --sql
-```
-This was verified; generating SQL does not prove it executed on PostgreSQL.
-
-## Database prerequisite and checks
+## Database prerequisite
 Verified workstation: Python 3.13.14, uv 0.13.1, Git, Docker Desktop 4.96.1 (engine 29.9.2, Linux containers) and Compose v5.6.0.
-Docker Desktop needs the Windows Virtual Machine Platform/WSL features (administrator access and a restart). If `docker compose` reports a missing dockerDesktopLinuxEngine pipe, the engine is not running: start Docker Desktop or run `docker desktop start`, then confirm `docker info` shows a Server section. OS setup can require administrator access and a restart; these changes were not attempted automatically.
-See [Docker Windows setup](https://docs.docker.com/desktop/setup/install/windows-install/).
+- Docker Desktop needs the Windows Virtual Machine Platform/WSL features, which require administrator access and a restart. See [Docker Windows setup](https://docs.docker.com/desktop/setup/install/windows-install/).
+- If `docker compose` reports a missing dockerDesktopLinuxEngine pipe, the engine is not running. Start Docker Desktop or run `docker desktop start`, then confirm `docker info` shows a Server section.
 
-Once Docker works:
 ```powershell
 docker compose up -d --wait
 uv run python scripts/check_database.py
 uv run python -m quotation_app.persistence.seed
 uv run python scripts/demo_quotation.py
 ```
-The demo (M1) resolves a seeded user's tenant context, prices synthetic requests through the simulated ERP and prints the calculation, blocked issues and access denials. It stores and sends nothing.
-Verified 2026-10-22: the container became healthy, the helper reported no schema drift and 9 tests passed, and the seed ran twice without changes. The helper restricts its target to local quotation_dev, upgrades migrations, checks model/schema consistency and runs integration tests. It passes credentials to subprocesses in memory, without printing them. Fixtures insert two fictional tenants; the helper does not downgrade/drop the database.
 
-Compose binds PostgreSQL to loopback port 55432. Bootstrap creates separate migration-owner and runtime roles and runs only on first volume initialization. Editing .env later does not change passwords in an existing database; use an explicit rotation procedure.
-docker compose down stops the database while retaining its named volume. Do not casually add -v: that deletes local database data.
+**Two databases:**
+- `quotation_dev` holds your development data.
+- `quotation_test` is used only by integration tests, which empty the intake and job tables before each test. They refuse to run against a database whose name doesn't end in `_test`.
+
+**`check_database.py`:**
+- Migrates and checks both databases, then runs every test against `quotation_test`.
+- `--cycle` also downgrades the test database to empty, upgrades it again and retests. CI uses this mode.
+- Credentials travel only in child-process environments and are never printed.
+
+The seed and the M1 pricing demo use `quotation_dev`; the demo stores and sends nothing.
+
+**Local database details:**
+- Compose binds PostgreSQL to loopback port 55432.
+- The role script [init.sql](../../infra/postgres/init.sql) creates the owner, API and worker roles and the test database. It runs automatically on the first volume start and is safe to run again.
+- Editing `.env` later does not change passwords in an existing database; that needs an explicit rotation.
+- `docker compose down` stops the database and keeps its named volume. Don't casually add `-v`, which deletes the local data.
+
+### Upgrading an existing local database (M0/M1 to M2)
+M2 adds a worker role and a test database. To add them without losing data:
+```powershell
+uv run python scripts/init_local_env.py --add-missing   # appends worker password and URL to .env
+docker compose up -d --wait                              # recreates the container with the new env; volume kept
+docker compose exec -T postgres psql -U postgres -d quotation_dev -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/01-roles.sql
+uv run python scripts/check_database.py
+```
+In Git Bash, set `MSYS_NO_PATHCONV=1` before the `docker compose exec` line, otherwise the container path is rewritten into a Windows path. PowerShell needs no change.
 
 ## API
 ```powershell
 uv run uvicorn quotation_app.api.app:create_app --factory --host 127.0.0.1 --port 8000
 ```
 Visit http://127.0.0.1:8000/docs, /health/live or /health/ready.
-Verified against live PostgreSQL: /health/live 200 ok, /health/ready 200 ready, /docs 200. The server was stopped afterwards.
-Liveness returns 200 when the application works. Readiness requires the expected schema and an acceptable runtime role; it returns sanitized 503 when the database is missing or unsuitable.
+- **Liveness** returns 200 when the application works.
+- **Readiness** requires the expected migration head and an acceptable runtime role. It returns a sanitized 503 when the database is missing or unsuitable.
+
+## Enquiry intake (M2)
+1. **Create an API key** for a seeded tenant. The token is printed once; keep it secret:
+   ```powershell
+   uv run python scripts/create_api_key.py --tenant 11111111-1111-4111-8111-111111111111 --role intake_service --name "local test"
+   ```
+2. **Submit an enquiry** (PowerShell):
+   ```powershell
+   $token = "qk_..."   # from step 1
+   $body = @{ text = "Please quote 50 exhaust fans for Pune"; customer_reference = "CUST-42" } | ConvertTo-Json
+   Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/enquiries -ContentType application/json `
+     -Headers @{ Authorization = "Bearer $token"; "Idempotency-Key" = "my-first-enquiry-001" } -Body $body
+   ```
+   The response is 202 with `enquiry_id` and status `received`. Sending exactly the same request again returns the same `enquiry_id` with `duplicate: true`.
+3. **Process background jobs**: `uv run python -m quotation_app.worker --once` drains the queue and exits. Leave out `--once` to keep polling until Ctrl+C.
+4. **Check the status:** `GET /api/v1/enquiries/<enquiry_id>` with the same header. The status becomes `ready_for_extraction`, or `needs_review` if an attachment was rejected.
+5. **Revoke the key:** `uv run python scripts/create_api_key.py --tenant <tenant> --revoke <key id>`.
+
+Attachments go in `attachments: [{filename, content_type, content_base64}]` and are stored under `QUOTATION_STORAGE_DIR` (default `var/storage`, ignored by Git): `tenants/<tenant>/quarantine/` first, then `clean/` after inspection.
+
+**Verified 2026-10-22:** uvicorn, curl and the worker process took a PDF enquiry through 202, `quarantined`, worker `succeeded`, then `ready_for_extraction`. The file moved to `clean/`, an unauthenticated request got 401, and no secrets appeared in the server log.
 
 ## Boundaries and troubleshooting
-Tenant context is resolved from stored membership (M1), but the subject is still a placeholder string: no endpoint exposes tenant data until real identity integration in M4.
-No AI model, ERP, messaging provider, approval or order processing is implemented.
-Missing URL: generate .env from the root or configure settings explicitly. Readiness 503: check database availability, migrations and runtime role. Integration failure: fix it; never substitute SQLite or silently skip required checks.
+- API keys are the only authentication until OIDC (M4). Person-facing tenant context still uses a placeholder subject.
+- No AI model, ERP, messaging provider, approval or order processing is implemented. Enquiries wait at `ready_for_extraction` until M3.
+- **Missing URL:** generate `.env` from the root, or run `--add-missing`.
+- **Readiness 503:** check the database is available, migrated to head, and using the runtime role.
+- **Integration failure:** fix it. Never substitute SQLite or silently skip required checks.

@@ -1,5 +1,5 @@
 # Code map
-Status: the M0 foundation and M1 domain/tenancy modules below exist. The remaining module map is a plan.
+Status: the M0 foundation, M1 domain/tenancy and M2 intake/jobs modules below exist. The remaining module map is a plan.
 
 ## Implemented foundation
 | Actual file | Responsibility |
@@ -38,6 +38,30 @@ Dependency direction: application -> ports -> domain; adapters and persistence i
 | [tests/unit/domain/](../../tests/unit/domain/test_pricing.py) | Rule tests: rounding, quantities, units, prices, stock, roles |
 | [tests/unit/application/](../../tests/unit/application/test_pricing.py) / [test_erp_contract.py](../../tests/unit/ports/test_erp_contract.py) | Use-case behaviour and the shared ERP adapter contract suite |
 | [tests/integration/persistence/test_tenancy.py](../../tests/integration/persistence/test_tenancy.py) | Two-tenant negative tests through the PostgreSQL runtime role |
+
+## Implemented M2 intake, jobs and attachments
+Entry points: the HTTP API ([api/app.py](../../src/quotation_app/api/app.py)) and the worker process ([worker.py](../../src/quotation_app/worker.py)). Both are composition roots that wire adapters to application services. See [enquiry intake](../features/enquiry-intake.md).
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/intake.py](../../src/quotation_app/domain/intake.py) | Submission limits, payload fingerprint, idempotency-key rules, canonical InboundEnvelope |
+| [domain/attachments.py](../../src/quotation_app/domain/attachments.py) | Storage keys, attachment statuses, content inspection |
+| [domain/jobs.py](../../src/quotation_app/domain/jobs.py) | Job states, kinds, PermanentJobError, backoff with jitter |
+| [ports/intake.py](../../src/quotation_app/ports/intake.py), [ports/jobs.py](../../src/quotation_app/ports/jobs.py), [ports/storage.py](../../src/quotation_app/ports/storage.py), [ports/api_keys.py](../../src/quotation_app/ports/api_keys.py) | Contracts for receipt storage, job queue, object storage and key lookup |
+| [application/intake.py](../../src/quotation_app/application/intake.py) | EnquiryIntakeService: replay/conflict handling, quarantine writes, cleanup on failure |
+| [application/api_keys.py](../../src/quotation_app/application/api_keys.py) | Key generation, token parsing, constant-time authentication |
+| [application/preparation.py](../../src/quotation_app/application/preparation.py) | Idempotent attachment inspection job handler |
+| [application/jobs.py](../../src/quotation_app/application/jobs.py) | JobRunner: complete, retry with backoff, dead-letter, lease-loss tolerance |
+| [api/enquiries.py](../../src/quotation_app/api/enquiries.py) | `/api/v1/enquiries` routes, bearer auth, size limit, error mapping |
+| [worker.py](../../src/quotation_app/worker.py) | `python -m quotation_app.worker [--once]` |
+| [persistence/intake.py](../../src/quotation_app/persistence/intake.py) | Atomic receipt (inbox + enquiry + attachments + job), status reads, worker updates |
+| [persistence/jobs.py](../../src/quotation_app/persistence/jobs.py) | SKIP LOCKED claims, leases, fenced completion |
+| [persistence/api_keys.py](../../src/quotation_app/persistence/api_keys.py) | Key lookup via the narrow RLS policy; owner-only create/revoke |
+| [adapters/storage/local.py](../../src/quotation_app/adapters/storage/local.py) | Local disk storage with strict keys and atomic writes |
+| [0003_intake.py](../../migrations/versions/0003_intake.py) | Intake/job tables, composite tenant FKs, RLS, worker/API grants |
+| [create_api_key.py](../../scripts/create_api_key.py) | Create (token shown once) or revoke API keys |
+| [tests/unit/application/](../../tests/unit/application/test_intake.py), [tests/unit/api/test_enquiries.py](../../tests/unit/api/test_enquiries.py) | Use-case and HTTP contract tests over in-memory fakes |
+| [tests/integration/api/test_enquiries.py](../../tests/integration/api/test_enquiries.py), [test_jobs.py](../../tests/integration/persistence/test_jobs.py) | End-to-end intake, races, durability, crash recovery and role isolation on PostgreSQL |
 
 ## Planned modules
 

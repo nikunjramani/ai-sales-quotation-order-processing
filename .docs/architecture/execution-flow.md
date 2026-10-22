@@ -1,5 +1,5 @@
 # Planned execution flow
-The sales workflow table below remains a target. M0 and M1 implement only the traces described here.
+The sales workflow table below remains a target. M0-M2 implement only the traces described here.
 
 ## Implemented M0 trace
 1. Uvicorn calls [create_app](../../src/quotation_app/api/app.py); [Settings](../../src/quotation_app/config.py) validates configuration and hides secrets.
@@ -18,6 +18,17 @@ Entry point: `QuotationPricingService.price`; see [quotation pricing](../feature
 4. The ERP port returns products, prices effective now in the policy currency, and stock, all stamped with source and fetch time. ERP errors propagate.
 5. [calculate_quotation](../../src/quotation_app/domain/pricing.py) validates every line, computes rounded line totals, a subtotal, tax on the subtotal and a total, and attaches price evidence plus one of five stock statuses. Any blocking issue returns `PricingRejected` listing all issues.
 Nothing is stored or sent. Persisted quotation versions arrive with approval (M4).
+
+## Implemented M2 trace (enquiry intake)
+Entry point: `POST /api/v1/enquiries`. See [enquiry intake](../features/enquiry-intake.md).
+1. The bearer API key is verified ([ApiKeyAuthenticator](../../src/quotation_app/application/api_keys.py)), which yields the tenant and role. The body is size-checked and validated, and `enquiries:submit` is required.
+2. An existing receipt for (tenant, api, key, Idempotency-Key) is returned as a replay (200), or rejected with 409 if the payload fingerprint differs.
+3. Attachments are written to `tenants/<tenant>/quarantine/<id>`.
+4. One transaction inserts the inbox event, enquiry, attachment rows and a `prepare_enquiry` job. If a concurrent duplicate wins, our files are deleted and its receipt is returned. On failure, files are deleted and the API returns 503.
+5. The API returns 202 after the commit.
+6. The worker claims the job with a lease (`FOR UPDATE SKIP LOCKED`) and sets the job's tenant context. It inspects each file: clean ones move to `clean/`, rejected ones stay quarantined. The enquiry becomes `ready_for_extraction` or `needs_review`, and the job completes, fenced by its lease token.
+7. Failures retry with backoff, up to 5 attempts, then `dead`. A crashed worker's job is reclaimed when its lease expires.
+Implemented reliability: durable receipt before acknowledgement, inbox dedupe, an atomic business change plus job intent, leased and fenced jobs, and idempotent handlers. Not yet implemented: the outbox for external sends (M5) and graph resume jobs (M3/M4).
 
 ## Planned sales workflow
 

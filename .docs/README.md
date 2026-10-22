@@ -1,5 +1,5 @@
 # Documentation index
-Status 2026-10-22: M0 complete (local and CI). M1 domain/tenancy implemented and verified against local PostgreSQL; remote CI pending. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
+Status 2026-10-22: M0 complete (local and CI). M1 domain/tenancy and M2 intake/jobs/attachments implemented and verified against local PostgreSQL; remote CI pending until pushed. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)
@@ -21,10 +21,11 @@ Status 2026-10-22: M0 complete (local and CI). M1 domain/tenancy implemented and
 - [Architecture decision records](adr/README.md)
 
 ## Engineering and operations
-- [Local setup and M0 walkthrough](development/setup.md)
-- [Configuration and health API](development/configuration.md)
+- [Local setup walkthrough](development/setup.md)
+- [Configuration, roles and API contracts](development/configuration.md)
 - [Code map (implemented and planned)](development/code-map.md)
 - [Quotation pricing and tenant context (M1)](features/quotation-pricing.md)
+- [Enquiry intake, job worker and attachment quarantine (M2)](features/enquiry-intake.md)
 - [Documentation policy and templates](development/documentation-policy.md)
 - [Testing and evaluation](development/testing.md)
 - [Security and privacy](operations/security.md)

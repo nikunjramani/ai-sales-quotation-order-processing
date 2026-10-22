@@ -18,6 +18,8 @@ class Role(StrEnum):
     SALES_OPERATOR = "sales_operator"
     APPROVER = "approver"
     VIEWER = "viewer"
+    # For API keys used by systems that only forward enquiries (not assignable to people).
+    INTAKE_SERVICE = "intake_service"
 
 
 class Permission(StrEnum):
@@ -25,17 +27,35 @@ class Permission(StrEnum):
     DRAFT_QUOTATIONS = "quotations:draft"
     APPROVE_QUOTATIONS = "quotations:approve"
     MANAGE_TENANT = "tenant:manage"
+    SUBMIT_ENQUIRIES = "enquiries:submit"
+    VIEW_ENQUIRIES = "enquiries:view"
 
 
 # Administrators do not approve by default: approval is a separate, explicitly granted role.
 ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
     {
         Role.ADMINISTRATOR: frozenset(
-            {Permission.VIEW_QUOTATIONS, Permission.DRAFT_QUOTATIONS, Permission.MANAGE_TENANT}
+            {
+                Permission.VIEW_QUOTATIONS,
+                Permission.DRAFT_QUOTATIONS,
+                Permission.MANAGE_TENANT,
+                Permission.SUBMIT_ENQUIRIES,
+                Permission.VIEW_ENQUIRIES,
+            }
         ),
-        Role.SALES_OPERATOR: frozenset({Permission.VIEW_QUOTATIONS, Permission.DRAFT_QUOTATIONS}),
-        Role.APPROVER: frozenset({Permission.VIEW_QUOTATIONS, Permission.APPROVE_QUOTATIONS}),
-        Role.VIEWER: frozenset({Permission.VIEW_QUOTATIONS}),
+        Role.SALES_OPERATOR: frozenset(
+            {
+                Permission.VIEW_QUOTATIONS,
+                Permission.DRAFT_QUOTATIONS,
+                Permission.SUBMIT_ENQUIRIES,
+                Permission.VIEW_ENQUIRIES,
+            }
+        ),
+        Role.APPROVER: frozenset(
+            {Permission.VIEW_QUOTATIONS, Permission.APPROVE_QUOTATIONS, Permission.VIEW_ENQUIRIES}
+        ),
+        Role.VIEWER: frozenset({Permission.VIEW_QUOTATIONS, Permission.VIEW_ENQUIRIES}),
+        Role.INTAKE_SERVICE: frozenset({Permission.SUBMIT_ENQUIRIES, Permission.VIEW_ENQUIRIES}),
     }
 )
 

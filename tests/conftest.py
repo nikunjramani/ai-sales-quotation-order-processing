@@ -14,10 +14,15 @@ from uuid import UUID
 import pytest
 
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
+from quotation_app.domain.attachments import AttachmentStatus
+from quotation_app.domain.intake import EnquiryStatus, InboundEnvelope
 from quotation_app.domain.money import RoundingMode
 from quotation_app.domain.pricing import PricingPolicy
 from quotation_app.domain.tenancy import Role, TenantContext
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
+from quotation_app.ports.api_keys import ApiKeyRecord
+from quotation_app.ports.intake import AttachmentView, EnquiryView, Receipt
+from quotation_app.ports.storage import ObjectNotFound
 from quotation_app.ports.tenancy import PricingPolicyNotConfigured
 
 INTEGRATION_DIR = Path(__file__).parent / "integration"
@@ -129,3 +134,123 @@ def policy_reader(
             office_tenant: make_policy(office_tenant, "EUR"),
         }
     )
+
+
+class InMemoryStorage:
+    """ObjectStorage fake. `fail_puts` makes the next put raise OSError."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.fail_puts = False
+
+    def put(self, key: str, data: bytes) -> None:
+        if self.fail_puts:
+            raise OSError("disk full")
+        self.objects[key] = data
+
+    def get(self, key: str) -> bytes:
+        try:
+            return self.objects[key]
+        except KeyError:
+            raise ObjectNotFound(key) from None
+
+    def exists(self, key: str) -> bool:
+        return key in self.objects
+
+    def move(self, source: str, destination: str) -> None:
+        self.objects[destination] = self.get(source)
+        del self.objects[source]
+
+    def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
+
+
+class FakeIntakeStore:
+    """IntakeStore fake keyed like the real unique constraint.
+
+    `fail_record` raises from record(); `concurrent_winner` simulates losing a duplicate race.
+    """
+
+    def __init__(self) -> None:
+        self.receipts: dict[tuple[UUID, str, str, str], Receipt] = {}
+        self.envelopes: dict[UUID, InboundEnvelope] = {}
+        self.fail_record: Exception | None = None
+        self.concurrent_winner: Receipt | None = None
+
+    def find_receipt(
+        self, tenant_id: UUID, channel: object, connection_id: str, provider_event_id: str
+    ) -> Receipt | None:
+        return self.receipts.get((tenant_id, str(channel), connection_id, provider_event_id))
+
+    def record(
+        self, envelope: InboundEnvelope, payload_sha256: str, enquiry_id: UUID
+    ) -> tuple[Receipt, bool]:
+        if self.fail_record is not None:
+            raise self.fail_record
+        if self.concurrent_winner is not None:
+            return self.concurrent_winner, False
+        receipt = Receipt(
+            enquiry_id,
+            EnquiryStatus.RECEIVED,
+            payload_sha256,
+            envelope.correlation_id,
+            envelope.received_at,
+        )
+        key = (
+            envelope.tenant_id,
+            str(envelope.channel),
+            envelope.connection_id,
+            envelope.provider_event_id,
+        )
+        self.receipts[key] = receipt
+        self.envelopes[enquiry_id] = envelope
+        return receipt, True
+
+    def get_enquiry(self, tenant_id: UUID, enquiry_id: UUID) -> EnquiryView | None:
+        envelope = self.envelopes.get(enquiry_id)
+        if envelope is None or envelope.tenant_id != tenant_id:
+            return None
+        return EnquiryView(
+            enquiry_id,
+            envelope.channel,
+            EnquiryStatus.RECEIVED,
+            envelope.sender_external_id,
+            envelope.received_at,
+            envelope.correlation_id,
+            tuple(
+                AttachmentView(
+                    item.attachment_id,
+                    item.filename,
+                    item.declared_content_type,
+                    item.size_bytes,
+                    AttachmentStatus.QUARANTINED,
+                    None,
+                )
+                for item in envelope.attachments
+            ),
+        )
+
+
+class FakeApiKeys:
+    """ApiKeyReader fake; tests add ApiKeyRecord values to `.records`."""
+
+    def __init__(self) -> None:
+        self.records: dict[UUID, ApiKeyRecord] = {}
+
+    def find(self, key_id: UUID) -> ApiKeyRecord | None:
+        return self.records.get(key_id)
+
+
+@pytest.fixture
+def memory_storage() -> InMemoryStorage:
+    return InMemoryStorage()
+
+
+@pytest.fixture
+def intake_store() -> FakeIntakeStore:
+    return FakeIntakeStore()
+
+
+@pytest.fixture
+def api_key_reader() -> FakeApiKeys:
+    return FakeApiKeys()

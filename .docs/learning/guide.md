@@ -28,8 +28,16 @@ Learning must explain the real architecture; it must not weaken release requirem
 | Rounding mode | Tie-break rule for an exact half | half_up: 0.125 -> 0.13; half_even: 0.125 -> 0.12 |
 | Protocol | Python's way to describe a port: methods an adapter must have | Simulated and real ERPs both satisfy ErpReader |
 | Contract test | One suite every adapter must pass | A new ERP proves it omits unknown SKUs and respects tenants |
+| Idempotency key | Caller-chosen ID meaning "this exact request" | A retried POST returns the first enquiry, not a second one |
+| 202 Accepted | "Safely stored; work continues in the background" | Sent only after the database commit |
+| Lease / fencing token | Temporary job ownership, and proof you still own it | A crashed worker's job is retried; its late result is ignored |
+| SKIP LOCKED | Database option to skip rows another worker holds | Several workers never take the same job |
+| Backoff with jitter | Wait longer after each failure, randomly within a limit | Retries do not overwhelm a recovering service |
+| Quarantine | Holding area until a file is checked | Unsafe uploads never reach extraction |
+| API key | A password for a system, tied to one business and role | The website form submits enquiries for one tenant only |
 
 M1 trace: run `uv run python scripts/demo_quotation.py`. Every price, unit and stock number comes from the ERP; the calculator only does arithmetic and checks rules. No AI is involved yet.
+M2 trace: follow [enquiry intake in the setup guide](../development/setup.md#enquiry-intake-m2) - submit twice with the same Idempotency-Key, run the worker, and watch the status and the files move from quarantine to clean.
 
 Teaching sequence: business scenario -> term -> minimal example -> production implementation -> trace inputs/outputs -> test failure -> explain tradeoffs.
 For each milestone, show an execution trace with synthetic data. Make clear which values AI interprets and which facts tools retrieve.

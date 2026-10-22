@@ -16,3 +16,11 @@
 - Bind manager messaging identities to internal memberships with proof of control. Recheck role/revocation at decision time and restrict allowed conversation contexts.
 - Provider webhook verification is necessary but not sufficient: validate the acting manager, task/version, recipient binding and expiry. Forwarded actions and uncorrelated text must not approve anything.
 - Mobile channel review may expose commercial documents to provider storage; configure permitted channels and disclosure per tenant. Never include reusable action secrets in model input or logs.
+
+## Implemented controls (M2)
+- API keys: 256-bit secrets, only SHA-256 hashes stored, constant-time comparison, one generic 401 for every failure, per-tenant scope and role, revocation. Tokens are printed once and never logged.
+- Tenant identity for intake comes only from the key; request bodies with unknown fields (including `tenant_id`) are rejected.
+- Uploads are size-limited, stored under server-generated tenant keys (never filenames), quarantined until inspected, and rejected on type mismatch, encrypted PDFs or active PDF content. This is not malware scanning: a scanner is a release gate before real files.
+- Job payloads hold references only; job errors record exception types only, never customer text.
+- Separate database roles: the API cannot read the job queue; the worker sees only the queue across tenants and needs tenant context for everything else.
+- Integration tests refuse to run unless pointed at a `*_test` database.

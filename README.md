@@ -4,7 +4,7 @@ A multi-business platform, still being built, that turns customer enquiries into
 
 The goal is a reusable product that many businesses (tenants) can use with their own email or messaging channels and their existing ERP or inventory system. It is also a learning project for LangChain, LangGraph and reliable workflow engineering, so every part is documented in plain language.
 
-> **Status (2026-10-22):** M0 foundation is complete. M1 (tenancy and deterministic pricing) is implemented and verified locally. Customer channels, AI extraction, approvals, PDFs and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
+> **Status (2026-10-22):** M0 foundation is complete. M1 (tenancy, deterministic pricing) and M2 (durable enquiry intake API, background job worker, attachment quarantine) are implemented and verified locally. AI extraction, approvals, PDFs, email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
 
 ## What it will do
 1. Receive an enquiry from email, Telegram, an API and later WhatsApp or Instagram.
@@ -22,7 +22,9 @@ The goal is a reusable product that many businesses (tenants) can use with their
 | Tenant membership, roles (administrator, sales operator, approver, viewer) and permission checks | ✅ M1 |
 | Deterministic quotation calculator: Decimal money, per-tenant rounding and tax, quantity and unit rules; a missing price is never treated as zero | ✅ M1 |
 | ERP contract plus a simulated ERP with two fictional businesses | ✅ M1 |
-| Enquiry intake, AI extraction, LangGraph workflow, approvals, PDFs, email/Telegram, orders | ⏳ Planned (M2-M7) |
+| Enquiry intake API with API keys, replay-safe idempotency keys and durable receipt | ✅ M2 |
+| Background worker with leased, retried, crash-safe jobs; attachment quarantine and inspection | ✅ M2 |
+| AI extraction, LangGraph workflow, approvals, PDFs, email/Telegram, orders | ⏳ Planned (M3-M7) |
 
 ## Tech stack
 Python 3.13, [uv](https://docs.astral.sh/uv/), FastAPI, SQLAlchemy 2, Alembic, PostgreSQL 17 (Docker Compose), pytest, Ruff, mypy (strict) and GitHub Actions. LangChain and LangGraph arrive with M3.
@@ -48,7 +50,12 @@ uv run python -m quotation_app.persistence.seed
 
 # 6. See a priced quotation, a blocked request and access checks
 uv run python scripts/demo_quotation.py
+
+# 7. Create an API key for intake (token printed once) and run the background worker
+uv run python scripts/create_api_key.py --tenant 11111111-1111-4111-8111-111111111111 --role intake_service --name "local test"
+uv run python -m quotation_app.worker
 ```
+Submitting an enquiry with the key is shown in the [setup guide](.docs/development/setup.md#enquiry-intake-m2). An existing M0/M1 database needs a one-time [upgrade step](.docs/development/setup.md#upgrading-an-existing-local-database-m0m1-to-m2).
 
 Run the API:
 ```powershell
@@ -66,22 +73,23 @@ uv run ruff format --check .        # formatting
 uv run mypy                         # strict type checking
 uv run pytest                       # unit tests (integration tests are skipped)
 uv run pytest tests/unit            # unit tests only
-uv run python scripts/check_database.py   # migrations + all tests on local PostgreSQL
+uv run python scripts/check_database.py   # migrate both DBs + all tests on quotation_test
 ```
-Integration tests never use your `.env` by accident: they need `--run-integration` plus explicit `TEST_DATABASE_URL` and `TEST_MIGRATION_DATABASE_URL`, which `check_database.py` supplies for the local database. CI runs everything on every push. See [testing](.docs/development/testing.md).
+Integration tests never touch your development data: they need `--run-integration` plus explicit `TEST_*` URLs that must name a `*_test` database, which `check_database.py` supplies. CI runs everything on every push. See [testing](.docs/development/testing.md).
 
 ## Project layout
 ```text
 src/quotation_app/
   domain/        Pure business rules: money, tenancy, catalogue facts, pricing
   ports/         Contracts (interfaces) that adapters implement, e.g. ErpReader
-  application/   Use cases: resolve tenant context, price a quotation
-  adapters/      Implementations of ports, e.g. the simulated ERP
-  persistence/   Database models, tenant-scoped repositories, demo seed
-  api/           FastAPI app and health endpoints
+  application/   Use cases: tenant context, pricing, enquiry intake, job running
+  adapters/      Implementations of ports: simulated ERP, local file storage
+  persistence/   Database models, tenant-scoped repositories, job queue, demo seed
+  api/           FastAPI app: health and /api/v1/enquiries
+  worker.py      Background job worker process
   config.py      Validated settings from environment / .env
 migrations/      Alembic schema migrations
-scripts/         Local helpers: credentials, database checks, pricing demo
+scripts/         Local helpers: credentials, database checks, pricing demo, API keys
 tests/
   conftest.py    Shared fixtures (tenants, contexts, policies, simulated ERP)
   unit/          Offline tests; folders mirror src/quotation_app
@@ -103,7 +111,7 @@ Domain code imports no framework, database or provider code; [a test](tests/unit
 - [Documentation index](.docs/README.md): start here.
 - [Roadmap](.docs/plan/roadmap.md) and [current handoff](.docs/handoff.md): what is done and what is next.
 - [System architecture](.docs/architecture/system.md) and [execution flow](.docs/architecture/execution-flow.md).
-- [Quotation pricing (M1)](.docs/features/quotation-pricing.md) and [code map](.docs/development/code-map.md).
+- [Quotation pricing (M1)](.docs/features/quotation-pricing.md), [enquiry intake (M2)](.docs/features/enquiry-intake.md) and [code map](.docs/development/code-map.md).
 - [Architecture decisions (ADRs)](.docs/adr/README.md) and the [learning guide](.docs/learning/guide.md).
 
 ## Contributing

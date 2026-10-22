@@ -8,14 +8,19 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
+    Index,
     Integer,
     MetaData,
     Numeric,
     SmallInteger,
     String,
+    Text,
     UniqueConstraint,
     func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -87,4 +92,133 @@ class TenantPricingPolicy(Base):
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6))
     max_price_age_seconds: Mapped[int] = mapped_column(Integer)
     max_stock_age_seconds: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+ROLE_CHECK = "role IN ('administrator', 'sales_operator', 'approver', 'viewer', 'intake_service')"
+
+
+class ApiKey(Base):
+    """Service-account credential. Only a SHA-256 hash of the secret is stored."""
+
+    __tablename__ = "api_keys"
+    __table_args__ = (CheckConstraint(ROLE_CHECK, name="ck_api_keys_role"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    name: Mapped[str] = mapped_column(String(100))
+    role: Mapped[str] = mapped_column(String(32))
+    secret_sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class InboxEvent(Base):
+    """Durable receipt of one provider event; the unique key makes replays detectable."""
+
+    __tablename__ = "inbox_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "channel",
+            "connection_id",
+            "provider_event_id",
+            name="uq_inbox_events_provider_event",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_inbox_events_tenant_id_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    channel: Mapped[str] = mapped_column(String(32))
+    connection_id: Mapped[str] = mapped_column(String(100))
+    provider_event_id: Mapped[str] = mapped_column(String(200))
+    payload_sha256: Mapped[str] = mapped_column(String(64))
+    envelope: Mapped[dict[str, object]] = mapped_column(JSONB)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    correlation_id: Mapped[UUID] = mapped_column()
+
+
+class Enquiry(Base):
+    __tablename__ = "enquiries"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "inbox_event_id"],
+            ["inbox_events.tenant_id", "inbox_events.id"],
+            name="fk_enquiries_inbox_event",
+        ),
+        UniqueConstraint("inbox_event_id", name="uq_enquiries_inbox_event_id"),
+        UniqueConstraint("tenant_id", "id", name="uq_enquiries_tenant_id_id"),
+        CheckConstraint(
+            "status IN ('received', 'ready_for_extraction', 'needs_review')",
+            name="ck_enquiries_status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    inbox_event_id: Mapped[UUID] = mapped_column()
+    channel: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32))
+    customer_reference: Mapped[str | None] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(Text)
+    correlation_id: Mapped[UUID] = mapped_column()
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "enquiry_id"],
+            ["enquiries.tenant_id", "enquiries.id"],
+            name="fk_attachments_enquiry",
+        ),
+        Index("ix_attachments_tenant_enquiry", "tenant_id", "enquiry_id"),
+        CheckConstraint(
+            "status IN ('quarantined', 'clean', 'rejected')", name="ck_attachments_status"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    enquiry_id: Mapped[UUID] = mapped_column()
+    filename: Mapped[str] = mapped_column(String(255))
+    declared_content_type: Mapped[str] = mapped_column(String(100))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16))
+    detected_content_type: Mapped[str | None] = mapped_column(String(100))
+    rejection_reason: Mapped[str | None] = mapped_column(String(50))
+    storage_key: Mapped[str] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Job(Base):
+    """Durable work item. Payload holds references only, never documents or secrets."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_claim", "status", "run_at"),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'dead')", name="ck_jobs_status"
+        ),
+        CheckConstraint("attempts >= 0 AND max_attempts >= 1", name="ck_jobs_attempts"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    kind: Mapped[str] = mapped_column(String(50))
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16))
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    max_attempts: Mapped[int] = mapped_column(Integer)
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[UUID | None] = mapped_column()
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    correlation_id: Mapped[UUID] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

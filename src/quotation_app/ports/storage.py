@@ -1,0 +1,27 @@
+"""Private object storage for attachments. Keys come from domain.attachments.attachment_key."""
+
+from typing import Protocol
+
+
+class ObjectNotFound(Exception):
+    pass
+
+
+class ObjectStorage(Protocol):
+    def put(self, key: str, data: bytes) -> None:
+        """Store bytes. Overwriting an existing key with identical bytes must succeed."""
+        ...
+
+    def get(self, key: str) -> bytes:
+        """Raise ObjectNotFound if absent."""
+        ...
+
+    def exists(self, key: str) -> bool: ...
+
+    def move(self, source: str, destination: str) -> None:
+        """Move within the store. Raise ObjectNotFound if the source is absent."""
+        ...
+
+    def delete(self, key: str) -> None:
+        """Delete if present; deleting a missing key is not an error."""
+        ...

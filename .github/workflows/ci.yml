@@ -24,19 +24,9 @@ jobs:
       - name: Start disposable database
         run: docker compose up -d --wait
       - name: Check migrations and integration behaviour
-        shell: bash
-        run: |
-          set -a
-          source .env
-          set +a
-          export TEST_DATABASE_URL="$QUOTATION_DATABASE_URL"
-          export TEST_MIGRATION_DATABASE_URL="$QUOTATION_MIGRATION_DATABASE_URL"
-          uv run alembic upgrade head
-          uv run alembic check
-          uv run pytest --run-integration
-          uv run alembic downgrade base
-          uv run alembic upgrade head
-          uv run pytest --run-integration
+        # Migrates quotation_dev and quotation_test, runs integration tests on quotation_test,
+        # then downgrades the test database to empty, upgrades again and repeats the tests.
+        run: uv run python scripts/check_database.py --cycle
       - name: Stop CI database
         if: always()
         run: docker compose down

@@ -1,5 +1,5 @@
 # Integration contracts
-Contracts below are design schemas unless marked implemented. The ERP read contract is implemented in M1 as [ErpReader](../../src/quotation_app/ports/erp.py).
+Contracts below are design schemas unless marked implemented. Implemented: the ERP read contract (M1, [ErpReader](../../src/quotation_app/ports/erp.py)), the canonical envelope ([InboundEnvelope](../../src/quotation_app/domain/intake.py), stored per inbox event) and the API channel with `/api/v1/enquiries` create/status (M2, see [enquiry intake](../features/enquiry-intake.md)). For the API channel, `connection_id` is the API key subject and `provider_event_id` is the caller's Idempotency-Key.
 
 ## Channel adapters
 A channel adapter verifies provider events and maps them into a common envelope:

@@ -19,7 +19,8 @@ htmlcov/
 dist/
 build/
 
-# Local runtime data
+# Local runtime data (var/ holds attachment storage)
+var/
 *.log
 *.sqlite
 *.sqlite3
