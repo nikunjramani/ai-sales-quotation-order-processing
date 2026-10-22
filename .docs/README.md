@@ -1,5 +1,5 @@
 # Documentation index
-Status 2026-10-22: M0 complete (local and CI). M1 domain/tenancy and M2 intake/jobs/attachments implemented and verified against local PostgreSQL; remote CI pending until pushed. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
+Status 2026-10-22: M0, M1 (domain/tenancy) and M2 (intake/jobs/attachments) are complete and verified locally and in CI. M3 is next. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)

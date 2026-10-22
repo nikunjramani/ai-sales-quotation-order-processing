@@ -71,7 +71,7 @@ Result on 2026-10-22: 153 unit tests passed and 23 integration tests were skippe
 
 Run [check_database.py](../../scripts/check_database.py) only after local PostgreSQL starts. It migrates and checks `quotation_dev` and `quotation_test`, then runs every test against `quotation_test`. With integration tests enabled, missing or non-`_test` URLs make the run fail; by default they are skipped visibly.
 
-CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the M0 sequence; CI for M1-M2 runs after push.
+CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the M0 sequence; [CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222) and [CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875) passed for M1 and M2.
 
 ## Planned business suites
 - Domain unit tests: Decimal totals, rounding, quantity/unit validation, expiry, pricing policies, missing values.

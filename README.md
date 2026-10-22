@@ -4,7 +4,7 @@ A multi-business platform, still being built, that turns customer enquiries into
 
 The goal is a reusable product that many businesses (tenants) can use with their own email or messaging channels and their existing ERP or inventory system. It is also a learning project for LangChain, LangGraph and reliable workflow engineering, so every part is documented in plain language.
 
-> **Status (2026-10-22):** M0 foundation is complete. M1 (tenancy, deterministic pricing) and M2 (durable enquiry intake API, background job worker, attachment quarantine) are implemented and verified locally. AI extraction, approvals, PDFs, email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
+> **Status (2026-10-22):** M0 (foundation), M1 (tenancy, deterministic pricing) and M2 (durable enquiry intake API, background job worker, attachment quarantine) are complete and verified locally and in CI. AI extraction, approvals, PDFs, email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
 
 ## What it will do
 1. Receive an enquiry from email, Telegram, an API and later WhatsApp or Instagram.

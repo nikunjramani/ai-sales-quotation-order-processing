@@ -2,10 +2,8 @@
 Updated: 2026-10-22.
 
 ## Current state
-- **Current milestone: M2 (intake)** is implemented and verified against local PostgreSQL, but not yet committed.
-- **M1** is committed locally as 5d1ae69 and not pushed.
-- **M0** is COMPLETE (local and CI); commits c6d163c and c6c63dc are on origin/main.
-- **CI for M1 and M2** runs after push. Neither milestone is marked complete until it passes.
+- **M0, M1 and M2 are COMPLETE** (local and CI). M1 is commit 5d1ae69 ([CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222)); M2 is commit d7707eb ([CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875)). All are on origin/main.
+- **Next milestone: M3 (AI and graph).** It needs a model provider and budget choice from the user.
 - Public [repository](https://github.com/nikunjramani/ai-sales-quotation-order-processing), branch main. The user's local `.vscode/settings.json` is intentionally untracked.
 - No AI integration, real channel or ERP connection, approval, PDF, order or deployment exists yet.
 
@@ -44,7 +42,7 @@ Updated: 2026-10-22.
   - The server log had no secret-like lines. The server was stopped, the smoke-test key revoked, and the temporary token file deleted.
   - The smoke enquiry remains in `quotation_dev` (synthetic).
 - The local database container keeps running with its named volume.
-- **Not yet run:** GitHub Actions for M1 and M2 (needs push).
+- **GitHub Actions:** M1 [CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222) passed. M2 [CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875) passed on a fresh environment: lint, format, mypy, 153 unit passed/23 skipped, then quotation_dev and quotation_test migrated with no drift, 176 passed, downgrade to empty, upgrade, 176 passed. This also proves the new init.sql creates the worker role and test database on a clean volume.
 - **Known CI warnings:** actions/checkout@v4 and setup-python@v5 target deprecated Node 20; ubuntu-latest is migrating to Ubuntu 26.
 
 ## Known gaps (tracked, not blocking M2)
@@ -56,8 +54,7 @@ Updated: 2026-10-22.
 - OCR and scanned-PDF support are undecided (M3).
 
 ## Next task
-1. With user authorization, commit M2 and push M1 and M2 to main. Confirm CI (`check_database.py --cycle`) passes, then mark M1 and M2 complete in the roadmap, ADRs 0010-0011 and this handoff.
-2. Then start M3 (AI and graph): bounded text/PDF extraction, structured requirements, product matching against `ErpReader.search_products`, LangGraph branches and persistent checkpoints, consuming enquiries in `ready_for_extraction` through a new job kind.
+1. Start M3 (AI and graph): bounded text/PDF extraction, structured requirements, product matching against `ErpReader.search_products`, LangGraph branches and persistent checkpoints, consuming enquiries in `ready_for_extraction` through a new job kind.
    - **Before starting:** the user must choose a model provider and budget (open decision).
    - **Safety rule:** AI output never sets prices, stock or permissions; the M1 calculator does that.
 - Update this handoff in every change; never mark milestones complete without evidence.
