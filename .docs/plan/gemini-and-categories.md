@@ -22,8 +22,10 @@ quantities…?"). Causes:
 
 ## Part A: Gemini provider (an adapter only; the workflow is unchanged)
 - `pyproject.toml`
-  - Add an optional extra `gemini = ["langchain-google-genai>=X,<Y"]`, pinned to a release at least
-    14 days old (check PyPI first).
+  - Add an optional extra `gemini = ["langchain-google-genai>=4.4,<5"]` and lock **4.4.0**
+    (2026-09-01). 4.4.1 and 4.4.2 were under 14 days old on 2026-10-23. Re-check on the day.
+    - 4.4.0 needs `langchain-core>=1.6.1,<2` (we lock 1.6.13) and `google-genai>=2.20,<3`.
+    - Check that the locked `google-genai` release is also at least 14 days old.
   - `uv lock`; CI already syncs `--all-extras`.
 - [config.py](../../src/quotation_app/config.py)
   - `model_provider: Literal["rules","ollama","gemini"]`.
@@ -39,7 +41,13 @@ quantities…?"). Causes:
   `InterpretationRejected`, which leads to `needs_review`. Wire the factory call sites (worker) to
   pass the key.
 - [.env.example](../../.env.example): commented `QUOTATION_MODEL_PROVIDER=gemini`, `QUOTATION_MODEL_NAME`
-  and `QUOTATION_GEMINI_API_KEY`. Look up the current Flash-Lite model ID at implementation.
+  and `QUOTATION_GEMINI_API_KEY`. Model: `gemini-3.5-flash-lite`.
+  - Google's models page (checked 2026-10-23) lists it as stable and the recommended Flash-Lite.
+    `gemini-3.1-flash-lite` is also stable.
+  - The pricing page says it has a free tier and that free-tier content **is used to improve
+    Google's products**, which confirms the synthetic-data-only rule.
+  - Free-tier rate limits are not published reliably (third-party pages say roughly 15-30 requests
+    per minute). Read them in AI Studio for the key's project.
 - [evaluate_extraction.py](../../scripts/evaluate_extraction.py): add `gemini` to the providers, reading
   the key from settings.
 
