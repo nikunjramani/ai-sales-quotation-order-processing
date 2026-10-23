@@ -23,7 +23,7 @@ The core keeps calling only this. Each business **chooses its source** in the po
 | **D. ERP / shop sync** | An adapter copies the system into our catalogue tables on a schedule or by webhook; the core reads our tables | Minutes behind | Per system | Systems with slow or limited APIs; also prepares for E |
 | **E. Our own inventory (future)** | Our catalogue tables grow into a full stock system (movements, reservations, warehouses) | Live, it is the source | Large; a future product | Businesses with no system that want one |
 
-**Recommendation (D18):**
+**Decided (D18, user 2026-10-23): manual entry in the portal (B) only for now**; spreadsheet import, ERP and shop connectors come in later phases. We store these products (D19). Original recommendation, for context:
 - Build **A + B** first: our own catalogue tables plus a "local catalogue" source.
   - It works for every business on day one, needs no outside accounts, and is the foundation for E.
   - Real ERP connectors (C/D) follow for the pilot business's actual system.

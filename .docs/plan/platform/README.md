@@ -18,6 +18,7 @@
 | 6 | [Future commerce](06-future-commerce.md) | Orders, tracking, status updates, payments, own inventory: the extension points to build in now |
 | 7 | [Decisions needed](07-decisions-needed.md) | Every open question, with options and a recommendation |
 | 8 | [Phases](08-phases.md) | The order of work, what each phase delivers and how it is verified |
+| 9 | [One-click integrations](09-one-click-integrations.md) | The business presses **Enable** and we create every account the tool needs (per business); what each platform still requires; company setup tasks |
 
 ## Principles (from AGENTS.md and earlier ADRs, still binding)
 - **Generic and pluggable.** Providers are chosen by configuration or by adding a package, never by `if provider == "x"` branches or provider-named settings (AGENTS.md, ADR 0017).

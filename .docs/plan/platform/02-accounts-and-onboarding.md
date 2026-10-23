@@ -19,12 +19,8 @@
 They fit the existing permission map in `domain/tenancy.py`.
 
 ## Sign-up and login
-- **Identity provider.** Login stays behind the existing `VerifiedIdentity` port (ADR 0013). The provider is configurable and generic (OIDC), the same approach as AI models.
-- **The choice is yours** ([decision D1/D2](07-decisions-needed.md)). Options:
-  - Google/Microsoft sign-in;
-  - email and password, or a one-time email code;
-  - a hosted service (Auth0, Clerk) or a free self-hosted one (Keycloak).
-- **The dev login stays** for development only.
+**Decided (user, 2026-10-23): email only.** People sign up and log in with their email and a password. Nothing else for now; other options can be added later behind the same login port (ADR 0013).
+- The dev login stays for development only.
 
 ## Creating a business
 - **Steps:**
@@ -55,6 +51,6 @@ Each step is shown as done or missing. The checklist reads the real state, such 
 | API keys | Create (shown once), revoke; replaces `scripts/create_api_key.py` | `integrations:manage` |
 
 ## Things that stay open ([07](07-decisions-needed.md))
-- Who may sign up: anyone, or only invited businesses during the pilot (D3).
-- Billing and plans: proposed out of scope for now (D4).
+- Who may sign up: **decided, anyone** (D3).
+- Billing and plans: **decided, out of scope** (D4).
 - Removing a business and deleting its data: retention rules (D17).

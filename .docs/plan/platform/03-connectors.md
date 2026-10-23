@@ -86,8 +86,11 @@ Providers that are polled rather than called (e.g. an IMAP mailbox) use the same
   - **Buttons** (Telegram, WhatsApp interactive messages): the button carries the action reference.
   - **Reply commands** where buttons don't exist ("reply APPROVE 4821").
   - **A signed approval link that opens a one-click portal page.** This works on every tool, including SMS and plain email, and is the universal fallback.
-- **Email direct-reply approval** is still an open decision about trusted evidence (D10).
+- **Approving by a written reply (decided, D10):** the manager may just write "approved" or similar, and the AI decides whether it means approve, reject or revise. Safety rules (confirmed by the user): only from the manager's linked account, only as a reply to one specific approval request, unclear replies get a follow-up question, the system confirms what it recorded, and the existing approval rules still apply.
 - **The rules stay in `ApprovalService`:** approver role, no self-approval, current version and hash, one decision per task.
+
+## One-click Enable
+Businesses don't configure tools themselves: they press **Enable** and the provider's `provision` operation creates the accounts for that business. Only the steps a platform insists on are left to them (e.g. one Meta pop-up). See [09-one-click-integrations.md](09-one-click-integrations.md).
 
 ## Website chat (provider `web_chat`, our own)
 - **Embedding:** the manager copies a script snippet into their website. It shows a chat bubble.
@@ -119,4 +122,4 @@ There is no core, database, worker or portal change.
 | Instagram messaging | ✅ | — (not for managers) | Instagram professional account linked to a Facebook page, Meta app review | Free API; review needed |
 | SMS | ✅ | links | An SMS provider and a number | Paid per message |
 
-Which come first, and whether to go directly to Meta or use a provider such as Twilio or Gupshup, are decisions D5-D7.
+**Decided (D6):** one third-party messaging provider, not several. **Open (D7):** no single provider covers every tool. The proposal is Twilio (WhatsApp, SMS, email via SendGrid) plus Telegram directly, which is free and simple. Each is still just one adapter package.
