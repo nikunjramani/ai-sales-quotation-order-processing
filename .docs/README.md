@@ -1,5 +1,5 @@
 # Documentation index
-Status 2026-10-23: M0-M5 are complete (local and CI). M6 (customer acceptance) is implemented and verified locally; CI pending until pushed. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
+Status 2026-10-23: M0-M6 are complete (local and CI). Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)

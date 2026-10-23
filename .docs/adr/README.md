@@ -16,6 +16,6 @@ Accepted denotes intended design, not implemented code. Date: 2026-10-22.
 - [0013: Portal identity, immutable versions and the shared approval core](0013-portal-identity-and-approval-core.md) — implemented in M4; verified locally and in CI
 - [0014: Portal structure by feature and layer, with TanStack Query and Zustand](0014-portal-structure-and-state.md) — implemented; verified locally and in CI
 - [0015: Approved quotation PDFs and an honest delivery outbox; email approval deferred](0015-quotation-documents-and-delivery.md) — implemented in M5; verified locally and in CI
-- [0016: Customer acceptance through the API, with validity, price re-check and automatic revision](0016-customer-acceptance.md) — implemented in M6 (user decisions 2026-10-23); verified locally
+- [0016: Customer acceptance through the API, with validity, price re-check and automatic revision](0016-customer-acceptance.md) — implemented in M6 (user decisions 2026-10-23); verified locally and in CI
 
 New decisions get sequential IDs. Preserve history and explicitly link superseding records.

@@ -2,7 +2,7 @@
 Updated: 2026-10-23 (M6).
 
 ## Current state
-- **M0-M5 are COMPLETE** (local and CI), all on origin/main:
+- **M0-M6 are COMPLETE** (local and CI), all on origin/main:
 
   | Milestone | Commit | CI run |
   |---|---|---|
@@ -11,9 +11,10 @@ Updated: 2026-10-23 (M6).
   | M3 | 52cccd7 | [39747434193](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39747434193) |
   | M4 | 21f0ba5 | [39900219005](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39900219005) (`verify` and `portal` jobs) |
   | M5 | 6f951ec | [39903715921](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39903715921) (both jobs) |
+  | M6 | f545201 | [39907493342](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39907493342) (both jobs) |
 
   For M3 the user could not install Ollama on the corporate VM, so it ships with the free rules interpreter.
-- **Current milestone: M6 (customer acceptance).** Implemented and verified locally, **not yet committed**. Mark it complete only after CI passes. Decisions taken with the user on 2026-10-23 ([ADR 0016](adr/0016-customer-acceptance.md)): acceptance only (no ERP order or reservation); answers through the API; 7-day default validity from delivery; accept/decline (no PO number); any price change refuses and drafts a revision for approval; stock ignored; expiry closes; staff withdrawal with a reason; a portal plus linked-channel notice; a rejected revision closes.
+- **Last milestone: M6 (customer acceptance), complete.** Next milestone not chosen yet: ask the user first. Decisions taken with the user on 2026-10-23 ([ADR 0016](adr/0016-customer-acceptance.md)): acceptance only (no ERP order or reservation); answers through the API; 7-day default validity from delivery; accept/decline (no PO number); any price change refuses and drafts a revision for approval; stock ignored; expiry closes; staff withdrawal with a reason; a portal plus linked-channel notice; a rejected revision closes.
 - **Working rule (user, 2026-10-23):** ask before assuming anything. Follow [clarify-before-building](../.claude/skills/clarify-before-building/SKILL.md), which is also in AGENTS.md.
 - **User decisions (2026-10-23):**
   - **Email approval is out of scope for now:** managers approve in the portal.
@@ -76,7 +77,7 @@ Updated: 2026-10-23 (M6).
     - dev `types-reportlab` 5.0.0.20261008.
     - The architecture test allows `reportlab` in adapters only.
 
-- **M6 (uncommitted):** see [customer acceptance](features/customer-acceptance.md).
+- **M6:** see [customer acceptance](features/customer-acceptance.md).
   - **Customer API:** `POST /api/v1/enquiries/{id}/quotation/response` (accept/decline the exact version and hash, `Idempotency-Key`). `GET .../quotation` gains `status`, `valid_until`, `content_sha256` and `response_path`.
   - **Acceptance re-pricing:**
     - Accepting re-prices from the ERP. Any difference refuses it: `refused_changed` plus version N+1 created by the system, then manager approval and delivery.
@@ -186,6 +187,5 @@ Updated: 2026-10-23 (M6).
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
    - Follow [setup](development/setup.md#approvals-and-portal-m4).
-2. With user authorization, commit M6 and push. Confirm CI passes, then mark M6 complete (roadmap, ADR 0016/README, README, this handoff).
-3. Next milestone (orders or another): ask the user every open question first (clarify-before-building).
+2. Next milestone (orders or another): ask the user every open question first (clarify-before-building).
 - Update this handoff in every change; never mark milestones complete without evidence.

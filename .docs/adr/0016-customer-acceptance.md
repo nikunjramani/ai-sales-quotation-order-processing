@@ -1,6 +1,6 @@
 # 0016: Customer acceptance through the API, with validity, price re-check and automatic revision
 Date: 2026-10-23
-Status: accepted; implemented in M6 (verified locally; CI after push)
+Status: accepted; implemented in M6 (commit f545201, [CI run 39907493342](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39907493342) passed)
 Changes the M6 scope in the [roadmap](../plan/roadmap.md); builds on [0013](0013-portal-identity-and-approval-core.md) and [0015](0015-quotation-documents-and-delivery.md)
 
 ## Context
