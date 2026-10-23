@@ -223,4 +223,6 @@ def assess(
         outcome = ExtractionOutcome.NEEDS_CLARIFICATION
     else:
         outcome = ExtractionOutcome.READY_FOR_QUOTATION
-    return Assessment(outcome, tuple(lines), tuple(questions), tuple(reasons))
+    # Two items can lead to the same question (e.g. "cable price" and "list of cables").
+    unique = tuple(dict.fromkeys(questions))
+    return Assessment(outcome, tuple(lines), unique, tuple(reasons))

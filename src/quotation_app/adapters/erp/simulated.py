@@ -84,7 +84,8 @@ class SimulatedErp:
         if not query.strip() or not 1 <= limit <= 50:
             raise ErpError(ErpErrorCode.INVALID_REQUEST, "Query and a limit of 1-50 required")
         catalogue = self._catalogue(context, "search_products")
-        wanted = _search_words(query)
+        # "IND-FAN" also searches "IND" and "FAN", like the SKU side below.
+        wanted = _search_words(f"{query} {query.replace('-', ' ')}")
         scored = []
         for sku, product in sorted(catalogue.products.items()):
             words = _search_words(
@@ -93,8 +94,10 @@ class SimulatedErp:
             score = len(wanted & words)
             if score:
                 scored.append((-score, sku, product))
-        # Best word overlap first, like a typical ERP keyword search.
-        return [product for _, _, product in sorted(scored)][:limit]
+        # Only the best word overlap, like a typical ERP keyword search: "IND-FAN" matches the
+        # fans on "ind" and "fan", not every IND- product on "ind" alone.
+        best = min((score for score, _, _ in scored), default=0)
+        return [product for score, _, product in sorted(scored) if score == best][:limit]
 
     def list_categories(self, context: TenantContext) -> Sequence[str]:
         catalogue = self._catalogue(context, "list_categories")

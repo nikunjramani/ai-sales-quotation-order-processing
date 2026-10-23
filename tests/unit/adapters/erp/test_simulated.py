@@ -88,3 +88,11 @@ def test_search_finds_products_by_category(
     context = make_context(industrial_tenant, Role.VIEWER)
     assert [p.sku for p in simulated_erp.search_products(context, "fasteners")] == ["IND-BOLT-M8"]
     assert simulated_erp.search_products(context, "tata sierra car") == []
+
+
+def test_partial_code_finds_only_the_best_matches(
+    simulated_erp: SimulatedErp, make_context: ContextFactory, industrial_tenant: UUID
+) -> None:
+    context = make_context(industrial_tenant, Role.VIEWER)
+    found = [p.sku for p in simulated_erp.search_products(context, "IND-FAN")]
+    assert found == ["IND-FAN-450", "IND-FAN-600"]  # not every IND- product
