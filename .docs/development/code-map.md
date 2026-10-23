@@ -74,7 +74,7 @@ Entry point: `extract_requirements` jobs in the worker ([worker.py](../../src/qu
 | [workflows/enquiry.py](../../src/quotation_app/workflows/enquiry.py) | LangGraph graph (extract -> match -> assess -> ready/clarify/review) and ExtractionJobHandler |
 | [adapters/interpreters/rules.py](../../src/quotation_app/adapters/interpreters/rules.py) | Free offline rules interpreter (default) |
 | [adapters/interpreters/langchain.py](../../src/quotation_app/adapters/interpreters/langchain.py) | Any LangChain chat model: JSON + strict Pydantic, data-tagged prompts |
-| [adapters/interpreters/factory.py](../../src/quotation_app/adapters/interpreters/factory.py) | Provider selection (`rules`, `ollama`); where new providers are added |
+| [adapters/interpreters/factory.py](../../src/quotation_app/adapters/interpreters/factory.py) | Generic interpreter selection: no model = rules; `<provider>:<model>` = any LangChain chat model via `init_chat_model` (ADR 0017) |
 | [adapters/documents/text.py](../../src/quotation_app/adapters/documents/text.py) | Bounded PDF/text reading; unsupported reasons instead of empty text |
 | [persistence/workflow.py](../../src/quotation_app/persistence/workflow.py) | SqlWorkflowStore and the worker-role PostgreSQL checkpointer |
 | [0004_workflow.py](../../migrations/versions/0004_workflow.py) | workflow_runs, frozen LangGraph checkpoint tables, M3 enquiry statuses, worker grants |

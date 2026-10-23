@@ -70,7 +70,7 @@
 - Model output is untrusted: strict JSON schemas with no extra fields, verbatim quote checks against the customer's text, product choices limited to ERP candidates, template (not model-written) customer questions. Prices, stock and permissions never come from a model.
 - Customer content is wrapped in data tags; attempts to close the tag are neutralised. Invalid answers go to human review.
 - LangGraph checkpoints have no tenant column: only the worker role can access them, always through a tenant-scoped workflow_runs row; API and public access revoked. Document text is not stored in checkpoints.
-- Default interpreter is offline; with Ollama, data stays on the local machine. Any hosted provider must be reviewed for data handling before real customer data.
+- Default interpreter is offline (no AI). Any hosted model (e.g. the Gemini free tier, whose prompts may be used to improve Google's products) is for synthetic data only until its data handling is reviewed for real customer data.
 
 ## Implemented controls (M2)
 - API keys: 256-bit secrets, only SHA-256 hashes stored, constant-time comparison, one generic 401 for every failure, per-tenant scope and role, revocation. Tokens are printed once and never logged.

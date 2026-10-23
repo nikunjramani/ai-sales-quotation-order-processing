@@ -1,6 +1,6 @@
 """Score an enquiry interpreter on synthetic cases by running the real extraction workflow.
 
-The same dataset judges every provider (rules, Ollama, or a future paid model), so switching
+The same dataset judges every interpreter (rules or any AI model from settings), so switching
 models is a measured decision. No database is needed: runs use in-memory storage and
 checkpoints. Pricing is out of scope here; see the M1 calculator.
 """

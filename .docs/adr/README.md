@@ -17,6 +17,6 @@ Accepted denotes intended design, not implemented code. Date: 2026-10-22.
 - [0014: Portal structure by feature and layer, with TanStack Query and Zustand](0014-portal-structure-and-state.md) — implemented; verified locally and in CI
 - [0015: Approved quotation PDFs and an honest delivery outbox; email approval deferred](0015-quotation-documents-and-delivery.md) — implemented in M5; verified locally and in CI
 - [0016: Customer acceptance through the API, with validity, price re-check and automatic revision](0016-customer-acceptance.md) — implemented in M6 (user decisions 2026-10-23); verified locally and in CI
-- [0017: Gemini as the first hosted enquiry reader, and category-based "not found" replies](0017-gemini-reader-and-category-replies.md) — user decisions 2026-10-23; implemented, live Gemini evaluation pending the user's key
+- [0017: A generic AI enquiry reader (first model: Gemini free tier), and category-based "not found" replies](0017-gemini-reader-and-category-replies.md) — user decisions 2026-10-23; implemented, live Gemini evaluation pending the user's key
 
 New decisions get sequential IDs. Preserve history and explicitly link superseding records.

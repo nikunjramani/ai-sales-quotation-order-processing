@@ -24,7 +24,7 @@ The goal is a reusable product that many businesses (tenants) can use with their
 | ERP contract plus a simulated ERP with two fictional businesses | ✅ M1 |
 | Enquiry intake API with API keys, replay-safe idempotency keys and durable receipt | ✅ M2 |
 | Background worker with leased, retried, crash-safe jobs; attachment quarantine and inspection | ✅ M2 |
-| Requirement extraction (LangGraph, checkpoints): free rules interpreter or local Ollama model, swappable; verbatim checks, ERP matching, clarification questions | ✅ M3 |
+| Requirement extraction (LangGraph, checkpoints): free rules interpreter or any AI model from settings (generic, e.g. Gemini); verbatim checks, ERP matching, clarification questions | ✅ M3 |
 | Quotation versions, manager approval (portal + simulated channel), revision loop, React portal with dev login | ✅ M4 |
 | Approved quotation PDFs (stored, hash-checked), delivery outbox with honest outcomes, customer download API, portal preview and delivery status | ✅ M5 |
 | Customer accept/decline through the API, validity (default 7 days), price re-check with automatic revision, expiry, staff withdrawal | ✅ M6 |

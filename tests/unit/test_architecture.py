@@ -22,9 +22,8 @@ THIRD_PARTY = {
     "adapters": {
         "pypdf",
         "reportlab",
+        "langchain",
         "langchain_core",
-        "langchain_ollama",
-        "langchain_google_genai",
         "pydantic",
     },
     "workflows": {"langgraph", "langchain_core"},

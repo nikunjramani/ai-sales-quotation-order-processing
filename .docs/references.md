@@ -21,5 +21,6 @@ Architectural decisions are project choices. These sources establish relevant pl
 - [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence): checkpoints, threads and resuming.
 - [LangChain output parsers](https://python.langchain.com/docs/concepts/output_parsers/): parsing model text into validated structures.
 - [pypdf text extraction](https://pypdf.readthedocs.io/en/stable/user/extract-text.html): PDF text layers and their limits.
-- [Ollama](https://ollama.com/): free local model runtime; [langchain-ollama](https://python.langchain.com/docs/integrations/chat/ollama/) adapter.
+- [LangChain init_chat_model](https://python.langchain.com/docs/how_to/chat_models_universal_init/): one generic way to load any provider's chat model.
+- [Gemini models](https://ai.google.dev/gemini-api/docs/models) and [pricing / free tier](https://ai.google.dev/gemini-api/docs/pricing).
 - [OWASP LLM prompt injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/): why model input is treated as untrusted data.

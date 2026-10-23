@@ -41,7 +41,7 @@ Learning must explain the real architecture; it must not weaken release requirem
 | Verbatim check | The model must copy the customer's exact words; we verify them | Invented items are caught and sent to a person |
 | Structured output | The model answers in a fixed JSON shape, checked strictly | Extra fields like a price make the answer invalid |
 | Prompt injection | Customer text trying to give the AI orders | Treated as data; prices never come from the model |
-| Evaluation dataset | Fixed test enquiries with expected answers | Compare free rules, Ollama or a paid model fairly |
+| Evaluation dataset | Fixed test enquiries with expected answers | Compare free rules and any AI model fairly |
 | Immutable version | A quotation snapshot that never changes; edits create a new one | The manager approves exactly version 2, not "the quote" |
 | Content hash | A fingerprint of the content | A decision on an old page fails because the hash no longer matches |
 | Interrupt / resume | A workflow pauses for a person and continues later from its checkpoint | Waiting days for approval survives worker restarts |

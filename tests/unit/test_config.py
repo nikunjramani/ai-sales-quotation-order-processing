@@ -19,24 +19,15 @@ def test_missing_migration_url_has_no_runtime_fallback() -> None:
         settings.migration_url()
 
 
-def test_gemini_needs_a_model_and_a_key_that_stays_hidden() -> None:
-    key = SecretStr("synthetic-gemini-key")
+def test_ai_model_is_generic_and_its_key_stays_hidden() -> None:
     settings = Settings(
         _env_file=None,
         database_url=RUNTIME_URL,
-        model_provider="gemini",
-        model_name="gemini-3.5-flash-lite",
-        gemini_api_key=key,
+        model="google_genai:gemini-3.5-flash-lite",
+        model_api_key=SecretStr("synthetic-model-key"),
+        model_options={"timeout": 30},
     )
-    assert "synthetic-gemini-key" not in repr(settings)
-    with pytest.raises(ValidationError, match="GEMINI_API_KEY"):
-        Settings(
-            _env_file=None,
-            database_url=RUNTIME_URL,
-            model_provider="gemini",
-            model_name="gemini-3.5-flash-lite",
-        )
-    with pytest.raises(ValidationError, match="MODEL_NAME"):
-        Settings(
-            _env_file=None, database_url=RUNTIME_URL, model_provider="gemini", gemini_api_key=key
-        )
+    assert "synthetic-model-key" not in repr(settings)
+    assert Settings(_env_file=None, database_url=RUNTIME_URL).model is None  # rules, no AI
+    with pytest.raises(ValidationError, match="model"):
+        Settings(_env_file=None, database_url=RUNTIME_URL, model="gemini-3.5-flash-lite")

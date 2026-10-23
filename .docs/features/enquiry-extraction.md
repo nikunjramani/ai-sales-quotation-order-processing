@@ -1,5 +1,5 @@
 # Enquiry extraction workflow (M3)
-**Status and milestone:** implemented in M3 and verified locally. The free `rules` interpreter is the default. The `ollama` adapter is built and unit-tested but not yet evaluated live, because Ollama isn't installed here. The `gemini` provider and the category replies were added on 2026-10-23 ([ADR 0017](../adr/0017-gemini-reader-and-category-replies.md)); a live Gemini evaluation waits for the user's key.
+**Status and milestone:** implemented in M3 and verified locally. The free `rules` interpreter is the default. Since 2026-10-23 the AI reader is generic: any LangChain chat model from settings (the Gemini free tier is the first one), and the category replies were added ([ADR 0017](../adr/0017-gemini-reader-and-category-replies.md)); a live Gemini evaluation waits for the user's key.
 
 **Business purpose:** turn "Please quote 2 x IND-FAN-450 and 150 pcs M8 bolts" into exact catalogue lines ready for pricing. When something is unclear, ask a precise question instead of guessing.
 
@@ -66,7 +66,7 @@ The `lines` are exactly what the M1 calculator accepts as `RequestedLine`s. Clar
 ## Failures and recovery
 | Failure | What happens |
 |---|---|
-| Model unavailable, rate-limited or bad key (incl. Gemini), ERP temporarily down | Job retried with backoff (5 attempts, then dead); resumes from the checkpoint. No fallback to rules (user decision) |
+| Model unavailable, rate-limited or bad key, ERP temporarily down | Job retried with backoff (5 attempts, then dead); resumes from the checkpoint. No fallback to rules (user decision) |
 | Invalid model output | `needs_review` (not retried) |
 | Enquiry missing or belongs to another tenant | Job becomes dead (permanent) |
 | Unreadable attachment | `needs_review`, with the reason |
@@ -74,23 +74,15 @@ The `lines` are exactly what the M1 calculator accepts as `RequestedLine`s. Clar
 ## Configuration (names only)
 | Setting | Meaning |
 |---|---|
-| `QUOTATION_MODEL_PROVIDER` | `rules` (default), `ollama` or `gemini` |
-| `QUOTATION_MODEL_NAME` | Required for `ollama` and `gemini` (e.g. `gemini-3.5-flash-lite`) |
-| `QUOTATION_GEMINI_API_KEY` | Required for `gemini` (secret) |
-| `QUOTATION_OLLAMA_BASE_URL` | Default `http://127.0.0.1:11434` |
-| `QUOTATION_MODEL_TIMEOUT_SECONDS` | Default 120 |
+| `QUOTATION_MODEL` | Unset: free rules (default). Otherwise `<provider>:<model>`, any LangChain chat model |
+| `QUOTATION_MODEL_API_KEY` | The provider's key (secret) |
+| `QUOTATION_MODEL_OPTIONS` | Optional JSON for the model (timeout, retries, base URL...) |
 
-To switch on Ollama:
-1. Install Ollama.
-2. Pull a small model.
-3. Set the provider and model name in `.env`.
-4. Run `scripts/evaluate_extraction.py --provider ollama --model <name>` before relying on it.
-
-To switch on Gemini (synthetic data only on the free tier):
-1. Create a key at aistudio.google.com and put it in `.env` as `QUOTATION_GEMINI_API_KEY`.
-2. Set `QUOTATION_MODEL_PROVIDER=gemini` and `QUOTATION_MODEL_NAME=gemini-3.5-flash-lite`.
-3. `uv sync --extra gemini` (CI and `--all-extras` already include it).
-4. Run `scripts/evaluate_extraction.py --provider gemini --model gemini-3.5-flash-lite`, then restart the worker.
+The reader is generic ([factory.py](../../src/quotation_app/adapters/interpreters/factory.py) uses LangChain's `init_chat_model`); no provider is named in code. To use a provider:
+1. Make sure its LangChain package is in the `ai` extra in `pyproject.toml` (today: `langchain-google-genai`). Adding another provider is a package line, not code.
+2. `uv sync --extra ai` (CI and `--all-extras` already include it).
+3. Set `QUOTATION_MODEL` and `QUOTATION_MODEL_API_KEY` in `.env`, e.g. `google_genai:gemini-3.5-flash-lite` with a key from aistudio.google.com (free tier: synthetic data only).
+4. Run `uv run python scripts/evaluate_extraction.py --model <provider>:<model>`, then restart the worker.
 
 ## Tests and evaluation
 See [testing](../development/testing.md). Rules interpreter on 2026-10-22: 12/12 cases, 0 invented facts, about 0.01 s per case; on 2026-10-23: 14/14 (two "unsold product" cases check the category reply via `expected_question`).
