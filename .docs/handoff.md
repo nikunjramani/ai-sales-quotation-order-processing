@@ -183,7 +183,16 @@ Updated: 2026-10-23 (M6).
 - Enquiry exceptions are listed in the portal but cannot be edited or answered there yet. Clarification questions are still not sent.
 - Carried over: no OCR, no malware scanner, local storage only, no dead-job view.
 
+## User decisions (2026-10-23, after M6): AI reader and "not found" replies
+Planned, not built: [plan/gemini-and-categories.md](plan/gemini-and-categories.md).
+- **Why:** with the rules reader, "price for tata cars" got the same fixed "which products and quantities?" reply repeatedly.
+- **Provider:** Google Gemini free tier, small (Flash-Lite class) model, synthetic/demo data only. Needs `QUOTATION_GEMINI_API_KEY` in `.env` (the user creates it; never in chat or Git).
+- **AI down or rate-limited:** wait and retry (no fallback to rules).
+- **Not found:** say so and list the business's product **categories** (from the ERP); asking about a category lists its products.
+- **Replies:** stay fixed templates; AI only reads enquiries.
+
 ## Next task
+0. Implement [plan/gemini-and-categories.md](plan/gemini-and-categories.md) when the user asks.
 1. Optionally open the portal in a browser (use "Run all" in VS Code):
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
