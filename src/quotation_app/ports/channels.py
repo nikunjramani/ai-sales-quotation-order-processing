@@ -40,7 +40,7 @@ class ActionReference:
 
 
 class ApprovalNotifier(Protocol):
-    """Delivers a review packet to one bound manager account. Raises on failure (retried)."""
+    """Delivers messages to one bound manager account. Raises on failure (retried)."""
 
     channel: str
 
@@ -51,6 +51,13 @@ class ApprovalNotifier(Protocol):
         action_reference: str,
         expires_at: datetime,
     ) -> None: ...
+
+    def send_notice(self, binding: ChannelBinding, notice_id: UUID, text: str) -> None:
+        """An information-only message (e.g. "customer accepted Q-..."); it has no actions.
+
+        notice_id identifies the event, so a provider can drop a repeated delivery.
+        """
+        ...
 
 
 class NotificationStore(Protocol):

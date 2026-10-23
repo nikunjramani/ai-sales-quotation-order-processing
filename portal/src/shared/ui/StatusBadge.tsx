@@ -5,6 +5,10 @@ const LABELS: Record<string, string> = {
   revision_submitted: "Revision submitted",
   approved: "Approved",
   rejected: "Rejected",
+  accepted: "Accepted",
+  declined: "Declined",
+  expired: "Expired",
+  withdrawn: "Withdrawn",
   pending: "Pending",
   needs_review: "Needs review",
   needs_clarification: "Needs clarification",
@@ -16,7 +20,9 @@ const LABELS: Record<string, string> = {
 
 const TONES: Record<string, string> = {
   approved: "good",
+  accepted: "good",
   available: "good",
+  declined: "bad",
   rejected: "bad",
   pricing_failed: "bad",
   needs_review: "warn",

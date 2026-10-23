@@ -1,5 +1,5 @@
 # Code map
-Status: the M0 foundation, M1 domain/tenancy, M2 intake/jobs, M3 extraction, M4 approval/portal and M5 documents/delivery modules below exist. The remaining module map is a plan.
+Status: the M0 foundation, M1 domain/tenancy, M2 intake/jobs, M3 extraction, M4 approval/portal, M5 documents/delivery and M6 customer acceptance modules below exist. The remaining module map is a plan.
 
 ## Implemented foundation
 | Actual file | Responsibility |
@@ -127,6 +127,18 @@ See [quotation delivery](../features/quotation-delivery.md) and [adding channels
 | [persistence/documents.py](../../src/quotation_app/persistence/documents.py) | `queue_delivery` (outbox row + job), SqlDeliveryStore, SqlDocumentReader |
 | [0006_documents.py](../../migrations/versions/0006_documents.py) | quotation_documents (append-only) and quotation_deliveries, RLS, column grants |
 | portal `features/quotations` | `DocumentPanel`, `DeliveryList`, `deliveryService.ts`, `useQuotationDocuments.ts` |
+
+## Implemented M6 customer acceptance
+See [customer acceptance](../features/customer-acceptance.md).
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/acceptance.py](../../src/quotation_app/domain/acceptance.py) | Customer statuses, outcomes, price comparison, validity, answer fingerprints |
+| [ports/acceptance.py](../../src/quotation_app/ports/acceptance.py) | ResponseStore (offers, atomic recording under a lock) |
+| [application/acceptance.py](../../src/quotation_app/application/acceptance.py) | QuotationResponseService (respond/withdraw/expire), expiry and notice job handlers |
+| [persistence/acceptance.py](../../src/quotation_app/persistence/acceptance.py) | SqlResponseStore: row-locked recording, revised version, resume/notice jobs |
+| [0007_acceptance.py](../../migrations/versions/0007_acceptance.py) | Validity setting and column, quotation_responses (append-only), new statuses |
+| portal `features/quotations` | `CustomerPanel`, `customerService.ts`, `useCustomerAnswer.ts`, list filters |
 
 ## Planned modules
 

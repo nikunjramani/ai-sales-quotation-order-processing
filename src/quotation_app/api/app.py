@@ -18,6 +18,7 @@ from quotation_app.api.auth import PortalAuth, build_auth_router
 from quotation_app.api.channels import build_channel_router
 from quotation_app.api.enquiries import build_enquiry_router
 from quotation_app.api.portal import build_portal_router
+from quotation_app.application.acceptance import QuotationResponseService
 from quotation_app.application.api_keys import ApiKeyAuthenticator
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
@@ -28,6 +29,7 @@ from quotation_app.application.quotations import QuotationService
 from quotation_app.application.sessions import SessionService
 from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
+from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.api_keys import SqlApiKeyReader
 from quotation_app.persistence.channels import SqlChannelStore
 from quotation_app.persistence.database import build_engine, database_ready
@@ -86,8 +88,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     documents = QuotationDocumentService(
         SqlDocumentReader(engine), storage, ReportLabQuotationRenderer()
     )
+    # Only the simulated ERP exists until a pilot ERP is connected (M7).
+    erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
+    pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
+    # Customer answers (M6): accept/decline through the API, withdrawal in the portal.
+    responses = QuotationResponseService(SqlResponseStore(engine), pricing)
     app.include_router(
-        build_enquiry_router(ApiKeyAuthenticator(SqlApiKeyReader(engine)), intake, documents)
+        build_enquiry_router(
+            ApiKeyAuthenticator(SqlApiKeyReader(engine)), intake, documents, responses
+        )
     )
 
     # Portal (M4): sessions, quotations, approvals and manager channels.
@@ -107,8 +116,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             configuration.cookie_secure,
         )
     )
-    # Only the simulated ERP exists until a pilot ERP is connected (M7).
-    erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
     approvals = ApprovalService(SqlApprovalStore(engine), resolver)
     channels = ChannelActionService(SqlChannelStore(engine), approvals)
     app.include_router(
@@ -117,12 +124,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             QuotationService(
                 SqlQuotationReader(engine),
                 SqlRevisionStore(engine),
-                QuotationPricingService(erp, SqlPricingPolicyReader(engine)),
+                pricing,
             ),
             approvals,
             channels,
             EnquiryListService(SqlEnquiryListReader(engine)),
             documents,
+            responses,
         )
     )
     secret = configuration.simulated_channel_secret

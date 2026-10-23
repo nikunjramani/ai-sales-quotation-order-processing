@@ -23,6 +23,8 @@ class JobKind(StrEnum):
     NOTIFY_APPROVERS = "notify_approvers"
     RESUME_QUOTATION = "resume_quotation"
     DELIVER_QUOTATION = "deliver_quotation"
+    EXPIRE_QUOTATION = "expire_quotation"
+    NOTIFY_RESPONSE = "notify_response"
 
 
 class PermanentJobError(Exception):

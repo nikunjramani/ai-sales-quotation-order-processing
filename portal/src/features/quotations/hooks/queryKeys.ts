@@ -10,4 +10,6 @@ export const quotationKeys = {
     [...quotationKeys.all(tenantId), "detail", quotationId] as const,
   delivery: (tenantId: string, quotationId: string) =>
     [...quotationKeys.all(tenantId), "delivery", quotationId] as const,
+  customer: (tenantId: string, quotationId: string) =>
+    [...quotationKeys.all(tenantId), "customer", quotationId] as const,
 };

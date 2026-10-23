@@ -1,6 +1,7 @@
 """Delivery of approved quotations: only approved versions, honest outcomes, no duplicates."""
 
 import hashlib
+from datetime import timedelta
 from io import BytesIO
 from typing import Any
 from uuid import UUID, uuid4
@@ -69,7 +70,12 @@ def test_api_enquiry_gets_the_approved_pdf_made_available(harness: Any) -> None:
     assert document.content_sha256 == version.content_sha256
     text = "".join(page.extract_text() for page in PdfReader(BytesIO(data)).pages)
     assert str(version.content["total"]) in text  # the PDF matches the approved total
-    assert harness.db.run_status[next(iter(harness.db.run_status))] == "approved"
+    # Valid for the tenant's days (default 7) from delivery, printed on the PDF (M6).
+    assert document.valid_until == harness.clock() + timedelta(days=7)
+    assert "Valid until " + document.valid_until.strftime("%Y-%m-%d %H:%M") + " UTC" in text
+    assert harness.db.run_status == {}  # the run now waits for the customer's answer (M6)
+    [expiry] = harness.db.take_jobs(JobKind.EXPIRE_QUOTATION)
+    assert expiry.run_at == document.valid_until
     assert enquiry
 
 

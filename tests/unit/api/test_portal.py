@@ -50,6 +50,7 @@ def build_app(harness: Any, sessions: Any, directory: Any, dev: bool = True) -> 
             harness.channels,
             EnquiryListService(NoEnquiries()),
             harness.documents(),
+            harness.responses(),
             clock=harness.clock,
         )
     )
@@ -324,3 +325,32 @@ def test_pdf_problems_are_reported_honestly(
     tampered = client.get(f"{url}/document.pdf")
     assert tampered.status_code == 500
     assert "integrity" in tampered.json()["detail"]
+
+
+def test_staff_see_the_customer_view_and_can_withdraw(
+    client: TestClient, harness: Any, pending: tuple[UUID, Any]
+) -> None:
+    headers = login(client, MANAGER)
+    quotation_id, task = pending
+    url = f"{base(harness)}/quotations/{quotation_id}"
+    before = client.get(f"{url}/customer").json()
+    assert before["customer_status"] is None and before["can_withdraw"] is False
+    body = {"command_id": str(uuid4()), "reason": "Mistake in quantity"}
+    not_issued = client.post(f"{url}/withdrawal", json=body, headers=headers)
+    assert not_issued.status_code == 409
+
+    harness.approvals.decide(MANAGER, harness.command(task))
+    harness.run_jobs()
+    view = client.get(f"{url}/customer").json()
+    assert view["customer_status"] == "open" and view["can_withdraw"] is True
+    assert view["offered_version"] == 1 and view["valid_until"]
+    assert client.post(f"{url}/withdrawal", json=body).status_code == 403  # no CSRF header
+    withdrawn = client.post(f"{url}/withdrawal", json=body, headers=headers)
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["response"]["outcome"] == "withdrawn"
+    again = client.post(f"{url}/withdrawal", json=body, headers=headers)
+    assert again.status_code == 200 and again.json()["replayed"] is True
+    view = client.get(f"{url}/customer").json()
+    assert view["customer_status"] == "withdrawn" and view["can_withdraw"] is False
+    assert [item["outcome"] for item in view["responses"]] == ["withdrawn"]
+    assert client.get(f"{base(harness)}/quotations", params={"status": "withdrawn"}).json()

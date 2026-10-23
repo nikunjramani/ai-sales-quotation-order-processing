@@ -11,7 +11,12 @@ from quotation_app.domain.pricing import RequestedLine
 from quotation_app.domain.quotations import ApprovalAction, QuotationStatus, TaskStatus
 from quotation_app.ports.erp import ErpError, ErpErrorCode
 from quotation_app.ports.jobs import ClaimedJob
-from quotation_app.workflows.quotation import GRAPH_VERSION, WorkflowNotWaiting
+from quotation_app.workflows.quotation import (
+    GRAPH_VERSION,
+    QuotationWorkflowDeps,
+    WorkflowNotWaiting,
+    build_quotation_graph,
+)
 
 FAN = ("IND-FAN-450", "2", "each")
 PUMP = ("IND-PUMP-2HP", "1", "each")  # no price in the simulated ERP
@@ -32,7 +37,16 @@ def run_id(harness: Any, enquiry: UUID) -> UUID:
     return found
 
 
-def test_priced_draft_waits_for_a_manager_then_approval_finishes_the_run(harness: Any) -> None:
+def waiting_for(harness: Any, enquiry: UUID) -> object:
+    """What the paused run waits for (its interrupt value), or None if it is not paused."""
+    graph = build_quotation_graph(
+        QuotationWorkflowDeps(harness.db, harness.pricing, harness.db), harness.checkpointer
+    )
+    state = graph.get_state({"configurable": {"thread_id": str(run_id(harness, enquiry))}})
+    return state.interrupts[0].value if state.interrupts else None
+
+
+def test_priced_draft_waits_for_a_manager_then_for_the_customer(harness: Any) -> None:
     enquiry = harness.enquiry(FAN)
     harness.run_jobs()
     quotation = harness.quotation(enquiry)
@@ -46,7 +60,9 @@ def test_priced_draft_waits_for_a_manager_then_approval_finishes_the_run(harness
     assert harness.quotation(enquiry).status is QuotationStatus.APPROVED
     assert [job.kind for job in harness.db.jobs] == [JobKind.RESUME_QUOTATION]
     harness.run_jobs()
-    assert harness.db.run_status[run_id(harness, enquiry)] == "approved"
+    # Approved: delivered, and the run now waits for the customer's answer (M6).
+    assert run_id(harness, enquiry) not in harness.db.run_status
+    assert waiting_for(harness, enquiry) == {"waiting_for": "customer", "version": 1}
 
 
 def test_reject_closes_the_quotation(harness: Any) -> None:
@@ -81,7 +97,7 @@ def test_revision_loop_creates_a_new_version_and_a_new_approval_task(harness: An
 
     harness.approvals.decide(MANAGER, harness.command(second))
     harness.run_jobs()
-    assert harness.db.run_status[run_id(harness, enquiry)] == "approved"
+    assert waiting_for(harness, enquiry) == {"waiting_for": "customer", "version": 2}
 
 
 def test_unpriceable_request_waits_for_a_revision_instead_of_inventing_a_price(

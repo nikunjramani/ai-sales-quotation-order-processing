@@ -1,6 +1,7 @@
 import { apiUrl, http, tenantPath } from "@/shared/api/httpClient";
 
 import type {
+  CustomerView,
   DecisionRequest,
   DeliveryOverview,
   QuotationDetail,
@@ -8,6 +9,7 @@ import type {
   QuotationSummary,
   RevisionRequest,
   RevisionResult,
+  WithdrawalRequest,
 } from "../model/types";
 
 // Repository: the quotation endpoints, nothing else. No state, no business decisions.
@@ -35,6 +37,17 @@ export const quotationRepository = {
   delivery: (tenantId: string, quotationId: string) =>
     http<DeliveryOverview>(
       tenantPath(tenantId, `/quotations/${encodeURIComponent(quotationId)}/delivery`),
+    ),
+
+  customerView: (tenantId: string, quotationId: string) =>
+    http<CustomerView>(
+      tenantPath(tenantId, `/quotations/${encodeURIComponent(quotationId)}/customer`),
+    ),
+
+  withdraw: (tenantId: string, quotationId: string, request: WithdrawalRequest) =>
+    http<unknown>(
+      tenantPath(tenantId, `/quotations/${encodeURIComponent(quotationId)}/withdrawal`),
+      { method: "POST", body: request },
     ),
 
   // PDFs are opened by the browser as downloads (the session cookie goes with them).

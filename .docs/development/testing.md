@@ -63,13 +63,19 @@ Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
 | `make_api_key(tenant_id, role)` | Creates a key with owner credentials and returns its token |
 | `storage` | LocalObjectStorage under the temporary storage folder |
 
-## Current checks (M0-M5)
+## Current checks (M0-M6)
 Run uv run ruff check ., uv run ruff format --check ., uv run mypy and uv run pytest from the root; `uv run pytest tests/unit` runs only the unit tests.
 
-Result on 2026-10-23 (M5):
-- **Offline:** 296 unit tests passed and 39 integration tests were skipped.
-- **PostgreSQL** (`check_database.py --cycle`): all 335 passed, then passed again after a downgrade to empty and re-upgrade.
-- **Portal:** `cd portal; npm run typecheck; npm test; npm run build` passed (36 tests).
+Result on 2026-10-23 (M6):
+- **Offline:** 327 unit tests passed and 44 integration tests were skipped.
+- **PostgreSQL** (`check_database.py --cycle`): all 371 passed, then passed again after a downgrade to empty and re-upgrade.
+- **Portal:** `cd portal; npm run typecheck; npm test; npm run build` passed (41 tests).
+
+M6 adds:
+- **Acceptance tests:** price-change revision through re-approval, expiry with a controllable harness clock (`harness.advance`; delayed jobs wait for their `run_at`), withdrawal roles, and replay/conflict.
+- **PostgreSQL tests:** an accept/withdraw race, expiry run by the worker role, and append-only answers.
+
+M5 results (same day): 296 unit, 335 with PostgreSQL, 36 portal.
 
 M5 adds:
 - **PDF content checks:** pypdf extracts the text and compares it with the approved version.

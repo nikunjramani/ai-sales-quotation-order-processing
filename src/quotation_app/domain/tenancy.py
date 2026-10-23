@@ -29,6 +29,8 @@ class Permission(StrEnum):
     MANAGE_TENANT = "tenant:manage"
     SUBMIT_ENQUIRIES = "enquiries:submit"
     VIEW_ENQUIRIES = "enquiries:view"
+    # Accept or decline an issued quotation (customer systems only, through their API key).
+    RESPOND_QUOTATIONS = "quotations:respond"
 
 
 # Administrators do not approve by default: approval is a separate, explicitly granted role.
@@ -55,7 +57,13 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             {Permission.VIEW_QUOTATIONS, Permission.APPROVE_QUOTATIONS, Permission.VIEW_ENQUIRIES}
         ),
         Role.VIEWER: frozenset({Permission.VIEW_QUOTATIONS, Permission.VIEW_ENQUIRIES}),
-        Role.INTAKE_SERVICE: frozenset({Permission.SUBMIT_ENQUIRIES, Permission.VIEW_ENQUIRIES}),
+        Role.INTAKE_SERVICE: frozenset(
+            {
+                Permission.SUBMIT_ENQUIRIES,
+                Permission.VIEW_ENQUIRIES,
+                Permission.RESPOND_QUOTATIONS,
+            }
+        ),
     }
 )
 

@@ -10,7 +10,7 @@ real SQL implementations follow the same rules.
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -21,6 +21,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from quotation_app.adapters.delivery.api import ApiPullDelivery
 from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.erp.simulated import SimulatedErp
+from quotation_app.application.acceptance import (
+    QuotationExpiryHandler,
+    QuotationResponseService,
+    ResponseNotificationHandler,
+)
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.delivery import QuotationDeliveryHandler
@@ -29,6 +34,16 @@ from quotation_app.application.notifications import ApprovalNotificationHandler
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.tenancy import TenantContextResolver
+from quotation_app.domain.acceptance import (
+    DEFAULT_QUOTE_VALIDITY_DAYS,
+    QUOTATION_STATUS_FOR,
+    SYSTEM_SUBJECT,
+    Offer,
+    OfferNotOpen,
+    RecordedResponse,
+    ResponseOutcome,
+    customer_status,
+)
 from quotation_app.domain.documents import (
     OFFERED_STATUSES,
     DeliveryRecord,
@@ -52,6 +67,7 @@ from quotation_app.domain.quotations import (
     quotation_number,
 )
 from quotation_app.domain.tenancy import Role, TenantContext
+from quotation_app.ports.acceptance import NewResponse
 from quotation_app.ports.approvals import TaskState
 from quotation_app.ports.channels import ActionReference, ChannelBinding
 from quotation_app.ports.documents import (
@@ -136,6 +152,7 @@ class Job:
     tenant_id: UUID
     kind: JobKind
     payload: dict[str, str]
+    run_at: datetime | None = None  # delayed jobs (expiry) wait until the harness clock reaches it
 
 
 class _RunLock:
@@ -211,6 +228,9 @@ class MemoryQuotations:
     senders: dict[UUID, tuple[str, str]] = field(default_factory=dict)
     delivery_rows: dict[UUID, tuple[UUID, DeliveryRecord]] = field(default_factory=dict)
     documents: dict[UUID, tuple[UUID, StoredDocument]] = field(default_factory=dict)
+    validity_days: dict[UUID, int] = field(default_factory=dict)  # tenant -> days (default 7)
+    # response ID -> (tenant, response, idempotency key, fingerprint)
+    response_rows: dict[UUID, tuple[UUID, RecordedResponse, str, str]] = field(default_factory=dict)
     # Name of a method -> exception raised on its next call (failure injection).
     fail_next: dict[str, Exception] = field(default_factory=dict)
 
@@ -692,6 +712,7 @@ class MemoryQuotations:
             self.tenant_names.get(tenant_id, "Demo"),
             self.customer_refs.get(quotation.enquiry_id),
             self._document_for(tenant_id, record.quotation_id, record.version),
+            self.validity_days.get(tenant_id, DEFAULT_QUOTE_VALIDITY_DAYS),
         )
 
     def _source(self, tenant_id: UUID, quotation_id: UUID, version: int) -> DocumentSource | None:
@@ -774,6 +795,16 @@ class MemoryQuotations:
                 delivered_at=now if status in OFFERED_STATUSES else record.delivered_at,
             ),
         )
+        if status in OFFERED_STATUSES:
+            document = self.documents[document_id or record.document_id or uuid4()][1]
+            self.jobs.append(
+                Job(
+                    tenant_id,
+                    JobKind.EXPIRE_QUOTATION,
+                    {"quotation_id": str(record.quotation_id), "version": str(record.version)},
+                    run_at=document.valid_until,
+                )
+            )
         return True
 
     def source(self, tenant_id: UUID, quotation_id: UUID, version: int) -> DocumentSource | None:
@@ -819,6 +850,153 @@ class MemoryQuotations:
         tenant, record = self.delivery_rows[delivery_id]
         if tenant == tenant_id and record.first_downloaded_at is None:
             self.delivery_rows[delivery_id] = (tenant, replace(record, first_downloaded_at=at))
+
+    # --- ResponseStore (M6) ----------------------------------------------------------------
+    def find_response(
+        self, tenant_id: UUID, idempotency_key: str
+    ) -> tuple[RecordedResponse, str] | None:
+        for tenant, response, key, fingerprint in self.response_rows.values():
+            if tenant == tenant_id and key == idempotency_key:
+                return response, fingerprint
+        return None
+
+    def _offer(self, tenant_id: UUID, records: list[DeliveryRecord]) -> Offer | None:
+        offered = [r for r in records if r.status in OFFERED_STATUSES and r.document_id]
+        if not offered:
+            return None
+        record = max(offered, key=lambda item: item.version)
+        assert record.document_id is not None
+        document = self.documents[record.document_id][1]
+        quotation = self.quotations[record.quotation_id]
+        version = next(
+            row.view
+            for row in self._versions(tenant_id, record.quotation_id)
+            if row.view.version == record.version
+        )
+        return Offer(
+            tenant_id=tenant_id,
+            tenant_name=self.tenant_names.get(tenant_id, "Demo"),
+            quotation_id=record.quotation_id,
+            enquiry_id=quotation.enquiry_id,
+            status=quotation.status,
+            current_version=quotation.current_version,
+            version=record.version,
+            content=dict(version.content),
+            content_sha256=version.content_sha256,
+            valid_until=document.valid_until,
+            issued_at=record.delivered_at,
+        )
+
+    def offer_for_enquiry(self, tenant_id: UUID, enquiry_id: UUID, channel: str) -> Offer | None:
+        return self._offer(
+            tenant_id,
+            [
+                record
+                for tenant, record in self.delivery_rows.values()
+                if tenant == tenant_id
+                and self.quotations[record.quotation_id].enquiry_id == enquiry_id
+                and record.channel == channel
+            ],
+        )
+
+    def offer_for_quotation(self, tenant_id: UUID, quotation_id: UUID) -> Offer | None:
+        return self._offer(
+            tenant_id,
+            [
+                record
+                for tenant, record in self.delivery_rows.values()
+                if tenant == tenant_id and record.quotation_id == quotation_id
+            ],
+        )
+
+    def record(
+        self, tenant_id: UUID, offer: Offer, response: NewResponse, now: datetime
+    ) -> RecordedResponse:
+        self._maybe_fail("record")
+        quotation = self.quotations[offer.quotation_id]
+        expiring = response.outcome is ResponseOutcome.EXPIRED
+        still_open = (
+            quotation.status is QuotationStatus.APPROVED
+            and quotation.current_version == offer.version
+            and ((now >= offer.valid_until) if expiring else (now < offer.valid_until))
+        )
+        if not still_open:
+            raise OfferNotOpen(
+                customer_status(
+                    quotation.status,
+                    offer.version,
+                    quotation.current_version,
+                    offer.valid_until,
+                    now,
+                )
+            )
+        if self.find_response(tenant_id, response.idempotency_key) is not None:
+            raise RevisionConflict("duplicate idempotency key")  # the SQL unique constraint
+        revised_version = None
+        quotation.status = QUOTATION_STATUS_FOR[response.outcome]
+        revised = response.revised
+        if revised is not None and revised.content is not None and revised.content_sha256:
+            revised_version = offer.version + 1
+            self._add_version(
+                tenant_id,
+                offer.quotation_id,
+                revised_version,
+                revised.content,
+                revised.content_sha256,
+                SYSTEM_SUBJECT,
+                "re-priced at acceptance",
+                None,
+            )
+            quotation.current_version = revised_version
+        elif revised is not None:
+            quotation.status = QuotationStatus.PRICING_FAILED
+            quotation.pricing_issues = list(revised.pricing_issues or [])
+        recorded = RecordedResponse(
+            response_id=uuid4(),
+            quotation_id=offer.quotation_id,
+            version=offer.version,
+            content_sha256=offer.content_sha256,
+            outcome=response.outcome,
+            actor=response.actor,
+            reason=response.reason,
+            differences=response.differences,
+            revised_version=revised_version,
+            created_at=now,
+        )
+        self.response_rows[recorded.response_id] = (
+            tenant_id,
+            recorded,
+            response.idempotency_key,
+            response.fingerprint,
+        )
+        self.jobs.append(
+            Job(
+                tenant_id,
+                JobKind.RESUME_QUOTATION,
+                {
+                    "enquiry_id": str(quotation.enquiry_id),
+                    "waiting_for": "customer",
+                    "version": str(offer.version),
+                    "response_id": str(recorded.response_id),
+                },
+            )
+        )
+        if response.outcome in (ResponseOutcome.ACCEPTED, ResponseOutcome.DECLINED):
+            self.jobs.append(
+                Job(tenant_id, JobKind.NOTIFY_RESPONSE, {"response_id": str(recorded.response_id)})
+            )
+        return recorded
+
+    def response(self, tenant_id: UUID, response_id: UUID) -> RecordedResponse | None:
+        found = self.response_rows.get(response_id)
+        return found[1] if found is not None and found[0] == tenant_id else None
+
+    def responses(self, tenant_id: UUID, quotation_id: UUID) -> list[RecordedResponse]:
+        return [
+            response
+            for tenant, response, _, _ in self.response_rows.values()
+            if tenant == tenant_id and response.quotation_id == quotation_id
+        ]
 
     # --- QuotationReader (last: `list` would shadow the builtin in later annotations) --
     def list(
@@ -933,6 +1111,7 @@ class RecordingNotifier:
 
     def __init__(self) -> None:
         self.sent: list[tuple[ChannelBinding, ReviewPacket, str]] = []
+        self.notices: list[tuple[ChannelBinding, UUID, str]] = []
         self.fail = False
 
     def send_review(
@@ -942,6 +1121,9 @@ class RecordingNotifier:
             self.fail = False
             raise OSError("provider unavailable")
         self.sent.append((binding, packet, reference))
+
+    def send_notice(self, binding: ChannelBinding, notice_id: UUID, text: str) -> None:
+        self.notices.append((binding, notice_id, text))
 
 
 @dataclass
@@ -959,6 +1141,7 @@ class QuotationHarness:
     tenant_id: UUID
     clock: Callable[[], datetime]
     storage: ObjectStorage
+    now: list[datetime]  # mutable "current time" behind `clock`
     renderer: ReportLabQuotationRenderer = field(default_factory=ReportLabQuotationRenderer)
     email: RecordingDeliveryChannel = field(default_factory=RecordingDeliveryChannel)
 
@@ -971,10 +1154,17 @@ class QuotationHarness:
     def documents(self) -> QuotationDocumentService:
         return QuotationDocumentService(self.db, self.storage, self.renderer, clock=self.clock)
 
+    def responses(self) -> QuotationResponseService:
+        return QuotationResponseService(self.db, self.pricing, clock=self.clock)
+
+    def advance(self, delta: timedelta) -> None:
+        """Move the harness clock (expiry tests). ERP prices keep their own fetch time."""
+        self.now[0] += delta
+
     def handler(self) -> QuotationJobHandler:
         """A fresh graph on the same checkpoints, as after a worker restart."""
         graph = build_quotation_graph(
-            QuotationWorkflowDeps(self.db, self.pricing), self.checkpointer
+            QuotationWorkflowDeps(self.db, self.pricing, self.db), self.checkpointer
         )
         return QuotationJobHandler(graph, self.db)
 
@@ -991,20 +1181,27 @@ class QuotationHarness:
         return enquiry_id
 
     def run_jobs(self) -> int:
-        """Run queued jobs (and the jobs they queue) until none are left."""
+        """Run due jobs (and the jobs they queue) until none are due; delayed ones stay."""
         handled = 0
-        while self.db.jobs:
-            job = self.db.jobs.pop(0)
+        while True:
+            due = [job for job in self.db.jobs if job.run_at is None or job.run_at <= self.clock()]
+            if not due:
+                return handled
+            job = due[0]
+            self.db.jobs.remove(job)
             claimed = ClaimedJob(uuid4(), job.tenant_id, job.kind, job.payload, 1, 5, uuid4(),
                                  uuid4())  # fmt: skip
             if job.kind is JobKind.NOTIFY_APPROVERS:
                 self.notifications()(claimed)
             elif job.kind is JobKind.DELIVER_QUOTATION:
                 self.deliveries()(claimed)
+            elif job.kind is JobKind.EXPIRE_QUOTATION:
+                QuotationExpiryHandler(self.responses())(claimed)
+            elif job.kind is JobKind.NOTIFY_RESPONSE:
+                ResponseNotificationHandler(self.db, self.db, {"simulated": self.notifier})(claimed)
             else:
                 self.handler()(claimed)
             handled += 1
-        return handled
 
     def quotation(self, enquiry_id: UUID) -> QuotationRow:
         return next(row for row in self.db.quotations.values() if row.enquiry_id == enquiry_id)
@@ -1050,9 +1247,12 @@ def harness(
     industrial_tenant: UUID,
     memory_storage: ObjectStorage,
 ) -> QuotationHarness:
-    def clock() -> datetime:
-        return now
+    current = [now]
 
+    def clock() -> datetime:
+        return current[0]
+
+    quotation_db.clock = clock
     resolver = TenantContextResolver(quotation_db)
     pricing = QuotationPricingService(simulated_erp, policy_reader, clock=clock)
     approvals = ApprovalService(quotation_db, resolver, clock=clock)
@@ -1068,6 +1268,7 @@ def harness(
         tenant_id=industrial_tenant,
         clock=clock,
         storage=memory_storage,
+        now=current,
     )
 
 

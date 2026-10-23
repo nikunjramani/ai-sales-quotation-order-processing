@@ -28,8 +28,13 @@ class QuotationStatus(StrEnum):
     PENDING_APPROVAL = "pending_approval"
     REVISION_REQUESTED = "revision_requested"
     REVISION_SUBMITTED = "revision_submitted"  # new version stored; approval request follows
-    APPROVED = "approved"
+    APPROVED = "approved"  # by a manager; issued to the customer once delivered (M5)
     REJECTED = "rejected"
+    # Customer answers and closure (M6, ADR 0016):
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    EXPIRED = "expired"
+    WITHDRAWN = "withdrawn"
 
 
 # A sales operator may submit a new version only in these states.

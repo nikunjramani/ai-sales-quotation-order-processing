@@ -7,7 +7,12 @@ export type QuotationStatus =
   | "revision_requested"
   | "revision_submitted"
   | "approved"
-  | "rejected";
+  | "rejected"
+  // Customer answers and closure (M6):
+  | "accepted"
+  | "declined"
+  | "expired"
+  | "withdrawn";
 
 export type ApprovalAction = "approve" | "reject" | "request_revision";
 
@@ -145,6 +150,43 @@ export interface Delivery {
 export interface DeliveryOverview {
   document: QuotationDocument | null;
   deliveries: Delivery[];
+}
+
+// What the customer holds and how they answered (M6).
+export type CustomerStatus =
+  | "open"
+  | "accepted"
+  | "declined"
+  | "expired"
+  | "withdrawn"
+  | "being_revised"
+  | "closed";
+
+export type ResponseOutcome = "accepted" | "declined" | "refused_changed" | "withdrawn" | "expired";
+
+export interface CustomerResponse {
+  response_id: string;
+  version: number;
+  outcome: ResponseOutcome;
+  actor: string;
+  reason: string | null;
+  differences: string[];
+  revised_version: number | null;
+  created_at: string;
+}
+
+export interface CustomerView {
+  offered_version: number | null;
+  customer_status: CustomerStatus | null;
+  valid_until: string | null;
+  issued_at: string | null;
+  responses: CustomerResponse[];
+  can_withdraw: boolean;
+}
+
+export interface WithdrawalRequest {
+  command_id: string;
+  reason: string;
 }
 
 export interface RevisionResult {

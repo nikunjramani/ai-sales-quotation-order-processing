@@ -19,10 +19,12 @@ in the portal, instead of silently vanishing.
 import hashlib
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
 from quotation_app.application.documents import read_verified
+from quotation_app.domain.acceptance import valid_until
 from quotation_app.domain.documents import (
     FINAL_DELIVERY_STATUSES,
     DeliveryStatus,
@@ -184,6 +186,11 @@ class QuotationDeliveryHandler:
         source = self._store.approved_source(tenant_id, record.quotation_id, record.version)
         if source is None:
             raise DocumentNotAvailable("This version is not approved or no longer current")
+        # Validity counts from delivery (user decision): this is the moment the document is
+        # prepared for it. A push retry later keeps this date, which is printed on the PDF.
+        prepared_at = self._clock()
+        until = valid_until(prepared_at, work.validity_days)
+        source = replace(source, valid_until=until)
         data = self._renderer.render(source, preview=False)
         sha256 = hashlib.sha256(data).hexdigest()
         new_id = document_id(
@@ -202,7 +209,8 @@ class QuotationDeliveryHandler:
                 sha256=sha256,
                 size_bytes=len(data),
                 renderer=self._renderer.renderer,
-                created_at=self._clock(),
+                created_at=prepared_at,
+                valid_until=until,
             ),
         )
         if stored.document_id != new_id:

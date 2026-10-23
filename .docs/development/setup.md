@@ -164,9 +164,34 @@ Migrate first (`uv run alembic upgrade head`, or `check_database.py`). No new se
 - **Repeat runs:** another worker pass created nothing new.
 - **Logs:** no API keys appeared in the server or worker logs; the temporary keys were revoked.
 
+## Customer acceptance (M6)
+Migrate first (`check_database.py` or `uv run alembic upgrade head`). Each business's validity is `quote_validity_days` in `tenant_pricing_policies` (default 7).
+1. Issue a quotation (M5 steps): submit, run the worker, approve, run the worker.
+2. As the customer's system, read the offer. It shows `status: open`, `valid_until`, `content_sha256` and `response_path`:
+   ```powershell
+   $h = @{ Authorization = "Bearer $env:QUOTATION_DEMO_KEY" }   # your intake key, never commit it
+   $q = Invoke-RestMethod "http://127.0.0.1:8000/api/v1/enquiries/<ENQUIRY_ID>/quotation" -Headers $h
+   $body = @{ action = "accept"; version = $q.version; content_sha256 = $q.content_sha256 } | ConvertTo-Json
+   Invoke-RestMethod "http://127.0.0.1:8000$($q.response_path)" -Method Post -Body $body `
+     -ContentType "application/json" -Headers ($h + @{ "Idempotency-Key" = "accept-<something-unique>" })
+   ```
+   To decline instead, use `action = "decline"` with an optional `reason`.
+3. Run the worker. The portal's **Customer** box shows "Accepted by the customer". The manager's linked simulated phone gets a notice (`uv run python scripts/simulated_channel.py inbox`).
+4. **Withdraw:** on an open quotation, the Customer box has a Withdraw form (reason required). The customer then gets 409 "withdrawn".
+5. **Price change:** if the ERP price differs when the customer accepts, they get 409 with the differences, and a new version appears for manager approval. (The demo ERP has fixed prices, so this is shown by the tests.)
+
+**Verified 2026-10-23** (real uvicorn + worker processes on `quotation_dev`, HTTP only):
+- **Issue:** the offer was `open`, valid 7 days, with "Valid until" on the PDF.
+- **Accept:** a wrong hash got 409; accepting got 200 `accepted`; the replay returned `replayed=true`.
+- **After the worker:** the customer saw `accepted`, the portal showed the answer, and the linked manager phone got "the customer accepted quotation Q-... version 1 (total 10030.00 INR)".
+- **Decline:** 200 `declined`.
+- **Withdraw:** 403 without CSRF, then 200 `withdrawn`; a later acceptance got 409 "This quotation is withdrawn".
+- **Filters:** the portal's declined/withdrawn filter listed both.
+- **Logs:** no secrets or errors appeared in the logs, and the key was revoked.
+
 ## Boundaries and troubleshooting
 - API keys authenticate systems. People use portal sessions; only the development login exists until an OIDC provider is added.
-- No real ERP, messaging provider (email, Telegram) or order processing is implemented. Approved PDFs are delivered only to API clients (pull). Clarification questions are stored, not sent yet.
+- No real ERP, messaging provider (email, Telegram) or order processing is implemented. Approved PDFs are delivered only to API clients (pull), which can accept or decline them (M6); no ERP order is created yet. Clarification questions are stored, not sent yet.
 - **Missing URL:** generate `.env` from the root, or run `--add-missing`.
 - **Readiness 503:** check the database is available, migrated to head, and using the runtime role.
 - **Integration failure:** fix it. Never substitute SQLite or silently skip required checks.

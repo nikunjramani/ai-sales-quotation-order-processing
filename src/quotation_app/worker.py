@@ -16,6 +16,11 @@ from quotation_app.adapters.documents.text import PdfAndTextReader
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.factory import build_interpreter
 from quotation_app.adapters.storage.local import LocalObjectStorage
+from quotation_app.application.acceptance import (
+    QuotationExpiryHandler,
+    QuotationResponseService,
+    ResponseNotificationHandler,
+)
 from quotation_app.application.delivery import QuotationDeliveryHandler
 from quotation_app.application.jobs import JobRunner
 from quotation_app.application.notifications import ApprovalNotificationHandler
@@ -23,6 +28,7 @@ from quotation_app.application.preparation import EnquiryPreparationHandler
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.config import Settings
 from quotation_app.domain.jobs import JobKind
+from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.channels import SqlNotificationStore
 from quotation_app.persistence.database import build_engine
 from quotation_app.persistence.documents import SqlDeliveryStore
@@ -79,6 +85,12 @@ def main() -> None:
         ReportLabQuotationRenderer(),
         {channel.channel: channel for channel in (ApiPullDelivery(),)},
     )
+    # Customer answers (M6): expiry at "valid until" and manager notices about answers.
+    responses = SqlResponseStore(engine)
+    expiry = QuotationExpiryHandler(QuotationResponseService(responses, pricing))
+    response_notices = ResponseNotificationHandler(
+        responses, SqlNotificationStore(engine), notifiers
+    )
     logging.info("Enquiry interpreter: %s", settings.model_provider)
     try:
         with open_checkpointer(settings.worker_url()) as checkpointer:
@@ -88,7 +100,7 @@ def main() -> None:
             )
             quotations = QuotationJobHandler(
                 build_quotation_graph(
-                    QuotationWorkflowDeps(quotation_store, pricing), checkpointer
+                    QuotationWorkflowDeps(quotation_store, pricing, responses), checkpointer
                 ),
                 quotation_store,
             )
@@ -105,6 +117,8 @@ def main() -> None:
                         SqlNotificationStore(engine), notifiers
                     ),
                     JobKind.DELIVER_QUOTATION: deliveries,
+                    JobKind.EXPIRE_QUOTATION: expiry,
+                    JobKind.NOTIFY_RESPONSE: response_notices,
                 },
             )
             while True:

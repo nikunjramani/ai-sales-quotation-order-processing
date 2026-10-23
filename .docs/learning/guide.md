@@ -53,10 +53,14 @@ Learning must explain the real architecture; it must not weaken release requirem
 | Compare-and-set | Change a value only if it still has the expected old value | Only one worker can move a delivery from pending to sending |
 | Pull vs push delivery | The customer fetches the document, or we send it to them | API clients download their PDF; email (later) sends it |
 | Unknown outcome | The provider may or may not have received it (e.g. a timeout) | Recorded as unknown and not resent, so the customer never gets duplicates |
+| Offer validity | How long a quotation can be accepted | 7 days by default, printed on the PDF; afterwards it expires |
+| Re-check at acceptance | Price again before saying yes | A changed price refuses the acceptance and a manager approves a new version |
+| Delayed job | A job that may only run from a given time | The expiry job runs at "valid until" |
 
 M1 trace: run `uv run python scripts/demo_quotation.py`. Every price, unit and stock number comes from the ERP; the calculator only does arithmetic and checks rules. No AI is involved yet.
 M3 trace: run `uv run python scripts/evaluate_extraction.py`, then submit "Please quote 50 exhaust fans" and "Please quote 2 x IND-FAN-450" through the API and run the worker - one asks which fan size, the other is ready for pricing.
 M4 trace: follow [approvals and portal](../development/setup.md#approvals-and-portal-m4). Prices come from the calculator and the ERP; the person decides; the workflow only waits and continues.
+M6 trace: follow [customer acceptance](../development/setup.md#customer-acceptance-m6). Accept as the customer's system, then try to accept again or after withdrawal, and watch the portal and the manager's simulated phone.
 M5 trace: follow [quotation PDFs and delivery](../development/setup.md#quotation-pdfs-and-delivery-m5). Approve in the portal, run the worker, then fetch the PDF as the customer's system and compare its total and fingerprint with the portal.
 M2 trace: follow [enquiry intake in the setup guide](../development/setup.md#enquiry-intake-m2) - submit twice with the same Idempotency-Key, run the worker, and watch the status and the files move from quarantine to clean.
 

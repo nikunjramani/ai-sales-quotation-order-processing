@@ -34,6 +34,7 @@ from quotation_app.persistence.models import (
     QuotationDocument,
     QuotationVersion,
     Tenant,
+    TenantPricingPolicy,
 )
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.documents import DeliveryWork
@@ -63,6 +64,7 @@ _DOCUMENT_COLUMNS = (
     QuotationDocument.size_bytes.label("doc_size_bytes"),
     QuotationDocument.renderer.label("doc_renderer"),
     QuotationDocument.created_at.label("doc_created_at"),
+    QuotationDocument.valid_until.label("doc_valid_until"),
 )
 _APPROVED_DOCUMENT = QuotationDocument.kind == DocumentKind.APPROVED.value
 
@@ -98,6 +100,7 @@ def _document(row: Row[Any]) -> StoredDocument | None:
         size_bytes=row.doc_size_bytes,
         renderer=row.doc_renderer,
         created_at=row.doc_created_at,
+        valid_until=row.doc_valid_until,
     )
 
 
@@ -220,6 +223,41 @@ def queue_delivery(
     return True
 
 
+def _queue_expiry(connection: Connection, tenant_id: UUID, delivery_id: UUID) -> None:
+    """Schedule expire_quotation for the moment the delivered version stops being valid."""
+    row = connection.execute(
+        select(
+            QuotationDelivery.quotation_id,
+            QuotationDelivery.version,
+            QuotationDocument.valid_until,
+            Enquiry.correlation_id,
+        )
+        .join(
+            QuotationDocument,
+            (QuotationDocument.tenant_id == QuotationDelivery.tenant_id)
+            & (QuotationDocument.id == QuotationDelivery.document_id),
+        )
+        .join(
+            Quotation,
+            (Quotation.tenant_id == QuotationDelivery.tenant_id)
+            & (Quotation.id == QuotationDelivery.quotation_id),
+        )
+        .join(
+            Enquiry,
+            (Enquiry.tenant_id == Quotation.tenant_id) & (Enquiry.id == Quotation.enquiry_id),
+        )
+        .where(QuotationDelivery.tenant_id == tenant_id, QuotationDelivery.id == delivery_id)
+    ).one()
+    queue_job(
+        connection,
+        tenant_id,
+        JobKind.EXPIRE_QUOTATION,
+        {"quotation_id": str(row.quotation_id), "version": str(row.version)},
+        row.correlation_id,
+        run_at=row.valid_until,
+    )
+
+
 class SqlDeliveryStore:
     """Worker-role delivery storage."""
 
@@ -230,7 +268,11 @@ class SqlDeliveryStore:
         with tenant_transaction(self._engine, tenant_id) as connection:
             row = connection.execute(
                 select(
-                    *_DELIVERY_COLUMNS, *_DOCUMENT_COLUMNS, Tenant.name, Enquiry.customer_reference
+                    *_DELIVERY_COLUMNS,
+                    *_DOCUMENT_COLUMNS,
+                    Tenant.name,
+                    Enquiry.customer_reference,
+                    TenantPricingPolicy.quote_validity_days,
                 )
                 .join(
                     Quotation,
@@ -243,6 +285,10 @@ class SqlDeliveryStore:
                     & (Enquiry.id == Quotation.enquiry_id),
                 )
                 .join(Tenant, Tenant.id == QuotationDelivery.tenant_id)
+                .join(
+                    TenantPricingPolicy,
+                    TenantPricingPolicy.tenant_id == QuotationDelivery.tenant_id,
+                )
                 .outerjoin(QuotationDocument, _same_version_document())
                 .where(
                     QuotationDelivery.tenant_id == tenant_id, QuotationDelivery.id == delivery_id
@@ -250,7 +296,13 @@ class SqlDeliveryStore:
             ).one_or_none()
         if row is None:
             return None
-        return DeliveryWork(_delivery(row), row.name, row.customer_reference, _document(row))
+        return DeliveryWork(
+            _delivery(row),
+            row.name,
+            row.customer_reference,
+            _document(row),
+            row.quote_validity_days,
+        )
 
     def approved_source(
         self, tenant_id: UUID, quotation_id: UUID, version: int
@@ -282,6 +334,7 @@ class SqlDeliveryStore:
                     size_bytes=document.size_bytes,
                     renderer=document.renderer,
                     created_at=document.created_at,
+                    valid_until=document.valid_until,
                 )
                 .on_conflict_do_nothing(constraint="uq_quotation_documents_version")
             )
@@ -329,6 +382,8 @@ class SqlDeliveryStore:
                 )
                 .values(**values)
             ).rowcount
+            if changed == 1 and status in OFFERED_STATUSES:
+                _queue_expiry(connection, tenant_id, delivery_id)
         return bool(changed == 1)
 
 

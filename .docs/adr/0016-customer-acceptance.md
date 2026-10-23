@@ -1,6 +1,6 @@
 # 0016: Customer acceptance through the API, with validity, price re-check and automatic revision
 Date: 2026-10-23
-Status: accepted; implementation in progress (M6)
+Status: accepted; implemented in M6 (verified locally; CI after push)
 Changes the M6 scope in the [roadmap](../plan/roadmap.md); builds on [0013](0013-portal-identity-and-approval-core.md) and [0015](0015-quotation-documents-and-delivery.md)
 
 ## Context
@@ -35,10 +35,19 @@ After M5, an approved quotation is delivered to the API client that sent the enq
 - A new tenant setting, quotation statuses for issued, accepted, declined, expired and withdrawn quotations, an append-only response table, and a validity date per delivery.
 - The approval graph gains a way to continue after acceptance is refused because prices changed. The new version follows the existing approval and delivery path.
 - Orders, reservation and the ERP write contract remain open for a later milestone (open decisions).
+- **Implementation details** (no business rule added):
+  - "From delivery" is the moment the PDF is prepared for delivery, because the date must be printed on it. A push delivery retried later keeps that date.
+  - Withdrawal checks the two roles, so administrators cannot withdraw.
+  - If the revised version can no longer be priced, the M4 rule applies: `pricing_failed`, and a sales operator revises.
+  - The approval graph keeps the name `quotation-approval-v1`, because steps were only added after `approved`.
 
 ## Verification
-Planned, as for M4/M5:
-- unit tests over in-memory fakes;
-- PostgreSQL integration, including tenant isolation, append-only responses, concurrency between accepting and withdrawing, and expiry;
-- a migration cycle;
-- a live run.
+- **Unit:** domain, service, workflow and API over in-memory fakes, with a controllable clock for expiry.
+- **PostgreSQL integration:**
+  - accept over HTTP;
+  - a price change through to a version 2 approval task;
+  - an accept/withdraw race recording exactly one answer;
+  - expiry by the worker role;
+  - append-only answers and tenant isolation.
+- **Migrations:** the full suite twice around a downgrade to empty, and a 0007 -> 0006 -> 0007 round trip with an accepted quotation.
+- **Live run:** real API and worker processes (see setup).

@@ -84,8 +84,11 @@ def main() -> None:
         if not messages:
             print("No messages. Link an account and let the worker process a quotation.")
         for message in messages:
-            to, task, expires = message["to"], message["task_id"], message["expires_at"]
-            print(f"--- to {to} | task {task} | expires {expires}")
+            if "notice_id" in message:  # information only (e.g. a customer accepted)
+                print(f"--- to {message['to']} | notice")
+            else:
+                to, task, expires = message["to"], message["task_id"], message["expires_at"]
+                print(f"--- to {to} | task {task} | expires {expires}")
             print(message["text"])
         return
 
@@ -103,7 +106,9 @@ def main() -> None:
     if arguments.command == "enroll":
         _send(arguments.api, secret, {**event, "type": "enroll", "code": arguments.code})
         return
-    matching = [m for m in _messages(settings, arguments.user) if m["task_id"] == arguments.task]
+    matching = [
+        m for m in _messages(settings, arguments.user) if m.get("task_id") == arguments.task
+    ]
     if not matching:
         raise SystemExit("No review message for this account and task in the outbox")
     _send(

@@ -4,6 +4,10 @@
                \\                     ^                                  |  approve -> approved
                 \\--pricing failed--> await_revision <-- request_revision -+  reject  -> rejected
 
+    approved -> await_customer -> apply_customer -> end  (accepted, declined, expired, withdrawn)
+                                        | prices changed -> request_approval (revised version)
+                                        |                   or await_revision (cannot be priced)
+
 - draft:            price the extracted lines with the M1 calculator; store version 1, or the
                     pricing issues if the ERP facts cannot price them.
 - request_approval: create the approval task for the current version (and its notification job).
@@ -11,10 +15,14 @@
                     the pause lives in the PostgreSQL checkpoint.
 - apply_decision:   read the recorded decision (the approval service already stored it).
 - await_revision:   pause until a sales operator stores a new version.
-- approved:         queue delivery of the approved version to the customer (M5), then end.
+- approved:         queue delivery of the approved version to the customer (M5).
+- await_customer:   pause until the customer answers, staff withdraw, or validity ends (M6).
+- apply_customer:   closing answers end the run. "Prices changed" continues with the revised
+                    version (request_approval), or with await_revision if it cannot be priced.
 
-Resume jobs carry what they answer (a task's decision or a new version). A job that does not
-match what the run is waiting for is stale and ignored, so a duplicate can never apply twice.
+Resume jobs carry what they answer (a decision, a new version or a customer answer). A job that
+does not match what the run is waiting for is stale and ignored, so a duplicate never applies
+twice.
 """
 
 from dataclasses import dataclass
@@ -28,6 +36,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
 
 from quotation_app.application.pricing import QuotationPricingService
+from quotation_app.domain.acceptance import SYSTEM_SUBJECT, ResponseOutcome
 from quotation_app.domain.documents import NoDeliveryAddress
 from quotation_app.domain.jobs import JobKind, PermanentJobError
 from quotation_app.domain.pricing import PricingRejected
@@ -38,13 +47,15 @@ from quotation_app.domain.quotations import (
     quotation_content,
 )
 from quotation_app.domain.tenancy import Role, TenantContext
+from quotation_app.ports.acceptance import ResponseStore
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.quotations import QuotationWorkflowStore
 
+# Still v1: M6 only added steps after "approved", so runs paused at earlier steps carry on.
 GRAPH_VERSION = "quotation-approval-v1"
-SYSTEM_SUBJECT = "system:quotation-workflow"
 WAITING_FOR_DECISION = "decision"
 WAITING_FOR_REVISION = "revision"
+WAITING_FOR_CUSTOMER = "customer"
 
 
 class QuotationState(TypedDict, total=False):
@@ -56,6 +67,7 @@ class QuotationState(TypedDict, total=False):
     task_id: str
     decision_id: str
     action: str
+    response_id: str
 
 
 type QuotationGraph = CompiledStateGraph[QuotationState, None, QuotationState, QuotationState]
@@ -69,6 +81,7 @@ class WorkflowNotWaiting(Exception):
 class QuotationWorkflowDeps:
     store: QuotationWorkflowStore
     pricing: QuotationPricingService
+    responses: ResponseStore
 
 
 def _tenant(state: QuotationState) -> UUID:
@@ -146,8 +159,23 @@ def build_quotation_graph(
             raise PermanentJobError(str(error)) from None
         if not queued:
             raise PermanentJobError("The approved version is not the quotation's current one")
-        store.finish(tenant_id, UUID(state["run_id"]), "approved")
         return {}
+
+    def await_customer(state: QuotationState) -> QuotationState:
+        response_id = interrupt(
+            {"waiting_for": WAITING_FOR_CUSTOMER, "version": state.get("version")}
+        )
+        return {"response_id": str(response_id)}
+
+    def apply_customer(state: QuotationState) -> QuotationState:
+        response = deps.responses.response(_tenant(state), UUID(state["response_id"]))
+        if response is None or response.version != state.get("version"):
+            raise PermanentJobError("Response does not belong to the awaited version")
+        if response.outcome is ResponseOutcome.REFUSED_CHANGED:
+            # The revised version (if it could be priced) was stored with the response.
+            return {"action": response.outcome.value, "version": response.revised_version}
+        store.finish(_tenant(state), UUID(state["run_id"]), response.outcome.value)
+        return {"action": response.outcome.value}
 
     def rejected(state: QuotationState) -> QuotationState:
         store.finish(_tenant(state), UUID(state["run_id"]), "rejected")
@@ -161,6 +189,8 @@ def build_quotation_graph(
     graph.add_node("await_revision", await_revision)
     graph.add_node("check_revision", check_revision)
     graph.add_node("approved", approved)
+    graph.add_node("await_customer", await_customer)
+    graph.add_node("apply_customer", apply_customer)
     graph.add_node("rejected", rejected)
     graph.add_edge(START, "draft")
     graph.add_conditional_edges(
@@ -180,7 +210,17 @@ def build_quotation_graph(
     )
     graph.add_edge("await_revision", "check_revision")
     graph.add_edge("check_revision", "request_approval")
-    graph.add_edge("approved", END)
+    graph.add_edge("approved", "await_customer")
+    graph.add_edge("await_customer", "apply_customer")
+
+    def after_customer(state: QuotationState) -> str:
+        if state["action"] != ResponseOutcome.REFUSED_CHANGED.value:
+            return END
+        return "request_approval" if state.get("version") else "await_revision"
+
+    graph.add_conditional_edges(
+        "apply_customer", after_customer, ["request_approval", "await_revision", END]
+    )
     graph.add_edge("rejected", END)
     return graph.compile(checkpointer=checkpointer)
 
@@ -193,6 +233,9 @@ def _resume_value(waiting: object, payload: dict[str, str]) -> str | int | None:
         if payload.get("task_id") == waiting.get("task_id") and payload.get("decision_id"):
             return payload["decision_id"]
         return None
+    if waiting["waiting_for"] == WAITING_FOR_CUSTOMER:
+        same_version = payload.get("version") == str(waiting.get("version"))
+        return payload["response_id"] if same_version and payload.get("response_id") else None
     try:
         version = int(payload["version"])
     except (KeyError, ValueError):

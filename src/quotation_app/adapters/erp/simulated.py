@@ -65,6 +65,10 @@ class SimulatedErp:
         # Operation name -> error to raise, e.g. {"get_prices": ErpError(...)}.
         self.failures: dict[str, ErpError] = {}
 
+    def catalogue(self, tenant_id: UUID) -> SimulatedCatalogue:
+        """A tenant's mutable catalogue, so tests and demos can change prices or stock."""
+        return self._catalogues[tenant_id]
+
     def _catalogue(self, context: TenantContext, operation: str) -> SimulatedCatalogue:
         failure = self.failures.get(operation)
         if failure is not None:

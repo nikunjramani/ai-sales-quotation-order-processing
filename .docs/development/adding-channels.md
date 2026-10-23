@@ -32,6 +32,13 @@ A "channel" plays up to three roles. Each role is a small adapter; the business 
    - Add a sandbox integration test that runs only when the sandbox credentials are set.
 5. **Document it:** the configuration reference, the feature document and the handoff.
 
+## A2. Customer answers through a new channel (M6)
+Today customers accept or decline through the API only. Another channel (an acceptance link, an email reply) needs:
+- an inbound route that verifies the customer (an open decision for each channel);
+- the call `QuotationResponseService.respond(context, enquiry_id, channel, key, request)`, with the exact version and hash.
+
+All acceptance rules (validity, price re-check, one closing answer, replays) already live in that service. Ask the user about each channel's verification before building it.
+
 ## B. Manager approval through a new channel (e.g. email reply)
 Resolve the open decision "Direct email approval verification" first. It decides what counts as trusted inbound evidence (provider signature, SPF/DKIM/DMARC results) and how a reply is tied to one task and version.
 1. Add the channel to `ApprovalChannel` in [domain/quotations.py](../../src/quotation_app/domain/quotations.py). The portal's "link an account" (enrollment) then accepts it automatically.

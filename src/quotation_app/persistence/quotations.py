@@ -84,7 +84,7 @@ _DECISION_COLUMNS = (
 )
 
 
-def _enquiry_link(connection: Connection, tenant_id: UUID, quotation_id: UUID) -> Row[Any]:
+def enquiry_link(connection: Connection, tenant_id: UUID, quotation_id: UUID) -> Row[Any]:
     """The quotation's enquiry ID and correlation ID, for the jobs a change queues."""
     return connection.execute(
         select(Quotation.enquiry_id, Enquiry.correlation_id)
@@ -96,7 +96,7 @@ def _enquiry_link(connection: Connection, tenant_id: UUID, quotation_id: UUID) -
     ).one()
 
 
-def _version_values(
+def version_values(
     tenant_id: UUID,
     quotation_id: UUID,
     version: int,
@@ -220,7 +220,7 @@ class SqlQuotationWorkflowStore:
             if inserted and content is not None and content_sha256 is not None:
                 connection.execute(
                     insert(QuotationVersion).values(
-                        **_version_values(
+                        **version_values(
                             tenant_id,
                             quotation_id,
                             1,
@@ -283,7 +283,7 @@ class SqlQuotationWorkflowStore:
                 .where(Quotation.tenant_id == tenant_id, Quotation.id == quotation_id)
                 .values(status=QuotationStatus.PENDING_APPROVAL.value, updated_at=func.now())
             )
-            link = _enquiry_link(connection, tenant_id, quotation_id)
+            link = enquiry_link(connection, tenant_id, quotation_id)
             queue_job(
                 connection,
                 tenant_id,
@@ -452,7 +452,7 @@ class SqlApprovalStore:
                 version_created_by=facts.created_by,
                 decision=None if decided is None else _decision(decided),
             )
-            link = _enquiry_link(connection, tenant_id, row.quotation_id)
+            link = enquiry_link(connection, tenant_id, row.quotation_id)
             yield SqlDecisionUnit(connection, tenant_id, task, link)
 
 
@@ -653,7 +653,7 @@ class SqlRevisionStore:
                 raise RevisionConflict("The quotation changed; reload it before revising")
             connection.execute(
                 insert(QuotationVersion).values(
-                    **_version_values(
+                    **version_values(
                         tenant_id,
                         quotation_id,
                         version,
@@ -665,7 +665,7 @@ class SqlRevisionStore:
                     )
                 )
             )
-            link = _enquiry_link(connection, tenant_id, quotation_id)
+            link = enquiry_link(connection, tenant_id, quotation_id)
             queue_job(
                 connection,
                 tenant_id,

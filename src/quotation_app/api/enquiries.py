@@ -6,6 +6,9 @@ POST /api/v1/enquiries  accepts an enquiry (202), or returns the original result
 GET  /api/v1/enquiries/{id}  returns status. Other tenants' IDs return 404, like unknown IDs.
 GET  /api/v1/enquiries/{id}/quotation      the approved quotation issued for it (404 until then)
 GET  /api/v1/enquiries/{id}/quotation.pdf  its PDF; the first download is recorded
+POST /api/v1/enquiries/{id}/quotation/response  accept or decline that exact version (M6);
+                        Idempotency-Key required. Accepting re-checks ERP prices first: any
+                        change refuses it (409) and a revised version goes to manager approval.
 
 Only quotations that a manager approved and the delivery job made available are visible here;
 drafts, pending and rejected versions never are.
@@ -24,12 +27,23 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from quotation_app.api.pdf import integrity_failure, pdf_response
+from quotation_app.application.acceptance import QuotationResponseService
 from quotation_app.application.api_keys import ApiKeyAuthenticator, AuthenticationFailed
 from quotation_app.application.documents import OfferedQuotation, QuotationDocumentService
 from quotation_app.application.intake import EnquiryIntakeService
+from quotation_app.domain.acceptance import (
+    CustomerStatus,
+    NotCurrentOffer,
+    OfferNotOpen,
+    PricesChanged,
+    ResponseAction,
+    ResponseConflict,
+    ResponseOutcome,
+    ResponseRequest,
+)
 from quotation_app.domain.documents import DocumentIntegrityError, DocumentNotAvailable
 from quotation_app.domain.intake import (
     MAX_ATTACHMENT_BYTES,
@@ -41,6 +55,7 @@ from quotation_app.domain.intake import (
     EnquirySubmission,
 )
 from quotation_app.domain.tenancy import PermissionDenied, TenantContext
+from quotation_app.ports.erp import ErpError
 from quotation_app.ports.intake import EnquiryView, IdempotencyConflict
 from quotation_app.ports.storage import ObjectNotFound
 
@@ -133,6 +148,25 @@ class IssuedQuotationOut(BaseModel):
     total: str
     issued_at: datetime | None
     document: QuotationDocumentOut
+    status: CustomerStatus = Field(description="open = can be accepted or declined")
+    valid_until: datetime
+    content_sha256: str = Field(description="Send this back, with version, to answer")
+    response_path: str
+
+
+class QuotationResponseIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: ResponseAction
+    version: int = Field(ge=1)
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: str | None = Field(default=None, max_length=1000, description="Only when declining")
+
+
+class QuotationResponseOut(BaseModel):
+    outcome: ResponseOutcome
+    version: int
+    recorded_at: datetime
+    replayed: bool
 
 
 def _issued(enquiry_id: UUID, offer: OfferedQuotation) -> IssuedQuotationOut:
@@ -164,6 +198,10 @@ def _issued(enquiry_id: UUID, offer: OfferedQuotation) -> IssuedQuotationOut:
             size_bytes=offer.document.size_bytes,
             download_path=f"/api/v1/enquiries/{enquiry_id}/quotation.pdf",
         ),
+        status=CustomerStatus.OPEN,  # replaced by the route with the live status
+        valid_until=offer.document.valid_until,
+        content_sha256=offer.document.content_sha256,
+        response_path=f"/api/v1/enquiries/{enquiry_id}/quotation/response",
     )
 
 
@@ -215,6 +253,7 @@ def build_enquiry_router(
     authenticator: ApiKeyAuthenticator,
     intake: EnquiryIntakeService,
     documents: QuotationDocumentService,
+    responses: QuotationResponseService,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/enquiries", tags=["enquiries"])
     bearer = HTTPBearer(auto_error=False, description="API key: qk_<id>_<secret>")
@@ -249,6 +288,25 @@ def build_enquiry_router(
             raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from None
         except DocumentNotAvailable as error:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from None
+        except PricesChanged as error:
+            detail = {
+                "message": str(error),
+                "outcome": ResponseOutcome.REFUSED_CHANGED.value,
+                "differences": list(error.differences),
+                "revised_version": error.revised_version,
+            }
+            raise HTTPException(status.HTTP_409_CONFLICT, detail) from None
+        except OfferNotOpen as error:
+            detail = {"message": str(error), "status": error.status.value}
+            raise HTTPException(status.HTTP_409_CONFLICT, detail) from None
+        except (NotCurrentOffer, ResponseConflict) as error:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from None
+        except ErpError:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Current prices could not be checked; nothing was recorded. Retry with the "
+                "same Idempotency-Key",
+            ) from None
         except (DocumentIntegrityError, ObjectNotFound):
             logger.exception("Stored quotation document failed its integrity check")
             raise integrity_failure() from None
@@ -303,8 +361,49 @@ def build_enquiry_router(
     def issued_quotation(
         enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
     ) -> IssuedQuotationOut:
-        offer = guarded(lambda: documents.offered(context, enquiry_id, Channel.API.value))
-        return _issued(enquiry_id, offer)
+        def run() -> IssuedQuotationOut:
+            issued = _issued(enquiry_id, documents.offered(context, enquiry_id, Channel.API.value))
+            offer = responses.offer(context, enquiry_id, Channel.API.value)
+            return issued.model_copy(update={"status": responses.status_of(offer)})
+
+        return guarded(run)
+
+    @router.post(
+        "/{enquiry_id}/quotation/response",
+        response_model=QuotationResponseOut,
+        responses={
+            404: {"description": "No quotation issued for this enquiry"},
+            409: {
+                "description": "Not the current version, not open, prices changed, or key reused"
+            },
+            503: {"description": "Prices could not be checked; nothing recorded; retry"},
+        },
+    )
+    def respond(
+        enquiry_id: UUID,
+        body: QuotationResponseIn,
+        context: Annotated[TenantContext, Depends(authenticate)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> QuotationResponseOut:
+        def run() -> QuotationResponseOut:
+            request = ResponseRequest(body.action, body.version, body.content_sha256, body.reason)
+            try:
+                recorded, replayed = responses.respond(
+                    context, enquiry_id, Channel.API.value, idempotency_key, request
+                )
+            except IntegrityError:
+                # Two requests with the same key raced; the retry returns the stored answer.
+                raise ResponseConflict(
+                    "A request with this Idempotency-Key is in progress"
+                ) from None
+            return QuotationResponseOut(
+                outcome=recorded.outcome,
+                version=recorded.version,
+                recorded_at=recorded.created_at,
+                replayed=replayed,
+            )
+
+        return guarded(run)
 
     @router.get(
         "/{enquiry_id}/quotation.pdf",

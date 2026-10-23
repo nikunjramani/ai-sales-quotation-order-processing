@@ -5,6 +5,7 @@ import { StatusBadge } from "@/shared/ui/StatusBadge";
 
 import { useQuotation } from "../../hooks/useQuotations";
 import { currentVersion } from "../../services/quotationService";
+import { CustomerPanel } from "../components/CustomerPanel";
 import { DecisionPanel } from "../components/DecisionPanel";
 import { DocumentPanel } from "../components/DocumentPanel";
 import { PricingIssuesCard } from "../components/PricingIssuesCard";
@@ -44,6 +45,7 @@ export function QuotationDetailPage() {
             <PricingIssuesCard issues={detail.pricing_issues} />
             {current && <VersionTable version={current} />}
             <DocumentPanel detail={detail} />
+            <CustomerPanel quotationId={detail.summary.quotation_id} />
             {detail.can_decide && detail.pending_task && (
               // key: a new task (new version) starts with a fresh form and command IDs.
               <DecisionPanel key={detail.pending_task.task_id} task={detail.pending_task} />

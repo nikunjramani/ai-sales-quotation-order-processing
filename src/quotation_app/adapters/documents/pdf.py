@@ -9,10 +9,12 @@
 - Limited fonts: the built-in Helvetica covers Windows-1252 (Western European) text only. Other
   characters raise UnrenderableContent rather than turning into boxes or question marks.
   Embedding a Unicode font is a recorded gap before real customer data.
+- Validity: the customer document prints "Valid until <UTC time>" (M6); previews do not.
 - Customer-facing: internal evidence (price list IDs, stock checks, content hash details) stays
   in the portal; the PDF shows prices, totals and a short document reference.
 """
 
+from datetime import UTC
 from decimal import Decimal
 from io import BytesIO
 from xml.sax.saxutils import escape
@@ -121,6 +123,13 @@ class ReportLabQuotationRenderer:
             if preview or source.approved_at is None
             else f"Approved on {source.approved_at.date().isoformat()}"
         )
+        validity = (
+            None
+            if preview or source.valid_until is None
+            else "Valid until "
+            + source.valid_until.astimezone(UTC).strftime("%Y-%m-%d %H:%M")
+            + " UTC"
+        )
         story = [
             Paragraph(escape(tenant), self._title),
             Paragraph(
@@ -128,6 +137,7 @@ class ReportLabQuotationRenderer:
             ),
             Paragraph(f"Your reference: {escape(reference)}", self._body),
             Paragraph(escape(status), self._body),
+            *([] if validity is None else [Paragraph(f"<b>{escape(validity)}</b>", self._body)]),
             Spacer(1, 6 * mm),
             table,
             Spacer(1, 6 * mm),

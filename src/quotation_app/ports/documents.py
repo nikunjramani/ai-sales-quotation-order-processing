@@ -88,6 +88,7 @@ class DeliveryWork:
     tenant_name: str
     customer_reference: str | None
     document: StoredDocument | None
+    validity_days: int  # the tenant's setting, used when the document is first prepared
 
 
 class DeliveryStore(Protocol):
@@ -118,7 +119,10 @@ class DeliveryStore(Protocol):
         error: str | None = None,
     ) -> bool:
         """Move the delivery to status if it is currently in one of `expected` (compare and
-        set). Returns False if it was not, so two workers can never both send it."""
+        set). Returns False if it was not, so two workers can never both send it.
+
+        Reaching available/sent also queues the expire_quotation job for the document's
+        valid_until, in the same transaction (M6)."""
         ...
 
 

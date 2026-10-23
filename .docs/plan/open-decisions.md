@@ -25,6 +25,8 @@ These are implementation gates, not reasons to block documentation.
 | Malware scanning | Not implemented; M2 inspection is not antivirus. Choose a scanner/sandbox (e.g. ClamAV or a cloud service) | Before accepting real customer files (M8 gate) |
 | Production object storage | Local disk behind the ObjectStorage port (attachments and, since M5, quotation PDFs); choose S3-compatible/cloud storage with encryption and retention | Deployment (M8) |
 | PDF fonts and languages | M5 uses built-in PDF fonts (Western European text only); other characters fail delivery visibly. Embed a Unicode font (e.g. Noto) for the pilot's languages | Before real customer data |
+| Orders after acceptance | Moved out of M6 by the user (2026-10-23): ERP order creation, reservation, reconciliation and order confirmation; ask all business questions before starting | Next orders milestone |
+| Validity setting screen | `quote_validity_days` is a database setting without a portal screen | When tenant settings are built |
 | Resending failed/unknown deliveries | M5 records `failed`/`unknown` with the reason but has no resend or "mark delivered" action; define who may resend and how duplicates are checked | Before pilot (with the first push channel) |
 | Quotation PDF content | Synthetic layout: business name, lines, totals, reference. Pilot needs letterhead, addresses, tax IDs, terms and validity date | M6 / pilot business |
 | Offer lifecycle | Decided for M6 (ADR 0016): expiry closes; staff withdrawal with reason; any price change refuses and auto-revises; stock ignored. Still open: partial acceptance (not supported) and ERP orders | Orders milestone; pilot business validates policy |

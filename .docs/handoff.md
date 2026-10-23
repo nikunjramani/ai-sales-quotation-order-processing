@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-23 (M5).
+Updated: 2026-10-23 (M6).
 
 ## Current state
 - **M0-M5 are COMPLETE** (local and CI), all on origin/main:
@@ -13,7 +13,8 @@ Updated: 2026-10-23 (M5).
   | M5 | 6f951ec | [39903715921](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39903715921) (both jobs) |
 
   For M3 the user could not install Ollama on the corporate VM, so it ships with the free rules interpreter.
-- **Current milestone: M6 (customer acceptance).** Decisions taken with the user on 2026-10-23 (ADR 0016); implementation in progress. Ask before assuming anything ([clarify-before-building](../.claude/skills/clarify-before-building/SKILL.md)).
+- **Current milestone: M6 (customer acceptance).** Implemented and verified locally, **not yet committed**. Mark it complete only after CI passes. Decisions taken with the user on 2026-10-23 ([ADR 0016](adr/0016-customer-acceptance.md)): acceptance only (no ERP order or reservation); answers through the API; 7-day default validity from delivery; accept/decline (no PO number); any price change refuses and drafts a revision for approval; stock ignored; expiry closes; staff withdrawal with a reason; a portal plus linked-channel notice; a rejected revision closes.
+- **Working rule (user, 2026-10-23):** ask before assuming anything. Follow [clarify-before-building](../.claude/skills/clarify-before-building/SKILL.md), which is also in AGENTS.md.
 - **User decisions (2026-10-23):**
   - **Email approval is out of scope for now:** managers approve in the portal.
   - Email and other providers must stay **easy to add**; see [adding channels](development/adding-channels.md).
@@ -75,6 +76,22 @@ Updated: 2026-10-23 (M5).
     - dev `types-reportlab` 5.0.0.20261008.
     - The architecture test allows `reportlab` in adapters only.
 
+- **M6 (uncommitted):** see [customer acceptance](features/customer-acceptance.md).
+  - **Customer API:** `POST /api/v1/enquiries/{id}/quotation/response` (accept/decline the exact version and hash, `Idempotency-Key`). `GET .../quotation` gains `status`, `valid_until`, `content_sha256` and `response_path`.
+  - **Acceptance re-pricing:**
+    - Accepting re-prices from the ERP. Any difference refuses it: `refused_changed` plus version N+1 created by the system, then manager approval and delivery.
+    - Lines that can no longer be priced give `pricing_failed`.
+    - ERP down gives 503, and nothing is recorded.
+  - **Validity:** valid until is printed on the PDF, and an `expire_quotation` job runs then. An answer after valid until records `expired` immediately.
+  - **Staff:** withdrawal (sales operator/approver roles, reason, CSRF) and a portal Customer box (status, validity, answers, withdraw form). List filters: Approved, Accepted, and Declined/expired/withdrawn.
+  - **Manager notice:** accept/decline notices go to linked approver channels (`ApprovalNotifier.send_notice`; simulated `notice-<id>.json`).
+  - **Workflow:** the graph pauses at `await_customer` after `approved`, and `apply_customer` ends the run or continues to re-approval. The name stays `quotation-approval-v1`.
+  - **Migration 0007:**
+    - the validity setting, plus `valid_until` (backfilled);
+    - `quotation_responses` (append-only, one closing answer, unique idempotency keys);
+    - the new statuses and grants.
+  - **Test harness:** a controllable clock and delayed jobs.
+
 ## Decisions recorded
 - **ADR 0013:**
   - Sessions follow the backend-for-frontend pattern, and identity providers stay swappable.
@@ -89,6 +106,20 @@ Updated: 2026-10-23 (M5).
   - Delivery goes to the enquiry's sender.
   - Email approval is deferred to M7 by the user.
 - **Earlier decisions stand:** ADRs 0010-0012, negotiation deferred (0008), every negotiated revision needs manager approval, and direct email approval stays a requirement (now M7).
+
+## Verification (M6, 2026-10-23)
+- **Static checks:** Ruff and strict mypy (155 files) pass.
+- **Offline pytest:** 327 unit passed, 44 integration skipped.
+- **`check_database.py --cycle`:** at `0007_acceptance` with no drift. 371 passed; then downgrade to empty, upgrade, and 371 passed again.
+- **Round trip 0007 -> 0006 -> 0007 with an accepted quotation:**
+  - Going down mapped the quotation and run status back to `approved`, removed the 2 M6 jobs and the answers table, and kept the other jobs.
+  - Upgrading again was clean.
+- **Regression found and fixed:** I had made the intake API map every IntegrityError to 409, which broke intake's "not stored, retry" 503 (caught by a PostgreSQL test). The 409 mapping is now limited to the answer route.
+- **Portal:** typecheck passes; 41 tests pass; the build passes (379 kB JS, 118 kB gzip).
+- **Live run:** see [setup](development/setup.md#customer-acceptance-m6) (accept, replay, notice, decline, withdraw, filters; no secrets in the logs).
+- **Not run:**
+  - The portal was not clicked through in a real browser.
+  - A live price change (the demo ERP has fixed prices) is covered by unit and PostgreSQL tests.
 
 ## Verification (M5, 2026-10-23)
 - **Static checks:** Ruff lint/format and strict mypy (148 files) pass.
@@ -140,6 +171,7 @@ Updated: 2026-10-23 (M5).
 ## Known gaps (tracked)
 - Dev login only; an OIDC adapter is needed before any non-development deployment.
 - No approval deadlines, escalation, delegation or multi-level policy, and no quote validity date (open decisions).
+- **M6 gaps:** no ERP orders or reservation; answers through the API only; no portal screen for the validity setting; pre-M6 finished runs do not resume for answers (dev data).
 - **M5 gaps:**
   - PDFs use built-in fonts (Western European text only; other characters fail visibly).
   - There is no resend action for `failed`/`unknown` deliveries.
@@ -154,5 +186,6 @@ Updated: 2026-10-23 (M5).
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
    - Follow [setup](development/setup.md#approvals-and-portal-m4).
-2. M6 (customer acceptance via the API, validity, price re-check with automatic revision, decline, withdrawal, expiry): see ADR 0016.
+2. With user authorization, commit M6 and push. Confirm CI passes, then mark M6 complete (roadmap, ADR 0016/README, README, this handoff).
+3. Next milestone (orders or another): ask the user every open question first (clarify-before-building).
 - Update this handoff in every change; never mark milestones complete without evidence.

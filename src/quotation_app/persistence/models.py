@@ -82,6 +82,9 @@ class TenantPricingPolicy(Base):
             "max_price_age_seconds > 0 AND max_stock_age_seconds > 0",
             name="ck_tenant_pricing_policies_ages",
         ),
+        CheckConstraint(
+            "quote_validity_days >= 1", name="ck_tenant_pricing_policies_quote_validity"
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), primary_key=True)
@@ -92,6 +95,8 @@ class TenantPricingPolicy(Base):
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6))
     max_price_age_seconds: Mapped[int] = mapped_column(Integer)
     max_stock_age_seconds: Mapped[int] = mapped_column(Integer)
+    # Days an issued quotation can be accepted, counted from delivery (M6; default 7).
+    quote_validity_days: Mapped[int] = mapped_column(Integer, server_default=text("7"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -230,7 +235,7 @@ class Job(Base):
 
 WORKFLOW_RUN_STATUS_CHECK = (
     "status IN ('running', 'ready_for_quotation', 'needs_clarification', 'needs_review', "
-    "'approved', 'rejected')"
+    "'approved', 'rejected', 'accepted', 'declined', 'expired', 'withdrawn')"
 )
 
 
@@ -283,7 +288,8 @@ class UserSession(Base):
 
 QUOTATION_STATUS_CHECK = (
     "status IN ('pricing_failed', 'pending_approval', 'revision_requested', "
-    "'revision_submitted', 'approved', 'rejected')"
+    "'revision_submitted', 'approved', 'rejected', 'accepted', 'declined', 'expired', "
+    "'withdrawn')"
 )
 
 
@@ -522,6 +528,7 @@ class QuotationDocument(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     renderer: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class QuotationDelivery(Base):
@@ -568,3 +575,51 @@ class QuotationDelivery(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+RESPONSE_OUTCOME_CHECK = (
+    "outcome IN ('accepted', 'declined', 'refused_changed', 'withdrawn', 'expired')"
+)
+
+
+class QuotationResponse(Base):
+    """An answer to an issued version: customer accept/decline, staff withdrawal or expiry.
+
+    Append-only (grants and a trigger). At most one closing outcome per quotation.
+    """
+
+    __tablename__ = "quotation_responses"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "quotation_id", "version"],
+            [
+                "quotation_versions.tenant_id",
+                "quotation_versions.quotation_id",
+                "quotation_versions.version",
+            ],
+            name="fk_quotation_responses_version",
+        ),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_quotation_responses_key"),
+        CheckConstraint(RESPONSE_OUTCOME_CHECK, name="ck_quotation_responses_outcome"),
+        Index(
+            "uq_quotation_responses_closing",
+            "tenant_id",
+            "quotation_id",
+            unique=True,
+            postgresql_where=text("outcome <> 'refused_changed'"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    quotation_id: Mapped[UUID] = mapped_column()
+    version: Mapped[int] = mapped_column(Integer)
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    outcome: Mapped[str] = mapped_column(String(16))
+    actor: Mapped[str] = mapped_column(String(200))
+    reason: Mapped[str | None] = mapped_column(String(1000))
+    idempotency_key: Mapped[str] = mapped_column(String(200))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    differences: Mapped[list[str]] = mapped_column(JSONB)
+    revised_version: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

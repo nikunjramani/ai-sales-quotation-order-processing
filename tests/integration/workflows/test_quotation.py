@@ -11,7 +11,9 @@ import json
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -37,6 +39,11 @@ from quotation_app.adapters.interpreters.rules import RulesInterpreter
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.app import create_app
 from quotation_app.api.auth import CSRF_HEADER
+from quotation_app.application.acceptance import (
+    QuotationExpiryHandler,
+    QuotationResponseService,
+    ResponseNotificationHandler,
+)
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.delivery import QuotationDeliveryHandler
 from quotation_app.application.jobs import JobRunner
@@ -45,9 +52,17 @@ from quotation_app.application.preparation import EnquiryPreparationHandler
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
+from quotation_app.domain.acceptance import (
+    OfferNotOpen,
+    PricesChanged,
+    ResponseAction,
+    ResponseOutcome,
+    ResponseRequest,
+)
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.quotations import ApprovalAction, DecisionCommand, DecisionConflict
-from quotation_app.domain.tenancy import Role
+from quotation_app.domain.tenancy import Role, TenantContext
+from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.channels import SqlNotificationStore
 from quotation_app.persistence.documents import SqlDeliveryStore
 from quotation_app.persistence.intake import SqlPreparationStore
@@ -108,13 +123,16 @@ def running_worker(settings: Settings, engine: Engine) -> Iterator[JobRunner]:
     runs = SqlWorkflowStore(engine)
     quotation_store = SqlQuotationWorkflowStore(engine)
     pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
+    responses = SqlResponseStore(engine)
     with open_checkpointer(settings.worker_url()) as checkpointer:
         enquiry_graph = build_enquiry_graph(
             EnquiryWorkflowDeps(runs, storage, PdfAndTextReader(), RulesInterpreter(), erp),
             checkpointer,
         )
         quotations = QuotationJobHandler(
-            build_quotation_graph(QuotationWorkflowDeps(quotation_store, pricing), checkpointer),
+            build_quotation_graph(
+                QuotationWorkflowDeps(quotation_store, pricing, responses), checkpointer
+            ),
             quotation_store,
         )
         yield JobRunner(
@@ -127,6 +145,14 @@ def running_worker(settings: Settings, engine: Engine) -> Iterator[JobRunner]:
                 JobKind.DRAFT_QUOTATION: quotations,
                 JobKind.RESUME_QUOTATION: quotations,
                 JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(
+                    SqlNotificationStore(engine),
+                    {"simulated": SimulatedChannelNotifier(settings.storage_dir / "outbox")},
+                ),
+                JobKind.EXPIRE_QUOTATION: QuotationExpiryHandler(
+                    QuotationResponseService(responses, pricing)
+                ),
+                JobKind.NOTIFY_RESPONSE: ResponseNotificationHandler(
+                    responses,
                     SqlNotificationStore(engine),
                     {"simulated": SimulatedChannelNotifier(settings.storage_dir / "outbox")},
                 ),
@@ -205,6 +231,10 @@ def decide(
     )
 
 
+# Approved and delivered; since M6 the run keeps waiting for the customer's answer.
+APPROVED_WAITING = ("approved", "running")
+
+
 def run_status(owner_engine: Engine, quotation_id: str) -> tuple[str, str]:
     with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
         row = connection.execute(
@@ -238,7 +268,7 @@ def test_enquiry_is_drafted_approved_in_the_portal_and_the_run_resumes(
     assert response.status_code == 200, response.text
     assert run_status(owner_engine, summary["quotation_id"]) == ("approved", "running")
     drain(settings, worker_engine)
-    assert run_status(owner_engine, summary["quotation_id"]) == ("approved", "approved")
+    assert run_status(owner_engine, summary["quotation_id"]) == APPROVED_WAITING
 
 
 def test_revision_loop_between_manager_and_sales(
@@ -274,7 +304,7 @@ def test_revision_loop_between_manager_and_sales(
     assert [task["status"] for task in detail["tasks"]] == ["revision_requested", "pending"]
     assert decide(manager, manager_headers, detail, "approve").status_code == 200
     drain(settings, worker_engine)
-    assert run_status(owner_engine, quotation_id) == ("approved", "approved")
+    assert run_status(owner_engine, quotation_id) == APPROVED_WAITING
 
 
 def test_manager_approves_from_the_simulated_channel(
@@ -317,7 +347,7 @@ def test_manager_approves_from_the_simulated_channel(
     assert post({**decision, "event_id": "e3"}).json()["result"] == "replayed"
     drain(settings, worker_engine)
     listed = manager.get(f"{base()}/quotations").json()
-    assert run_status(owner_engine, listed[0]["quotation_id"]) == ("approved", "approved")
+    assert run_status(owner_engine, listed[0]["quotation_id"]) == APPROVED_WAITING
     detail = manager.get(f"{base()}/quotations/{listed[0]['quotation_id']}").json()
     assert detail["decisions"][0]["transport"] == "simulated"
 
@@ -377,7 +407,7 @@ def test_waiting_run_survives_a_worker_restart(
     manager = make_client()
     assert decide(manager, login(manager, MANAGER), quoted, "approve").status_code == 200
     drain(settings, worker_engine)  # a brand-new worker, graph and checkpointer connection
-    assert run_status(owner_engine, quoted["summary"]["quotation_id"]) == ("approved", "approved")
+    assert run_status(owner_engine, quoted["summary"]["quotation_id"]) == APPROVED_WAITING
 
 
 def test_unpriceable_enquiry_waits_for_a_sales_revision(
@@ -580,3 +610,208 @@ def test_documents_are_append_only_and_delivery_updates_are_column_limited(
     with pytest.raises(DBAPIError, match="immutable"):  # even the owner, via the trigger
         with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
             connection.execute(text("DELETE FROM quotation_documents"))
+
+
+# --- M6: customer acceptance ----------------------------------------------------------------
+
+
+def issued_quotation(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+) -> tuple[TestClient, dict[str, str], str, dict[str, Any]]:
+    """Submit, approve and deliver; return (client, customer auth, enquiry ID, issued JSON)."""
+    intake = make_client()
+    token = make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE)
+    auth = {"Authorization": f"Bearer {token}"}
+    enquiry_id = submit(intake, token, ENQUIRY)
+    drain(settings, worker_engine)
+    manager = make_client()
+    headers = login(manager, MANAGER)
+    [listed] = manager.get(f"{base()}/quotations").json()
+    detail = manager.get(f"{base()}/quotations/{listed['quotation_id']}").json()
+    assert decide(manager, headers, detail, "approve").status_code == 200
+    drain(settings, worker_engine)
+    issued = intake.get(f"/api/v1/enquiries/{enquiry_id}/quotation", headers=auth).json()
+    return intake, auth, enquiry_id, issued
+
+
+def customer_context() -> TenantContext:
+    return TenantContext(INDUSTRIAL_TENANT, "api-key:direct", frozenset({Role.INTAKE_SERVICE}))
+
+
+def responses_service(
+    engine: Engine, erp: SimulatedErp | None = None, at: datetime | None = None
+) -> QuotationResponseService:
+    pricing = QuotationPricingService(
+        erp or SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT)),
+        SqlPricingPolicyReader(engine),
+    )
+    if at is None:
+        return QuotationResponseService(SqlResponseStore(engine), pricing)
+    return QuotationResponseService(SqlResponseStore(engine), pricing, clock=lambda: at)
+
+
+def test_customer_accepts_over_the_api_and_the_run_ends_accepted(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    intake, auth, enquiry_id, issued = issued_quotation(
+        make_client, make_api_key, settings, worker_engine
+    )
+    assert issued["status"] == "open"
+    valid_until = datetime.fromisoformat(issued["valid_until"])
+    assert timedelta(days=6, hours=23) < valid_until - datetime.now(UTC) <= timedelta(days=7)
+    body = {"action": "accept", "version": 1, "content_sha256": issued["content_sha256"]}
+    headers = {**auth, "Idempotency-Key": f"accept-{uuid4()}"}
+    accepted = intake.post(issued["response_path"], json=body, headers=headers)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["outcome"] == "accepted"
+    assert intake.post(issued["response_path"], json=body, headers=headers).json()["replayed"]
+    drain(settings, worker_engine)
+    assert run_status(owner_engine, issued_quotation_id(owner_engine)) == ("accepted", "accepted")
+    after = intake.get(f"/api/v1/enquiries/{enquiry_id}/quotation", headers=auth).json()
+    assert after["status"] == "accepted"
+    manager = make_client()
+    login(manager, MANAGER)
+    view = manager.get(f"{base()}/quotations/{issued_quotation_id(owner_engine)}/customer").json()
+    assert [item["outcome"] for item in view["responses"]] == ["accepted"]
+
+
+def issued_quotation_id(owner_engine: Engine) -> str:
+    with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
+        return str(connection.execute(text("SELECT id FROM quotations")).scalar_one())
+
+
+def test_changed_price_refuses_and_the_revision_goes_to_approval(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    runtime_engine: Engine,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    _, _, enquiry_id, issued = issued_quotation(make_client, make_api_key, settings, worker_engine)
+    erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
+    catalogue = erp.catalogue(INDUSTRIAL_TENANT)
+    [price] = catalogue.prices["IND-FAN-450"][-1:]
+    catalogue.prices["IND-FAN-450"] = (replace(price, unit_price=Decimal("4500.00")),)
+    request = ResponseRequest(ResponseAction.ACCEPT, 1, issued["content_sha256"], None)
+    with pytest.raises(PricesChanged) as refused:
+        responses_service(runtime_engine, erp).respond(
+            customer_context(), UUID(enquiry_id), "api", f"accept-{uuid4()}", request
+        )
+    assert refused.value.revised_version == 2
+    quotation_id = issued_quotation_id(owner_engine)
+    assert run_status(owner_engine, quotation_id) == ("revision_submitted", "running")
+    drain(settings, worker_engine)  # the run asks a manager to approve version 2
+    manager = make_client()
+    login(manager, MANAGER)
+    detail = manager.get(f"{base()}/quotations/{quotation_id}").json()
+    assert detail["pending_task"]["version"] == 2
+    assert detail["versions"][-1]["created_by"] == "system:quotation-workflow"
+    assert detail["versions"][-1]["content"]["lines"][0]["unit_price"] == "4500.00"
+
+
+def test_accept_and_withdraw_at_once_record_exactly_one_answer(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    runtime_engine: Engine,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    _, _, enquiry_id, issued = issued_quotation(make_client, make_api_key, settings, worker_engine)
+    quotation_id = UUID(issued_quotation_id(owner_engine))
+    staff = TenantContext(INDUSTRIAL_TENANT, SALES, frozenset({Role.SALES_OPERATOR}))
+    request = ResponseRequest(ResponseAction.ACCEPT, 1, issued["content_sha256"], None)
+    results: list[str] = []
+    start = threading.Barrier(2)
+
+    def accept() -> None:
+        start.wait()
+        try:
+            responses_service(runtime_engine).respond(
+                customer_context(), UUID(enquiry_id), "api", f"accept-{uuid4()}", request
+            )
+            results.append("accepted")
+        except OfferNotOpen:
+            results.append("refused")
+
+    def withdraw() -> None:
+        start.wait()
+        try:
+            responses_service(runtime_engine).withdraw(staff, quotation_id, uuid4(), "Mistake")
+            results.append("withdrawn")
+        except OfferNotOpen:
+            results.append("refused")
+
+    threads = [threading.Thread(target=accept), threading.Thread(target=withdraw)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(results) in (["accepted", "refused"], ["refused", "withdrawn"])
+    with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
+        assert connection.execute(text("SELECT count(*) FROM quotation_responses")).scalar() == 1
+
+
+def test_expiry_closes_an_unanswered_quotation(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    intake, auth, enquiry_id, issued = issued_quotation(
+        make_client, make_api_key, settings, worker_engine
+    )
+    with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
+        run_at = connection.execute(
+            text("SELECT run_at FROM jobs WHERE kind = 'expire_quotation'")
+        ).scalar_one()
+    assert run_at == datetime.fromisoformat(issued["valid_until"])
+    quotation_id = UUID(issued_quotation_id(owner_engine))
+    later = datetime.fromisoformat(issued["valid_until"]) + timedelta(seconds=1)
+    # The worker role runs the expiry (as the job would at valid_until).
+    expired = responses_service(worker_engine, at=later).expire(INDUSTRIAL_TENANT, quotation_id, 1)
+    assert expired is not None and expired.outcome is ResponseOutcome.EXPIRED
+    drain(settings, worker_engine)
+    assert run_status(owner_engine, str(quotation_id)) == ("expired", "expired")
+    status_now = intake.get(f"/api/v1/enquiries/{enquiry_id}/quotation", headers=auth).json()
+    assert status_now["status"] == "expired"
+
+
+def test_answers_are_append_only_and_tenant_isolated(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    runtime_engine: Engine,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    _, _, enquiry_id, issued = issued_quotation(make_client, make_api_key, settings, worker_engine)
+    request = ResponseRequest(ResponseAction.DECLINE, 1, issued["content_sha256"], "No budget")
+    responses_service(runtime_engine).respond(
+        customer_context(), UUID(enquiry_id), "api", f"decline-{uuid4()}", request
+    )
+    for engine in (runtime_engine, worker_engine):
+        for statement in (
+            "UPDATE quotation_responses SET outcome = 'accepted'",
+            "DELETE FROM quotation_responses",
+        ):
+            with pytest.raises(ProgrammingError):
+                with tenant_transaction(engine, INDUSTRIAL_TENANT) as connection:
+                    connection.execute(text(statement))
+    with pytest.raises(DBAPIError, match="immutable"):
+        with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
+            connection.execute(text("UPDATE quotation_responses SET reason = 'changed'"))
+    for engine in (runtime_engine, worker_engine):
+        with tenant_transaction(engine, OFFICE_TENANT) as connection:
+            assert (
+                connection.execute(text("SELECT count(*) FROM quotation_responses")).scalar() == 0
+            )

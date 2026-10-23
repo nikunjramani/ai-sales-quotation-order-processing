@@ -7,6 +7,8 @@ POST /api/v1/tenants/{tenant}/quotations/{id}/revisions            new version (
 GET  /api/v1/tenants/{tenant}/quotations/{id}/versions/{v}/preview.pdf  draft preview (not an offer)
 GET  /api/v1/tenants/{tenant}/quotations/{id}/document.pdf         approved document as delivered
 GET  /api/v1/tenants/{tenant}/quotations/{id}/delivery             document and delivery status
+GET  /api/v1/tenants/{tenant}/quotations/{id}/customer             offer status and answers (M6)
+POST /api/v1/tenants/{tenant}/quotations/{id}/withdrawal           withdraw an issued quotation
 GET  /api/v1/tenants/{tenant}/enquiries[?status=...]               enquiry list (exceptions)
 POST /api/v1/tenants/{tenant}/channel-enrollments                  get a code to link an account
 GET  /api/v1/tenants/{tenant}/channel-bindings                     linked accounts
@@ -30,11 +32,23 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from quotation_app.api.auth import PortalAuth
 from quotation_app.api.pdf import integrity_failure, pdf_response
+from quotation_app.application.acceptance import (
+    WITHDRAWING_ROLES,
+    NotIssued,
+    QuotationResponseService,
+)
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.documents import QuotationDocumentService
 from quotation_app.application.intake import EnquiryListService
 from quotation_app.application.quotations import QuotationService
+from quotation_app.domain.acceptance import (
+    CustomerStatus,
+    OfferNotOpen,
+    RecordedResponse,
+    ResponseConflict,
+    ResponseOutcome,
+)
 from quotation_app.domain.documents import (
     DeliveryRecord,
     DeliveryStatus,
@@ -216,6 +230,52 @@ class DeliveryOut(BaseModel):
     first_downloaded_at: datetime | None
 
 
+class CustomerResponseOut(BaseModel):
+    response_id: UUID
+    version: int
+    outcome: ResponseOutcome
+    actor: str
+    reason: str | None
+    differences: list[str]
+    revised_version: int | None
+    created_at: datetime
+
+
+class CustomerViewOut(BaseModel):
+    """What the customer holds and how they answered (M6)."""
+
+    offered_version: int | None
+    customer_status: CustomerStatus | None
+    valid_until: datetime | None
+    issued_at: datetime | None
+    responses: list[CustomerResponseOut]
+    can_withdraw: bool
+
+
+class WithdrawalIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command_id: UUID = Field(description="New random UUID per click; a retry reuses it")
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class WithdrawalOut(BaseModel):
+    response: CustomerResponseOut
+    replayed: bool
+
+
+def _response(item: RecordedResponse) -> CustomerResponseOut:
+    return CustomerResponseOut(
+        response_id=item.response_id,
+        version=item.version,
+        outcome=item.outcome,
+        actor=item.actor,
+        reason=item.reason,
+        differences=list(item.differences),
+        revised_version=item.revised_version,
+        created_at=item.created_at,
+    )
+
+
 class DeliveryOverviewOut(BaseModel):
     document: DocumentOut | None
     deliveries: list[DeliveryOut]
@@ -344,6 +404,7 @@ def build_portal_router(
     channels: ChannelActionService,
     enquiries: EnquiryListService,
     documents: QuotationDocumentService,
+    responses: QuotationResponseService,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/tenants/{tenant_id}", tags=["portal"])
@@ -361,6 +422,11 @@ def build_portal_router(
             raise integrity_failure() from None
         except UnrenderableContent as error:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+        except OfferNotOpen as error:
+            closed = {"message": str(error), "status": error.status.value}
+            raise HTTPException(status.HTTP_409_CONFLICT, closed) from None
+        except (NotIssued, ResponseConflict) as error:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from None
         except DecisionConflict as error:
             detail: dict[str, object] = {"message": str(error)}
             if error.recorded is not None:
@@ -409,6 +475,32 @@ def build_portal_router(
             document=None if overview.document is None else _document(overview.document),
             deliveries=[_delivery(item) for item in overview.deliveries],
         )
+
+    @router.get("/quotations/{quotation_id}/customer", response_model=CustomerViewOut)
+    def customer_view(quotation_id: UUID, context: Context) -> CustomerViewOut:
+        offer, answers = guarded(lambda: responses.history(context, quotation_id))
+        state = None if offer is None else responses.status_of(offer)
+        allowed = bool(context.roles & WITHDRAWING_ROLES)
+        return CustomerViewOut(
+            offered_version=None if offer is None else offer.version,
+            customer_status=state,
+            valid_until=None if offer is None else offer.valid_until,
+            issued_at=None if offer is None else offer.issued_at,
+            responses=[_response(item) for item in answers],
+            # UI hint only; the server re-checks everything on withdrawal.
+            can_withdraw=allowed and state is CustomerStatus.OPEN,
+        )
+
+    @router.post(
+        "/quotations/{quotation_id}/withdrawal",
+        response_model=WithdrawalOut,
+        responses={403: {}, 409: {"description": "Not issued, or already answered/closed"}},
+    )
+    def withdraw(quotation_id: UUID, body: WithdrawalIn, context: Context) -> WithdrawalOut:
+        recorded, replayed = guarded(
+            lambda: responses.withdraw(context, quotation_id, body.command_id, body.reason)
+        )
+        return WithdrawalOut(response=_response(recorded), replayed=replayed)
 
     @router.post(
         "/approval-tasks/{task_id}/decision",

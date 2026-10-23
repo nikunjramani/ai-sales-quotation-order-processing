@@ -74,6 +74,21 @@ See [quotation delivery](../features/quotation-delivery.md).
    - Record `available`/`sent`, `failed` (with reason), `unknown`, or `pending` again for a retry (`failed` after the last attempt).
 3. **Customer (API channel):** `GET /api/v1/enquiries/{id}/quotation(.pdf)` returns only delivered approved versions and records the first download.
 
+## Implemented M6 trace (customer answers)
+See [customer acceptance](../features/customer-acceptance.md).
+1. **Delivery:**
+   - Prints "valid until" on the PDF (preparation time + tenant days).
+   - On `available`/`sent`, queues `expire_quotation` for that moment.
+   - The run waits at `await_customer`.
+2. **Answer** (API key, Idempotency-Key, exact version and hash):
+   - A decline is recorded.
+   - An accept re-prices from the ERP. Unchanged: `accepted`. Any difference: `refused_changed` plus version N+1 (or `pricing_failed`). ERP down: nothing recorded.
+   - Recording takes a row lock on the quotation, re-checks that the offer is open, and writes the answer, status, revision, `resume_quotation` and `notify_response` atomically.
+3. **Resume:**
+   - Closing answers end the run with their status.
+   - A price change continues to `request_approval` (or `await_revision`); approval -> delivery -> a new offer.
+4. **Expiry job / withdrawal:** the same atomic recording; the run ends `expired` / `withdrawn`.
+
 ## Planned sales workflow
 
 | Step | Input and action | Output / failure branch |

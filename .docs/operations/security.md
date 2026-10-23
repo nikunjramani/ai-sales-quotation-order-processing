@@ -17,6 +17,15 @@
 - Provider webhook verification is necessary but not sufficient: validate the acting manager, task/version, recipient binding and expiry. Forwarded actions and uncorrelated text must not approve anything.
 - Mobile channel review may expose commercial documents to provider storage; configure permitted channels and disclosure per tenant. Never include reusable action secrets in model input or logs.
 
+## Implemented controls (M6)
+- **Answers bind to exact content:** the customer names the version and SHA-256 it answers; anything else gets 409. Only `intake_service` API keys of the same business can answer (`quotations:respond`). Staff cannot accept for the customer.
+- **No acceptance at changed prices:** acceptance re-prices from the ERP. Any difference refuses it, and the revised version needs a fresh manager approval. ERP failures record nothing.
+- **Exactly one closing answer:**
+  - A row lock on the quotation, plus a partial unique index, means a racing accept, withdrawal or expiry produces one outcome. This is tested on PostgreSQL.
+  - Idempotency keys are unique per tenant: replays return the first result, and a different answer under a used key is refused.
+  - Answers are append-only (grants plus trigger).
+- **Withdrawal:** a sales operator or approver only, with CSRF and a reason.
+
 ## Implemented controls (M5)
 - **Only approved content reaches customers:**
   - Delivery is queued only for the approved current version.

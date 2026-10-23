@@ -3,7 +3,9 @@
 import base64
 import hashlib
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -17,6 +19,7 @@ from quotation_app.application.api_keys import ApiKeyAuthenticator, generate_api
 from quotation_app.application.intake import EnquiryIntakeService
 from quotation_app.domain.tenancy import Role
 from quotation_app.ports.api_keys import ApiKeyRecord
+from quotation_app.ports.erp import ErpError, ErpErrorCode
 
 BODY = {"text": "Please quote 50 industrial fans for Pune", "customer_reference": "CUST-1"}
 
@@ -28,7 +31,9 @@ def client(
     app = FastAPI()
     intake = EnquiryIntakeService(intake_store, memory_storage, clock=lambda: now)
     app.include_router(
-        build_enquiry_router(ApiKeyAuthenticator(api_key_reader), intake, harness.documents())
+        build_enquiry_router(
+            ApiKeyAuthenticator(api_key_reader), intake, harness.documents(), harness.responses()
+        )
     )
     with TestClient(app) as http:
         yield http
@@ -212,3 +217,84 @@ def test_customers_see_only_an_issued_quotation(
 
     assert client.get(url, headers=make_headers(office_tenant)).status_code == 404
     assert client.get(url).status_code == 401
+
+
+def issue_through_harness(harness: Any) -> UUID:
+    enquiry: UUID = harness.enquiry(("IND-FAN-450", "2", "each"))
+    harness.run_jobs()
+    harness.approvals.decide(
+        "manager@industrial.example", harness.command(harness.pending_task(enquiry))
+    )
+    harness.run_jobs()
+    return enquiry
+
+
+def test_customer_accepts_or_is_told_why_not(
+    client: TestClient, make_headers: Any, harness: Any, industrial_tenant: UUID
+) -> None:
+    enquiry = issue_through_harness(harness)
+    headers = make_headers(industrial_tenant, key="accept-0001")
+    issued = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=headers).json()
+    assert issued["status"] == "open" and issued["valid_until"]
+    url = issued["response_path"]
+    body = {"action": "accept", "version": issued["version"], "content_sha256": "f" * 64}
+    stale = client.post(url, json=body, headers=headers)
+    assert stale.status_code == 409  # not the offered content
+
+    body["content_sha256"] = issued["content_sha256"]
+    accepted = client.post(url, json=body, headers=headers)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["outcome"] == "accepted" and accepted.json()["replayed"] is False
+    replay = client.post(url, json=body, headers=headers)
+    assert replay.status_code == 200 and replay.json()["replayed"] is True
+    other_key = client.post(
+        url, json=body, headers=make_headers(industrial_tenant, key="accept-0002")
+    )
+    assert other_key.status_code == 409
+    assert other_key.json()["detail"]["status"] == "accepted"
+    after = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=headers).json()
+    assert after["status"] == "accepted"
+    no_key = {k: v for k, v in headers.items() if k != "Idempotency-Key"}
+    assert client.post(url, json=body, headers=no_key).status_code == 422
+
+
+def test_changed_prices_and_erp_failures_are_explained(
+    client: TestClient, make_headers: Any, harness: Any, industrial_tenant: UUID
+) -> None:
+    enquiry = issue_through_harness(harness)
+    headers = make_headers(industrial_tenant, key="accept-0003")
+    issued = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=headers).json()
+    body = {"action": "accept", "version": 1, "content_sha256": issued["content_sha256"]}
+    harness.erp.failures["get_prices"] = ErpError(ErpErrorCode.TEMPORARY_UNAVAILABLE, "down")
+    unavailable = client.post(issued["response_path"], json=body, headers=headers)
+    assert unavailable.status_code == 503 and "nothing was recorded" in unavailable.json()["detail"]
+    del harness.erp.failures["get_prices"]
+
+    catalogue = harness.erp.catalogue(industrial_tenant)
+    [price] = catalogue.prices["IND-FAN-450"][-1:]
+    catalogue.prices["IND-FAN-450"] = (replace(price, unit_price=Decimal("4500.00")),)
+    refused = client.post(issued["response_path"], json=body, headers=headers)
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert detail["outcome"] == "refused_changed" and detail["revised_version"] == 2
+    assert detail["differences"]
+    status_now = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=headers).json()
+    assert status_now["status"] == "being_revised"
+
+
+def test_decline_needs_the_respond_permission(
+    client: TestClient, make_headers: Any, harness: Any, industrial_tenant: UUID
+) -> None:
+    enquiry = issue_through_harness(harness)
+    viewer = make_headers(industrial_tenant, Role.VIEWER, key="decline-001")
+    customer = make_headers(industrial_tenant, key="decline-002")
+    issued = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=customer).json()
+    body = {
+        "action": "decline",
+        "version": 1,
+        "content_sha256": issued["content_sha256"],
+        "reason": "Too expensive",
+    }
+    assert client.post(issued["response_path"], json=body, headers=viewer).status_code == 403
+    declined = client.post(issued["response_path"], json=body, headers=customer)
+    assert declined.status_code == 200 and declined.json()["outcome"] == "declined"

@@ -25,7 +25,7 @@ from quotation_app.persistence.seed import seed_demo_tenants
 type ApiKeyFactory = Callable[[UUID, Role], str]
 
 _INTAKE_TABLES = (
-    "quotation_deliveries, quotation_documents, "
+    "quotation_responses, quotation_deliveries, quotation_documents, "
     "approval_action_refs, channel_bindings, channel_enrollments, approval_decisions, "
     "approval_tasks, quotation_versions, quotations, user_sessions, "
     "checkpoint_writes, checkpoint_blobs, checkpoints, workflow_runs, "

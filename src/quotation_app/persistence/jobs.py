@@ -5,7 +5,7 @@ waiting or taking the same job. Times come from the database clock so all worker
 """
 
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, Engine, func, insert, text
@@ -42,8 +42,12 @@ def queue_job(
     kind: JobKind,
     payload: Mapping[str, str],
     correlation_id: UUID,
+    run_at: datetime | None = None,
 ) -> None:
-    """Queue a job inside the caller's transaction, so it exists only if the change commits."""
+    """Queue a job inside the caller's transaction, so it exists only if the change commits.
+
+    run_at delays it (e.g. the expiry of a quotation); by default it can run at once.
+    """
     connection.execute(
         insert(Job).values(
             id=uuid4(),
@@ -52,7 +56,7 @@ def queue_job(
             payload=dict(payload),
             status=JobStatus.PENDING.value,
             max_attempts=MAX_JOB_ATTEMPTS,
-            run_at=func.now(),
+            run_at=func.now() if run_at is None else run_at,
             correlation_id=correlation_id,
         )
     )

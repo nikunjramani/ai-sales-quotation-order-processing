@@ -1,5 +1,5 @@
 # Documentation index
-Status 2026-10-23: M0-M5 are complete (local and CI). M6 (customer acceptance) is in progress. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
+Status 2026-10-23: M0-M5 are complete (local and CI). M6 (customer acceptance) is implemented and verified locally; CI pending until pushed. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)
@@ -30,6 +30,7 @@ Status 2026-10-23: M0-M5 are complete (local and CI). M6 (customer acceptance) i
 - [Enquiry extraction workflow with swappable models (M3)](features/enquiry-extraction.md)
 - [Quotation drafting, approval and the portal (M4)](features/quotation-approval.md)
 - [Quotation PDFs and delivery (M5)](features/quotation-delivery.md)
+- [Customer acceptance (M6)](features/customer-acceptance.md)
 - [Adding a channel (email, Telegram...)](development/adding-channels.md)
 - [Documentation policy and templates](development/documentation-policy.md)
 - [Testing and evaluation](development/testing.md)

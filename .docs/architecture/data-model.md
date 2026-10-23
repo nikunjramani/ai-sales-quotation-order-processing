@@ -4,7 +4,7 @@ ERP owns SKUs, current prices, stock and final order records. The platform owns 
 A quote stores the exact commercial values reviewed, their source and timestamp. This is evidence, not a second live inventory system.
 Synthetic ERP fixtures are replaceable test infrastructure.
 
-## Implemented tables (M0-M5)
+## Implemented tables (M0-M6)
 | Table | Contents and rules |
 |---|---|
 | tenants | Business ID and name; RLS by `id` |
@@ -53,6 +53,15 @@ workflow_runs also records `approved` / `rejected` for the `quotation-approval-v
 | quotation_deliveries | Outbox per target (unique tenant+quotation+version+channel+recipient): status `pending`/`sending`/`available`/`sent`/`failed`/`unknown`, document, provider reference, last error (short), delivered and first-download times. Worker may update only progress columns; API only `first_downloaded_at` |
 
 The PDF bytes live in private object storage (`tenants/<t>/documents/<id>`), not in the database.
+
+### Added in M6 (migration 0007)
+| Table / column | Contents and rules |
+|---|---|
+| tenant_pricing_policies.quote_validity_days | Days an issued quotation can be answered (default 7, at least 1) |
+| quotation_documents.valid_until | Printed on the PDF; existing M5 rows were backfilled with created_at + 7 days |
+| quotation_responses | Answer to an issued version: outcome (`accepted`, `declined`, `refused_changed`, `withdrawn`, `expired`), actor, reason, differences, revised version, idempotency key (unique per tenant) and fingerprint. Append-only. At most one closing outcome per quotation (partial unique index) |
+
+Quotation and workflow-run statuses gain `accepted`, `declined`, `expired` and `withdrawn`.
 
 ## Planned entities
 | Entity | Important contents |

@@ -127,10 +127,13 @@ class DocumentSource:
     content_sha256: str
     customer_reference: str | None
     approved_at: datetime | None
+    valid_until: datetime | None = None  # set for the customer document (M6), not previews
 
     def __post_init__(self) -> None:
         if self.approved_at is not None:
             require_aware(self.approved_at, "approved_at")
+        if self.valid_until is not None:
+            require_aware(self.valid_until, "valid_until")
 
     @property
     def number(self) -> str:
@@ -148,6 +151,7 @@ class StoredDocument:
     size_bytes: int
     renderer: str
     created_at: datetime
+    valid_until: datetime  # printed on the PDF; the customer can answer until then (M6)
 
 
 @dataclass(frozen=True)

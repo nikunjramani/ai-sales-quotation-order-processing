@@ -12,6 +12,13 @@ import type {
 export const QUOTATION_FILTERS = [
   { id: "waiting", label: "Waiting for approval", statuses: ["pending_approval"] },
   { id: "revision", label: "Needs revision", statuses: ["revision_requested", "pricing_failed"] },
+  { id: "approved", label: "Approved", statuses: ["approved"] },
+  { id: "accepted", label: "Accepted", statuses: ["accepted"] },
+  {
+    id: "closed",
+    label: "Declined / expired / withdrawn",
+    statuses: ["declined", "expired", "withdrawn"],
+  },
   { id: "all", label: "All", statuses: [] },
 ] as const satisfies readonly { id: string; label: string; statuses: readonly QuotationStatus[] }[];
 
