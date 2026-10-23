@@ -164,6 +164,9 @@ Migrate first (`uv run alembic upgrade head`, or `check_database.py`). No new se
 - **Repeat runs:** another worker pass created nothing new.
 - **Logs:** no API keys appeared in the server or worker logs; the temporary keys were revoked.
 
+## Two-window demo page
+For demos: `uv run python demo/run_demo.py`, then open http://127.0.0.1:8001 (customer chat on the left, manager's simulated phone on the right). See [demo/README.md](../../demo/README.md). Development only, outside the main code structure.
+
 ## Customer acceptance (M6)
 Migrate first (`check_database.py` or `uv run alembic upgrade head`). Each business's validity is `quote_validity_days` in `tenant_pricing_policies` (default 7).
 1. Issue a quotation (M5 steps): submit, run the worker, approve, run the worker.

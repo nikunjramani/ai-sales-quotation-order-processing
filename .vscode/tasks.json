@@ -34,6 +34,22 @@
       "dependsOrder": "sequence",
       "dependsOn": ["dev: stop all", "dev: start database", "dev: migrate"],
       "problemMatcher": []
+    },
+    {
+      "label": "dev: seed",
+      "detail": "Add the synthetic tenants and members if missing (existing rows unchanged)",
+      "type": "shell",
+      "command": "uv run python -m quotation_app.persistence.seed",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "demo: prepare",
+      "detail": "Stop old processes, start the database, migrate, seed",
+      "dependsOrder": "sequence",
+      "dependsOn": ["dev: prepare", "dev: seed"],
+      "problemMatcher": []
     }
   ]
 }
