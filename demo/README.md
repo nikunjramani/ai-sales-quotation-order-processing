@@ -15,6 +15,10 @@ uv run python demo/run_demo.py      # migrations + seed, API (8000), worker, dem
 ```
 Open http://127.0.0.1:8001. Ctrl+C stops everything. The full portal still works for details.
 
+**VS Code, one click:** Run and Debug -> **Demo (DB + API + worker + demo page)**. It stops old
+processes, starts the database, migrates and seeds, then starts the three processes and opens the
+page. The stop button ends all of them (the task "dev: stop all" also frees port 8001).
+
 ## How it works
 `server.py` is a small FastAPI app that calls the real API:
 - Customer: creates one intake API key for the demo business on first use and keeps it in

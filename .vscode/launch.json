@@ -32,6 +32,22 @@
       "cwd": "${workspaceFolder}/portal",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Demo page (:8001)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["server:app", "--app-dir", "demo", "--host", "127.0.0.1", "--port", "8001"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "justMyCode": true,
+      "console": "integratedTerminal",
+      "serverReadyAction": {
+        "pattern": "Uvicorn running on (http://[0-9.:]+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
     }
   ],
   "compounds": [
@@ -39,6 +55,12 @@
       "name": "Run all (DB + API + worker + portal)",
       "configurations": ["API (uvicorn :8000)", "Worker", "Portal (vite :5173)"],
       "preLaunchTask": "dev: prepare",
+      "stopAll": true
+    },
+    {
+      "name": "Demo (DB + API + worker + demo page)",
+      "configurations": ["API (uvicorn :8000)", "Worker", "Demo page (:8001)"],
+      "preLaunchTask": "demo: prepare",
       "stopAll": true
     }
   ]

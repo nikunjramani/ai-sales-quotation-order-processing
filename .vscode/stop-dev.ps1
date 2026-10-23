@@ -1,10 +1,10 @@
-# Stops any running local dev processes of this project (API, worker, portal dev server),
+# Stops any running local dev processes of this project (API, worker, portal, demo page),
 # whether started from VS Code or a terminal. Only matches this project's commands/ports.
 $ErrorActionPreference = "SilentlyContinue"
 $stopped = @()
 
-# Anything listening on the API (8000) or portal dev server (5173) ports.
-foreach ($port in 8000, 5173) {
+# Anything listening on the API (8000), demo page (8001) or portal dev server (5173) ports.
+foreach ($port in 8000, 8001, 5173) {
     Get-NetTCPConnection -LocalPort $port -State Listen | ForEach-Object {
         $process = Get-Process -Id $_.OwningProcess
         if ($process) {
