@@ -4,7 +4,7 @@ A multi-business platform, still being built, that turns customer enquiries into
 
 The goal is a reusable product that many businesses (tenants) can use with their own email or messaging channels and their existing ERP or inventory system. It is also a learning project for LangChain, LangGraph and reliable workflow engineering, so every part is documented in plain language.
 
-> **Status (2026-10-23):** M0-M4 are complete (local and CI): drafted quotation versions, a shared approval service, a React portal with a development login, and a simulated manager channel. M5 (approved quotation PDFs and delivery to API clients) is implemented and verified locally; CI is pending. Real email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
+> **Status (2026-10-23):** M0-M5 are complete (local and CI): drafted quotation versions, a shared approval service, a React portal with a development login, a simulated manager channel, and approved quotation PDFs delivered to API clients. Real email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
 
 ## What it will do
 1. Receive an enquiry from email, Telegram, an API and later WhatsApp or Instagram.
@@ -26,7 +26,7 @@ The goal is a reusable product that many businesses (tenants) can use with their
 | Background worker with leased, retried, crash-safe jobs; attachment quarantine and inspection | ✅ M2 |
 | Requirement extraction (LangGraph, checkpoints): free rules interpreter or local Ollama model, swappable; verbatim checks, ERP matching, clarification questions | ✅ M3 |
 | Quotation versions, manager approval (portal + simulated channel), revision loop, React portal with dev login | ✅ M4 |
-| Approved quotation PDFs (stored, hash-checked), delivery outbox with honest outcomes, customer download API, portal preview and delivery status | ✅ M5 (local; CI pending) |
+| Approved quotation PDFs (stored, hash-checked), delivery outbox with honest outcomes, customer download API, portal preview and delivery status | ✅ M5 |
 | Email/Telegram (incl. manager approval by email reply), orders, OIDC login | ⏳ Planned (M6-M7) |
 
 ## Tech stack

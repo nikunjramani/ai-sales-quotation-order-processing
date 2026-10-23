@@ -2,7 +2,7 @@
 Updated: 2026-10-23 (M5).
 
 ## Current state
-- **M0-M4 are COMPLETE** (local and CI), all on origin/main:
+- **M0-M5 are COMPLETE** (local and CI), all on origin/main:
 
   | Milestone | Commit | CI run |
   |---|---|---|
@@ -10,9 +10,10 @@ Updated: 2026-10-23 (M5).
   | M2 | d7707eb | [39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875) |
   | M3 | 52cccd7 | [39747434193](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39747434193) |
   | M4 | 21f0ba5 | [39900219005](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39900219005) (`verify` and `portal` jobs) |
+  | M5 | 6f951ec | [39903715921](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39903715921) (both jobs) |
 
   For M3 the user could not install Ollama on the corporate VM, so it ships with the free rules interpreter.
-- **Current milestone: M5 (quotation documents and delivery).** It is implemented and verified locally, but **not yet committed**. Mark it complete only after CI passes on the pushed commit.
+- **Current milestone: M6 (customer acceptance).** Decisions taken with the user on 2026-10-23 (ADR 0016); implementation in progress. Ask before assuming anything ([clarify-before-building](../.claude/skills/clarify-before-building/SKILL.md)).
 - **User decisions (2026-10-23):**
   - **Email approval is out of scope for now:** managers approve in the portal.
   - Email and other providers must stay **easy to add**; see [adding channels](development/adding-channels.md).
@@ -54,7 +55,7 @@ Updated: 2026-10-23 (M5).
     - narrow `app.subject` / session RLS policies.
   - **CI:** a new `portal` job (npm ci, typecheck, test, build).
 
-- **M5 (uncommitted):** see [quotation delivery](features/quotation-delivery.md) and [ADR 0015](adr/0015-quotation-documents-and-delivery.md).
+- **M5:** see [quotation delivery](features/quotation-delivery.md) and [ADR 0015](adr/0015-quotation-documents-and-delivery.md).
   - **Approved step:** only the approved current version gets a `quotation_deliveries` outbox row plus a `deliver_quotation` job, in one transaction. The recipient is always the enquiry's sender (for the API, the submitting key).
   - **PDF:**
     - ReportLab 5.0.1 renders it; it is deterministic, escapes customer text, refuses unsupported characters and leaves out internal evidence.
@@ -149,11 +150,9 @@ Updated: 2026-10-23 (M5).
 - Carried over: no OCR, no malware scanner, local storage only, no dead-job view.
 
 ## Next task
-1. With user authorization, commit M5 and push. Confirm both CI jobs pass, then mark M5 complete in the roadmap, ADR 0015/README, README and this handoff.
-2. Optionally open the portal in a browser (use "Run all" in VS Code):
+1. Optionally open the portal in a browser (use "Run all" in VS Code):
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
    - Follow [setup](development/setup.md#approvals-and-portal-m4).
-3. M6 (orders): customer acceptance of the delivered version, offer expiry/withdrawal rules, price/stock revalidation, ERP order creation with reconciliation.
-   - **Needs decisions first:** customer acceptance verification, quote validity and reservations (open decisions).
+2. M6 (customer acceptance via the API, validity, price re-check with automatic revision, decline, withdrawal, expiry): see ADR 0016.
 - Update this handoff in every change; never mark milestones complete without evidence.

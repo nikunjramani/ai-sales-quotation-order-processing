@@ -6,6 +6,7 @@
 
 ## Mandatory working rules
 - Explain new concepts in simple words, including purpose, inputs, outputs, and failure behaviour.
+- Ask, do not assume (user instruction, 2026-10-23). Before a milestone, feature or scope change, list every point the repository does not already decide (business rules, scope, customer-visible behaviour, providers, data, costly technical choices) and ask the user, with options and consequences. Stop and ask again when new open points appear mid-work. Record answers in ADRs/open decisions/handoff. Procedure: [.claude/skills/clarify-before-building/SKILL.md](.claude/skills/clarify-before-building/SKILL.md).
 - Build approved milestones incrementally; do not claim a scaffold is a completed production feature.
 - Tenant isolation, deterministic money calculations, authenticated approval, idempotent actions, and ERP authority are invariants.
 - Do not use AI-generated values as authoritative stock, prices, tax, delivery commitments, permissions, or approvals.
