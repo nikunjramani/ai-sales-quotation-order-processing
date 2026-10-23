@@ -15,6 +15,15 @@ def test_ollama_builds_without_contacting_the_server() -> None:
         build_interpreter("ollama")
 
 
+def test_gemini_builds_without_contacting_google() -> None:
+    interpreter = build_interpreter("gemini", "gemini-3.5-flash-lite", api_key="synthetic-test-key")
+    assert isinstance(interpreter, LangChainInterpreter)
+    with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+        build_interpreter("gemini", "gemini-3.5-flash-lite")
+    with pytest.raises(ValueError, match="MODEL_NAME"):
+        build_interpreter("gemini", api_key="synthetic-test-key")
+
+
 def test_unknown_provider_is_refused() -> None:
     with pytest.raises(ValueError, match="Unknown model provider"):
         build_interpreter("magic")

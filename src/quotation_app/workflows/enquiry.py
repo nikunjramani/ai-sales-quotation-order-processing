@@ -14,6 +14,7 @@ asking the model again. State holds IDs and small summaries only; document text 
 checkpointed. Prices are not involved here: pricing stays with the M1 calculator.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TypedDict
@@ -34,6 +35,7 @@ from quotation_app.domain.requirements import (
     RequestedItem,
     assess,
     decide_match,
+    needs_categories,
     unverified_items,
 )
 from quotation_app.domain.tenancy import Role, TenantContext
@@ -108,6 +110,7 @@ def _product_to_state(product: Product) -> dict[str, str]:
         "unit": product.unit,
         "minimum_quantity": str(product.minimum_quantity),
         "quantity_step": str(product.quantity_step),
+        "category": product.category or "",
     }
 
 
@@ -118,6 +121,7 @@ def _product_from_state(data: dict[str, str]) -> Product:
         data["unit"],
         Decimal(data["minimum_quantity"]),
         Decimal(data["quantity_step"]),
+        data.get("category") or None,  # absent in checkpoints from before categories
     )
 
 
@@ -195,20 +199,30 @@ def build_enquiry_graph(
                 "questions": [],
                 "review_reasons": reasons,
             }
+        requirements = ExtractedRequirements(
+            tuple(_item_from_state(data) for data in state["items"])
+        )
+        matches = [
+            ProductMatch(
+                int(str(data["item_index"])),
+                MatchStatus(str(data["status"])),
+                None if data["sku"] is None else str(data["sku"]),
+                tuple(str(sku) for sku in data["candidate_skus"]),  # type: ignore[attr-defined]
+            )
+            for data in state.get("matches", [])
+        ]
+        categories: Sequence[str] = ()
+        if needs_categories(requirements, matches, state["unverified"]):
+            tenant_id, _ = _ids(state)
+            context = TenantContext(tenant_id, SYSTEM_SUBJECT, frozenset({Role.VIEWER}))
+            categories = deps.erp.list_categories(context)
         result = assess(
-            ExtractedRequirements(tuple(_item_from_state(data) for data in state["items"])),
-            [
-                ProductMatch(
-                    int(str(data["item_index"])),
-                    MatchStatus(str(data["status"])),
-                    None if data["sku"] is None else str(data["sku"]),
-                    tuple(str(sku) for sku in data["candidate_skus"]),  # type: ignore[attr-defined]
-                )
-                for data in state.get("matches", [])
-            ],
+            requirements,
+            matches,
             {data["sku"]: _product_from_state(data) for data in state.get("products", [])},
             state["unverified"],
             state["unsupported_documents"],
+            categories,
         )
         return {
             "outcome": result.outcome.value,

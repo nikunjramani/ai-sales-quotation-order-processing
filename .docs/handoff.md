@@ -184,7 +184,7 @@ Updated: 2026-10-23 (M6).
 - Carried over: no OCR, no malware scanner, local storage only, no dead-job view.
 
 ## User decisions (2026-10-23, after M6): AI reader and "not found" replies
-Planned, not built: [plan/gemini-and-categories.md](plan/gemini-and-categories.md).
+Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-and-category-replies.md), [plan](plan/gemini-and-categories.md)). Verified: 339 unit tests, the PostgreSQL suite around the migration cycle, 14/14 evaluation cases (rules), and a live API/worker run; a Gemini worker with an invalid key retried. **Pending:** a live Gemini evaluation once the user has put a key in `.env`.
 - **Why:** with the rules reader, "price for tata cars" got the same fixed "which products and quantities?" reply repeatedly.
 - **Provider:** Google Gemini free tier, small (Flash-Lite class) model, synthetic/demo data only. Needs `QUOTATION_GEMINI_API_KEY` in `.env` (the user creates it; never in chat or Git).
 - **AI down or rate-limited:** wait and retry (no fallback to rules).
@@ -192,7 +192,7 @@ Planned, not built: [plan/gemini-and-categories.md](plan/gemini-and-categories.m
 - **Replies:** stay fixed templates; AI only reads enquiries.
 
 ## Next task
-0. Implement [plan/gemini-and-categories.md](plan/gemini-and-categories.md) when the user asks.
+0. When the user has a Gemini key in `.env`: run `uv run python scripts/evaluate_extraction.py --provider gemini --model gemini-3.5-flash-lite` and record the result in ADR 0017.
 1. Optionally open the portal in a browser (use "Run all" in VS Code):
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.

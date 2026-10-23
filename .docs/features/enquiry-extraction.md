@@ -1,5 +1,5 @@
 # Enquiry extraction workflow (M3)
-**Status and milestone:** implemented in M3 and verified locally. The free `rules` interpreter is the default. The `ollama` adapter is built and unit-tested but not yet evaluated live, because Ollama isn't installed here.
+**Status and milestone:** implemented in M3 and verified locally. The free `rules` interpreter is the default. The `ollama` adapter is built and unit-tested but not yet evaluated live, because Ollama isn't installed here. The `gemini` provider and the category replies were added on 2026-10-23 ([ADR 0017](../adr/0017-gemini-reader-and-category-replies.md)); a live Gemini evaluation waits for the user's key.
 
 **Business purpose:** turn "Please quote 2 x IND-FAN-450 and 150 pcs M8 bolts" into exact catalogue lines ready for pricing. When something is unclear, ask a precise question instead of guessing.
 
@@ -36,6 +36,7 @@ When the preparation job finds every attachment clean, it sets the enquiry to `r
    - With several, the interpreter may pick one, which is accepted only if it's in the list. Otherwise the item is ambiguous.
 3. **assess:** deterministic rules.
    - A missing quantity, a unit that doesn't match the product's unit (no conversion), an ambiguous or unknown product, or no items at all each produce a template question.
+   - For an unknown product or no items, the question names the business's categories from the ERP (`list_categories`), e.g. "We could not find 'tata sierra car' in our catalogue. We supply: Cables, Exhaust fans, Fasteners, Pumps. Ask about a category to see its products, or share a product code." Categories are fetched only when needed.
    - Invented items or unreadable files produce a review reason.
 4. **ready / clarify / review:** store the outcome in `workflow_runs` and set the enquiry status to `ready_for_quotation`, `needs_clarification` or `needs_review`.
 
@@ -65,7 +66,7 @@ The `lines` are exactly what the M1 calculator accepts as `RequestedLine`s. Clar
 ## Failures and recovery
 | Failure | What happens |
 |---|---|
-| Model unavailable, ERP temporarily down | Job retried with backoff; resumes from the checkpoint |
+| Model unavailable, rate-limited or bad key (incl. Gemini), ERP temporarily down | Job retried with backoff (5 attempts, then dead); resumes from the checkpoint. No fallback to rules (user decision) |
 | Invalid model output | `needs_review` (not retried) |
 | Enquiry missing or belongs to another tenant | Job becomes dead (permanent) |
 | Unreadable attachment | `needs_review`, with the reason |
@@ -73,8 +74,9 @@ The `lines` are exactly what the M1 calculator accepts as `RequestedLine`s. Clar
 ## Configuration (names only)
 | Setting | Meaning |
 |---|---|
-| `QUOTATION_MODEL_PROVIDER` | `rules` (default) or `ollama` |
-| `QUOTATION_MODEL_NAME` | Required for `ollama` |
+| `QUOTATION_MODEL_PROVIDER` | `rules` (default), `ollama` or `gemini` |
+| `QUOTATION_MODEL_NAME` | Required for `ollama` and `gemini` (e.g. `gemini-3.5-flash-lite`) |
+| `QUOTATION_GEMINI_API_KEY` | Required for `gemini` (secret) |
 | `QUOTATION_OLLAMA_BASE_URL` | Default `http://127.0.0.1:11434` |
 | `QUOTATION_MODEL_TIMEOUT_SECONDS` | Default 120 |
 
@@ -84,8 +86,14 @@ To switch on Ollama:
 3. Set the provider and model name in `.env`.
 4. Run `scripts/evaluate_extraction.py --provider ollama --model <name>` before relying on it.
 
+To switch on Gemini (synthetic data only on the free tier):
+1. Create a key at aistudio.google.com and put it in `.env` as `QUOTATION_GEMINI_API_KEY`.
+2. Set `QUOTATION_MODEL_PROVIDER=gemini` and `QUOTATION_MODEL_NAME=gemini-3.5-flash-lite`.
+3. `uv sync --extra gemini` (CI and `--all-extras` already include it).
+4. Run `scripts/evaluate_extraction.py --provider gemini --model gemini-3.5-flash-lite`, then restart the worker.
+
 ## Tests and evaluation
-See [testing](../development/testing.md). Rules interpreter on 2026-10-22: 12/12 cases, 0 invented facts, about 0.01 s per case.
+See [testing](../development/testing.md). Rules interpreter on 2026-10-22: 12/12 cases, 0 invented facts, about 0.01 s per case; on 2026-10-23: 14/14 (two "unsold product" cases check the category reply via `expected_question`).
 
 ## Known limitations
 - No OCR.

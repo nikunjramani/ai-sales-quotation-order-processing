@@ -65,6 +65,7 @@ def main() -> None:
         settings.model_name,
         settings.ollama_base_url,
         settings.model_timeout_seconds,
+        settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None,
     )
     # Only the simulated ERP exists until a pilot ERP is connected (M7).
     erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))

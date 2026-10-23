@@ -3,6 +3,8 @@
 Examples:
   uv run python scripts/evaluate_extraction.py                       # free rules interpreter
   uv run python scripts/evaluate_extraction.py --provider ollama --model <model-name>
+  uv run python scripts/evaluate_extraction.py --provider gemini --model gemini-3.5-flash-lite
+      (reads QUOTATION_GEMINI_API_KEY from .env; free tier: synthetic data only)
 Live model runs are opt-in and use only synthetic data. Exit code 1 if any case fails.
 """
 
@@ -11,18 +13,27 @@ from statistics import mean
 
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.factory import build_interpreter
+from quotation_app.config import Settings
 from quotation_app.evaluation import evaluate, load_cases
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--provider", default="rules", choices=["rules", "ollama"])
+    parser.add_argument("--provider", default="rules", choices=["rules", "ollama", "gemini"])
     parser.add_argument("--model", help="model name for providers that need one")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     arguments = parser.parse_args()
 
-    interpreter = build_interpreter(arguments.provider, arguments.model, arguments.ollama_url)
+    api_key = None
+    if arguments.provider == "gemini":
+        key = Settings().gemini_api_key
+        if key is None:
+            raise SystemExit("Set QUOTATION_GEMINI_API_KEY in .env first")
+        api_key = key.get_secret_value()
+    interpreter = build_interpreter(
+        arguments.provider, arguments.model, arguments.ollama_url, api_key=api_key
+    )
     erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
     tenants = {"industrial": INDUSTRIAL_TENANT, "office": OFFICE_TENANT}
     results = evaluate(interpreter, erp, tenants, load_cases())

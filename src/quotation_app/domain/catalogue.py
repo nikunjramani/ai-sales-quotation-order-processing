@@ -15,9 +15,13 @@ class Product:
     unit: str
     minimum_quantity: Decimal
     quantity_step: Decimal
+    # The ERP's product group (e.g. "Pumps"); used to tell customers what the business sells.
+    category: str | None = None
 
     def __post_init__(self) -> None:
         require_text(self.sku, "sku", 64)
+        if self.category is not None:
+            require_text(self.category, "category", 100)
         require_text(self.description, "description", 500)
         require_text(self.unit, "unit", 32)
         require_decimal(self.minimum_quantity, "minimum_quantity")

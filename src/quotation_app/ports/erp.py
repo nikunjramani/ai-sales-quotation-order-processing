@@ -47,6 +47,10 @@ class ErpReader(Protocol):
         self, context: TenantContext, query: str, limit: int = 10
     ) -> Sequence[Product]: ...
 
+    def list_categories(self, context: TenantContext) -> Sequence[str]:
+        """The business's product groups, sorted; empty if the ERP has none."""
+        ...
+
     def get_products(self, context: TenantContext, skus: Sequence[str]) -> Mapping[str, Product]:
         """Return known products keyed by SKU; unknown SKUs are absent."""
         ...

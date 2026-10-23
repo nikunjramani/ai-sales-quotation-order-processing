@@ -25,11 +25,13 @@ class Settings(BaseSettings):
     # Private storage root: tenant folders with quarantined/clean attachments and quotation PDFs.
     storage_dir: Path = Path("var/storage")
     # Enquiry interpretation. "rules" is free and offline (no AI); "ollama" uses a free local
-    # model. Adding a provider: see adapters/interpreters/factory.py.
-    model_provider: Literal["rules", "ollama"] = "rules"
+    # model; "gemini" uses Google's hosted API (free tier: synthetic data only, ADR 0017).
+    # Adding a provider: see adapters/interpreters/factory.py.
+    model_provider: Literal["rules", "ollama", "gemini"] = "rules"
     model_name: str | None = None
     ollama_base_url: str = "http://127.0.0.1:11434"
     model_timeout_seconds: float = 120.0
+    gemini_api_key: SecretStr | None = None
     # Portal sign-in. "dev" lets you pick a synthetic member without a password and is refused
     # in production; OIDC is added later as another provider (ADR 0013). Unset means "dev" in
     # development/test and "disabled" in production.
@@ -48,6 +50,14 @@ class Settings(BaseSettings):
             self.auth_provider == "dev" or self.simulated_channel_secret is not None
         ):
             raise ValueError("The dev login and simulated channel are not allowed in production")
+        return self
+
+    @model_validator(mode="after")
+    def model_provider_complete(self) -> "Settings":
+        if self.model_provider in ("ollama", "gemini") and not self.model_name:
+            raise ValueError(f"QUOTATION_MODEL_NAME is required for {self.model_provider}")
+        if self.model_provider == "gemini" and self.gemini_api_key is None:
+            raise ValueError("QUOTATION_GEMINI_API_KEY is required for the gemini provider")
         return self
 
     @property

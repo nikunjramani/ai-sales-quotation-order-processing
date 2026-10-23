@@ -87,12 +87,18 @@ class SimulatedErp:
         wanted = _search_words(query)
         scored = []
         for sku, product in sorted(catalogue.products.items()):
-            words = _search_words(f"{sku} {sku.replace('-', ' ')} {product.description}")
+            words = _search_words(
+                f"{sku} {sku.replace('-', ' ')} {product.description} {product.category or ''}"
+            )
             score = len(wanted & words)
             if score:
                 scored.append((-score, sku, product))
         # Best word overlap first, like a typical ERP keyword search.
         return [product for _, _, product in sorted(scored)][:limit]
+
+    def list_categories(self, context: TenantContext) -> Sequence[str]:
+        catalogue = self._catalogue(context, "list_categories")
+        return sorted({p.category for p in catalogue.products.values() if p.category})
 
     def get_products(self, context: TenantContext, skus: Sequence[str]) -> Mapping[str, Product]:
         catalogue = self._catalogue(context, "get_products")
@@ -161,21 +167,26 @@ _PRICES_FROM = datetime(2026, 1, 1, tzinfo=UTC)
 def demo_catalogues(industrial_tenant: UUID, office_tenant: UUID) -> dict[UUID, SimulatedCatalogue]:
     """Two fictional businesses whose items exercise each pricing and stock rule."""
 
-    def each(sku: str, description: str) -> Product:
-        return Product(sku, description, "each", Decimal(1), Decimal(1))
+    def each(sku: str, description: str, category: str) -> Product:
+        return Product(sku, description, "each", Decimal(1), Decimal(1), category)
 
     industrial = SimulatedCatalogue(
         products={
-            "IND-FAN-450": each("IND-FAN-450", "Industrial exhaust fan 450 mm"),
+            "IND-FAN-450": each("IND-FAN-450", "Industrial exhaust fan 450 mm", "Exhaust fans"),
             "IND-BOLT-M8": Product(
-                "IND-BOLT-M8", "M8 hex bolt, zinc plated", "each", Decimal(100), Decimal(50)
+                "IND-BOLT-M8",
+                "M8 hex bolt, zinc plated",
+                "each",
+                Decimal(100),
+                Decimal(50),
+                "Fasteners",
             ),
             "IND-CABLE-2C": Product(
-                "IND-CABLE-2C", "2-core power cable", "metre", Decimal(1), Decimal("0.5")
+                "IND-CABLE-2C", "2-core power cable", "metre", Decimal(1), Decimal("0.5"), "Cables"
             ),
-            "IND-PUMP-2HP": each("IND-PUMP-2HP", "2 HP centrifugal pump"),
+            "IND-PUMP-2HP": each("IND-PUMP-2HP", "2 HP centrifugal pump", "Pumps"),
             # A second fan size makes "exhaust fans" genuinely ambiguous in demos and tests.
-            "IND-FAN-600": each("IND-FAN-600", "Industrial exhaust fan 600 mm"),
+            "IND-FAN-600": each("IND-FAN-600", "Industrial exhaust fan 600 mm", "Exhaust fans"),
         },
         prices={
             "IND-FAN-450": (
@@ -210,8 +221,8 @@ def demo_catalogues(industrial_tenant: UUID, office_tenant: UUID) -> dict[UUID, 
     )
     office = SimulatedCatalogue(
         products={
-            "OFF-CHAIR-ERG": each("OFF-CHAIR-ERG", "Ergonomic office chair"),
-            "OFF-DESK-160": each("OFF-DESK-160", "Desk 160 x 80 cm"),
+            "OFF-CHAIR-ERG": each("OFF-CHAIR-ERG", "Ergonomic office chair", "Office chairs"),
+            "OFF-DESK-160": each("OFF-DESK-160", "Desk 160 x 80 cm", "Desks"),
         },
         prices={
             "OFF-CHAIR-ERG": (

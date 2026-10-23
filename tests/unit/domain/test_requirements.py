@@ -13,6 +13,7 @@ from quotation_app.domain.requirements import (
     RequestedItem,
     assess,
     decide_match,
+    needs_categories,
     normalise_unit,
     unverified_items,
 )
@@ -93,7 +94,7 @@ def test_ready_when_every_line_is_complete() -> None:
          ProductMatch(0, MatchStatus.AMBIGUOUS, None, ("FAN-450", "FAN-600")),
          "FAN-450 (Exhaust fan 450 mm), FAN-600"),
         (item("5 presses", "presses", "5"),
-         ProductMatch(0, MatchStatus.NOT_FOUND, None, ()), "could not identify 'presses'"),
+         ProductMatch(0, MatchStatus.NOT_FOUND, None, ()), "could not find 'presses'"),
     ],
 )  # fmt: skip
 def test_incomplete_lines_become_fixed_questions(
@@ -119,3 +120,48 @@ def test_invented_items_or_unreadable_files_go_to_a_person() -> None:
     scan = assess(found, [matched(0, FAN)], PRODUCTS, [], ["scan.png (image_requires_ocr)"])
     assert scan.outcome is ExtractionOutcome.NEEDS_REVIEW
     assert "scan.png" in scan.review_reasons[0]
+
+
+CATEGORIES = ("Cables", "Exhaust fans", "Pumps")
+
+
+def test_nothing_understood_names_what_the_business_supplies() -> None:
+    result = assess(requirements(), [], PRODUCTS, [], [], CATEGORIES)
+    assert result.outcome is ExtractionOutcome.NEEDS_CLARIFICATION
+    assert result.questions == (
+        "Which products and quantities would you like a quotation for? "
+        "We supply: Cables, Exhaust fans, Pumps. Ask about a category to see its products.",
+    )
+
+
+def test_unknown_product_is_reported_with_categories() -> None:
+    found = requirements(item("2 tata sierra cars", "tata sierra cars", "2"))
+    result = assess(
+        found, [ProductMatch(0, MatchStatus.NOT_FOUND, None, ())], {}, [], [], CATEGORIES
+    )
+    assert result.questions == (
+        "We could not find 'tata sierra cars' in our catalogue. We supply: Cables, Exhaust fans, "
+        "Pumps. Ask about a category to see its products, or share a product code.",
+    )
+
+
+def test_without_categories_the_reply_asks_for_details() -> None:
+    assert assess(requirements(), [], {}, [], []).questions == (
+        "Which products and quantities would you like a quotation for?",
+    )
+    found = requirements(item("2 cars", "cars", "2"))
+    result = assess(found, [ProductMatch(0, MatchStatus.NOT_FOUND, None, ())], {}, [], [])
+    assert result.questions == (
+        "We could not find 'cars' in our catalogue. "
+        "Could you share the product code or more details?",
+    )
+
+
+def test_categories_are_needed_only_for_nothing_understood_or_not_found() -> None:
+    fans, cars = item("5 fans", "fans", "5"), item("2 cars", "cars", "2")
+    not_found = ProductMatch(1, MatchStatus.NOT_FOUND, None, ())
+    assert needs_categories(requirements(), [], [])
+    assert not needs_categories(requirements(fans), [matched(0, FAN)], [])
+    assert needs_categories(requirements(fans, cars), [matched(0, FAN), not_found], [])
+    # An invented (unverified) item goes to review, not to a "we supply" reply.
+    assert not needs_categories(requirements(fans, cars), [matched(0, FAN)], [1])

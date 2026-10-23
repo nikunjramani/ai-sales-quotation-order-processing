@@ -41,6 +41,8 @@ class EvaluationCase:
     text: str
     expected_outcome: ExtractionOutcome
     expected_lines: tuple[ExpectedLine, ...]
+    # Optional: text that one of the customer questions must contain.
+    expected_question: str | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,10 @@ class CaseResult:
             self.error is None
             and self.outcome == self.case.expected_outcome.value
             and sorted(self.lines) == sorted(self.case.expected_lines)
+            and (
+                self.case.expected_question is None
+                or any(self.case.expected_question in question for question in self.questions)
+            )
         )
 
     @property
@@ -83,6 +89,7 @@ def load_cases(path: Path = DATASET) -> list[EvaluationCase]:
                 expected_lines=tuple(
                     (sku, Decimal(quantity), unit) for sku, quantity, unit in data["expected_lines"]
                 ),
+                expected_question=data.get("expected_question"),
             )
         )
     return cases

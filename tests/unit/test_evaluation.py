@@ -1,5 +1,6 @@
 """The synthetic evaluation dataset run against the free rules interpreter (regression gate)."""
 
+from dataclasses import replace
 from uuid import UUID
 
 import pytest
@@ -36,3 +37,14 @@ def test_evaluation_detects_a_wrong_answer(
     results = run(simulated_erp, industrial_tenant, office_tenant)
     assert all(result.error == "RuntimeError" for result in results if result.case.expected_lines)
     assert not all(result.passed for result in results)
+
+
+def test_expected_question_text_is_checked(
+    simulated_erp: SimulatedErp, industrial_tenant: UUID, office_tenant: UUID
+) -> None:
+    case = next(c for c in load_cases() if c.expected_question)
+    wrong = replace(case, expected_question="We supply: Cars")
+    tenants = {"industrial": industrial_tenant, "office": office_tenant}
+    right, mismatch = evaluate(RulesInterpreter(), simulated_erp, tenants, [case, wrong])
+    assert right.passed
+    assert not mismatch.passed

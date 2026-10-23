@@ -18,6 +18,7 @@ def build_interpreter(
     model_name: str | None = None,
     ollama_base_url: str = "http://127.0.0.1:11434",
     timeout_seconds: float = 120.0,
+    api_key: str | None = None,
 ) -> EnquiryInterpreter:
     if provider == "rules":
         return RulesInterpreter()
@@ -36,4 +37,22 @@ def build_interpreter(
             client_kwargs={"timeout": timeout_seconds},
         )
         return LangChainInterpreter(model)
+    if provider == "gemini":
+        if not model_name or not api_key:
+            raise ValueError(
+                "QUOTATION_MODEL_NAME and QUOTATION_GEMINI_API_KEY are required for gemini"
+            )
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        # Outages, rate limits and a bad key raise ordinary errors: the durable job retries
+        # them with backoff (user decision: wait and retry, no fallback to rules).
+        gemini = ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=api_key,
+            temperature=0,
+            response_mime_type="application/json",
+            timeout=timeout_seconds,
+            max_retries=2,
+        )
+        return LangChainInterpreter(gemini)
     raise ValueError(f"Unknown model provider {provider!r}")

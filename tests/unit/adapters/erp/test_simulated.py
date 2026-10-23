@@ -66,3 +66,25 @@ def test_invalid_search_is_rejected(
     with pytest.raises(ErpError) as raised:
         simulated_erp.search_products(make_context(industrial_tenant, Role.VIEWER), query, limit)
     assert raised.value.code is ErpErrorCode.INVALID_REQUEST
+
+
+def test_categories_are_the_tenants_own_product_groups(
+    simulated_erp: SimulatedErp,
+    make_context: ContextFactory,
+    industrial_tenant: UUID,
+    office_tenant: UUID,
+) -> None:
+    industrial = make_context(industrial_tenant, Role.VIEWER)
+    assert simulated_erp.list_categories(industrial) == [
+        "Cables", "Exhaust fans", "Fasteners", "Pumps",
+    ]  # fmt: skip
+    office = make_context(office_tenant, Role.VIEWER)
+    assert simulated_erp.list_categories(office) == ["Desks", "Office chairs"]
+
+
+def test_search_finds_products_by_category(
+    simulated_erp: SimulatedErp, make_context: ContextFactory, industrial_tenant: UUID
+) -> None:
+    context = make_context(industrial_tenant, Role.VIEWER)
+    assert [p.sku for p in simulated_erp.search_products(context, "fasteners")] == ["IND-BOLT-M8"]
+    assert simulated_erp.search_products(context, "tata sierra car") == []
