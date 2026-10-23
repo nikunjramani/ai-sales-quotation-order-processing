@@ -15,6 +15,7 @@ Updated: 2026-10-23 (M6).
 
   For M3 the user could not install Ollama on the corporate VM, so it ships with the free rules interpreter.
 - **Last milestone: M6 (customer acceptance), complete.** Next milestone not chosen yet: ask the user first. Decisions taken with the user on 2026-10-23 ([ADR 0016](adr/0016-customer-acceptance.md)): acceptance only (no ERP order or reservation); answers through the API; 7-day default validity from delivery; accept/decline (no PO number); any price change refuses and drafts a revision for approval; stock ignored; expiry closes; staff withdrawal with a reason; a portal plus linked-channel notice; a rejected revision closes.
+- **Working rule (user, 2026-10-23):** never push to `main`; every change goes on a new branch with a pull request to `main` (AGENTS.md).
 - **Working rule (user, 2026-10-23):** ask before assuming anything. Follow [clarify-before-building](../.claude/skills/clarify-before-building/SKILL.md), which is also in AGENTS.md.
 - **User decisions (2026-10-23):**
   - **Email approval is out of scope for now:** managers approve in the portal.
