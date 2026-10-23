@@ -13,7 +13,7 @@ Accepted denotes intended design, not implemented code. Date: 2026-10-22.
 - [0010: Deterministic pricing and trusted tenant context](0010-deterministic-pricing-and-tenant-context.md) — implemented in M1; verified locally and in CI
 - [0011: Durable intake, PostgreSQL job queue, attachment quarantine and API keys](0011-durable-intake-and-jobs.md) — implemented in M2; verified locally and in CI
 - [0012: Provider-independent enquiry extraction with LangGraph and verbatim checks](0012-provider-independent-extraction.md) — implemented in M3; verified locally and in CI
-- [0013: Portal identity, immutable versions and the shared approval core](0013-portal-identity-and-approval-core.md) — implemented in M4; verified locally
-- [0014: Portal structure by feature and layer, with TanStack Query and Zustand](0014-portal-structure-and-state.md) — implemented; verified locally
+- [0013: Portal identity, immutable versions and the shared approval core](0013-portal-identity-and-approval-core.md) — implemented in M4; verified locally and in CI
+- [0014: Portal structure by feature and layer, with TanStack Query and Zustand](0014-portal-structure-and-state.md) — implemented; verified locally and in CI
 
 New decisions get sequential IDs. Preserve history and explicitly link superseding records.

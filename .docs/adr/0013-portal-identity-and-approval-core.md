@@ -1,6 +1,6 @@
 # 0013: Portal identity, immutable versions and the shared approval core
 Date: 2026-10-22
-Status: accepted; implemented in M4 (verified locally; CI after push)
+Status: accepted; implemented in M4 (commit 21f0ba5, [CI run 39900219005](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39900219005) passed)
 Implements: [0007](0007-channel-independent-approval.md) for the portal and a simulated channel
 
 ## Context

@@ -2,23 +2,24 @@
 Updated: 2026-10-23.
 
 ## Current state
-- **M0-M3 are COMPLETE** (local and CI), all on origin/main:
+- **M0-M4 are COMPLETE** (local and CI), all on origin/main:
 
   | Milestone | Commit | CI run |
   |---|---|---|
   | M1 | 5d1ae69 | [39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222) |
   | M2 | d7707eb | [39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875) |
   | M3 | 52cccd7 | [39747434193](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39747434193) |
+  | M4 | 21f0ba5 | [39900219005](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39900219005) (`verify` and `portal` jobs) |
 
   For M3 the user could not install Ollama on the corporate VM, so it ships with the free rules interpreter.
-- **Current milestone: M4 (approval core and portal).** It is implemented and verified locally, but **not yet committed**. Mark it complete only after CI passes on the pushed commit.
+- **Next milestone: M5 (quotation delivery and email approval).** It needs the email provider/sandbox decision first.
 - **User decisions (2026-10-22):**
   - Free models now, with an easy provider swap later (ADR 0012).
   - A provider-independent login: dev sign-in now, OIDC later.
   - A **separate React portal** (ADR 0013).
   - No paid or live calls.
   - A GitHub Pages demo is an idea only (open decisions).
-- The user's `.vscode/settings.json` stays untracked. `portal/node_modules` and `portal/dist` are ignored.
+- The user's `.vscode/settings.json` stays untracked; `.vscode/launch.json`, `tasks.json` and `stop-dev.ps1` (one-click "Run all" with stop-and-restart) are committed. `portal/node_modules` and `portal/dist` are ignored.
 - **Not built yet:** real ERP or messaging providers, PDF rendering/sending, orders and deployment.
 
 ## Implemented
@@ -78,7 +79,6 @@ Updated: 2026-10-23.
   - The server log contained no API token, session token, CSRF token or channel secret. The API key was revoked afterwards.
 - **Not run:**
   - The portal was not opened in a real browser; it was built and unit-tested, and its files were served (200).
-  - GitHub Actions for M4 (needs a push).
   - Live Ollama (not installable).
 
 ## Known gaps (tracked)
@@ -89,12 +89,11 @@ Updated: 2026-10-23.
 - Carried over: no OCR, no malware scanner, local storage only, no dead-job view.
 
 ## Next task
-1. With user authorization, commit M4 and push. Confirm both CI jobs pass, then mark M4 complete in the roadmap, ADR 0013/README and this handoff.
-2. Optionally open the portal in a browser:
+1. Optionally open the portal in a browser:
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
    - Follow [setup](development/setup.md#approvals-and-portal-m4).
-3. M5 (quotation delivery and email approval):
+2. M5 (quotation delivery and email approval):
    - PDF rendering of the approved version, object storage and an outbox dispatcher;
    - a real email sandbox and verified direct-reply approval through `ChannelActionService`.
    - **Needs a decision first:** the email provider/sandbox (open decisions).
