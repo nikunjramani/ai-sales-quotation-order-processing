@@ -7,6 +7,7 @@
 ## Mandatory working rules
 - Explain new concepts in simple words, including purpose, inputs, outputs, and failure behaviour.
 - Ask, do not assume (user instruction, 2026-10-23). Before a milestone, feature or scope change, list every point the repository does not already decide (business rules, scope, customer-visible behaviour, providers, data, costly technical choices) and ask the user, with options and consequences. Stop and ask again when new open points appear mid-work. Record answers in ADRs/open decisions/handoff. Procedure: [.claude/skills/clarify-before-building/SKILL.md](.claude/skills/clarify-before-building/SKILL.md).
+- Generic, pluggable integrations (user instruction, 2026-10-23). AI models, channels, ERPs and other providers are chosen by configuration or by adding a package, never by per-provider code branches or provider-named settings. Prefer a generic loader (e.g. LangChain `init_chat_model` with `<provider>:<model>`, ADR 0017). Remove a replaced provider's code instead of keeping it alongside. In plans, state how a second provider is added without code changes.
 - Build approved milestones incrementally; do not claim a scaffold is a completed production feature.
 - Tenant isolation, deterministic money calculations, authenticated approval, idempotent actions, and ERP authority are invariants.
 - Do not use AI-generated values as authoritative stock, prices, tax, delivery commitments, permissions, or approvals.
