@@ -7,15 +7,16 @@ These are implementation gates, not reasons to block documentation.
 | First real ERP | Choose from pilot business's existing system | M7; inspect API, sandbox, idempotency, stock semantics |
 | Email provider | One sandbox integration first | M5 |
 | Model provider/model | Decided for now (user, 2026-10-22): free first. Default `rules` (offline, no AI); `ollama` local model adapter ready once installed (this VM: 16 GB RAM, no GPU, so small models only; installation may need IT approval). Paid providers (e.g. Claude) can be added through the factory later and compared with the evaluation dataset | Before pilot; re-evaluate with real enquiry samples |
-| Public demo portal | User idea (2026-10-22), not planned yet: GitHub Pages hosts static files only, so either a static demo with recorded sample data, or Pages plus a separately hosted API/database/worker; never put keys in a public page | When a portal exists (M4+) |
-| Identity provider | OIDC with tenant role assignments | M4 |
+| Public demo portal | User idea (2026-10-22), not planned yet: GitHub Pages hosts static files only, so either a static demo with recorded sample data, or Pages plus a separately hosted API/database/worker; never put keys in a public page | The React portal exists (M4); decide before publishing anything |
+| Identity provider | Decided for now (user, 2026-10-22): provider-independent login; free dev sign-in (synthetic members, refused in production) implemented in M4; an OIDC adapter (Keycloak, Entra, Google, Auth0...) plugs in later (ADR 0013) | Before any non-development deployment |
 | Tax, delivery, discounts, currencies | M1 implements per-line rounding, one tenant tax rate on the subtotal, one currency, no discounts or unit conversion (ADR 0010); values are synthetic | Before pilot; may require per-line/multiple taxes or price lists |
 | Quote validity and reservations | No stock reservation on draft; recheck at order | Before M6 |
 | Customer acceptance verification | Authenticated portal or scoped expiring acceptance token | M6 threat model and business sign-off |
 | Retention and data region | Minimize PII; no invented compliance promise | Before pilot data |
 | Hosting, expected volume and SLOs | Single-region initial deployment | M8 capacity testing |
 | Channel order | Email + Telegram first, Meta channels later | Revisit if business priority differs |
-| Approval thresholds/delegation | All quotes need one authorized internal approver | M4; multi-level policy may follow |
+| Approval thresholds/delegation | M4: every quote needs one approver who did not create the version; no deadlines, escalation, delegation or multi-level policy yet. Never auto-approve on timeout | Before pilot |
+| Quote validity | M4 versions have no expiry/valid-until date; approval channel references expire after 24 h | M6 offer lifecycle |
 | Direct email approval verification | User selected direct reply; define trusted inbound evidence and task/version correlation | Before email decision implementation |
 | Manager commercial-command scope | Stock enquiries, price changes and discounts requested; quotation vs price-list/catalogue scope needs explicit resolution | M11; never assume global ERP write authority |
 | Approval enrollment/context | Define proof-of-control, allowed private/shared contexts, revocation and additional verification | M4 contract; before each real approval connector |

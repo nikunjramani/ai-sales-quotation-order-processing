@@ -1,0 +1,422 @@
+"""Portal API for signed-in people, scoped to one tenant in the URL.
+
+GET  /api/v1/tenants/{tenant}/quotations[?status=...]             list
+GET  /api/v1/tenants/{tenant}/quotations/{id}                      versions, tasks, decisions
+POST /api/v1/tenants/{tenant}/approval-tasks/{task}/decision       approve/reject/request revision
+POST /api/v1/tenants/{tenant}/quotations/{id}/revisions            new version (sales operator)
+GET  /api/v1/tenants/{tenant}/enquiries[?status=...]               enquiry list (exceptions)
+POST /api/v1/tenants/{tenant}/channel-enrollments                  get a code to link an account
+GET  /api/v1/tenants/{tenant}/channel-bindings                     linked accounts
+DELETE /api/v1/tenants/{tenant}/channel-bindings/{id}              revoke a linked account
+
+The tenant in the URL is only a request: stored membership decides access, and non-members get
+404. Decisions use the same ApprovalService as every manager channel.
+"""
+
+from collections.abc import Callable
+from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+from quotation_app.api.auth import PortalAuth
+from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.intake import EnquiryListService
+from quotation_app.application.quotations import QuotationService
+from quotation_app.domain.intake import EnquiryStatus
+from quotation_app.domain.pricing import PricingRejected, RequestedLine
+from quotation_app.domain.quotations import (
+    PORTAL_TRANSPORT,
+    REVISABLE,
+    ApprovalAction,
+    ApprovalChannel,
+    DecisionCommand,
+    DecisionConflict,
+    QuotationNotFound,
+    QuotationStatus,
+    RecordedDecision,
+    RevisionConflict,
+    RevisionNotAllowed,
+    StaleVersion,
+    TaskNotFound,
+    TaskStatus,
+)
+from quotation_app.domain.tenancy import Permission, PermissionDenied, TenantContext
+from quotation_app.ports.channels import ChannelBinding
+from quotation_app.ports.quotations import QuotationDetail, QuotationSummary
+
+_UNAVAILABLE = "Temporarily unavailable; try again"
+
+
+class QuotationSummaryOut(BaseModel):
+    quotation_id: UUID
+    enquiry_id: UUID
+    number: str
+    status: QuotationStatus
+    current_version: int | None
+    customer_reference: str | None
+    currency: str | None
+    total: str | None
+    updated_at: datetime
+
+
+class VersionOut(BaseModel):
+    version: int
+    content: dict[str, object]
+    content_sha256: str
+    created_by: str
+    reason: str | None
+    created_at: datetime
+
+
+class TaskOut(BaseModel):
+    task_id: UUID
+    version: int
+    content_sha256: str
+    status: TaskStatus
+    created_at: datetime
+    decided_at: datetime | None
+
+
+class DecisionOut(BaseModel):
+    decision_id: UUID
+    task_id: UUID
+    version: int
+    action: ApprovalAction
+    actor_subject: str
+    reason: str | None
+    transport: str
+    decided_at: datetime
+
+
+class QuotationDetailOut(BaseModel):
+    summary: QuotationSummaryOut
+    enquiry_text: str
+    pricing_issues: list[dict[str, object]]
+    versions: list[VersionOut]
+    tasks: list[TaskOut]
+    decisions: list[DecisionOut]
+    pending_task: TaskOut | None
+    can_decide: bool
+    can_revise: bool
+
+
+class DecisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command_id: UUID = Field(description="New random UUID per click; a retry reuses it")
+    action: ApprovalAction
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="Hash of the version seen")
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class DecisionResultOut(BaseModel):
+    decision: DecisionOut
+    replayed: bool
+
+
+class LineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sku: str = Field(min_length=1, max_length=64)
+    quantity: str = Field(min_length=1, max_length=30, examples=["2"])
+    unit: str = Field(min_length=1, max_length=32)
+
+
+class RevisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command_id: UUID
+    base_version: int | None
+    lines: list[LineIn] = Field(min_length=1, max_length=50)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class RevisionOut(BaseModel):
+    quotation_id: UUID
+    version: int
+    replayed: bool
+
+
+class PricingIssueOut(BaseModel):
+    line_index: int
+    sku: str
+    code: str
+    message: str
+
+
+class EnquirySummaryOut(BaseModel):
+    enquiry_id: UUID
+    channel: str
+    status: EnquiryStatus
+    customer_reference: str | None
+    received_at: datetime
+    preview: str
+
+
+class EnrollmentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: ApprovalChannel
+
+
+class EnrollmentOut(BaseModel):
+    channel: ApprovalChannel
+    code: str
+    expires_at: datetime
+
+
+class BindingOut(BaseModel):
+    binding_id: UUID
+    subject: str
+    channel: str
+    connection_id: str
+    external_user_id: str
+    created_at: datetime
+    revoked_at: datetime | None
+
+
+def _summary(item: QuotationSummary) -> QuotationSummaryOut:
+    return QuotationSummaryOut(
+        quotation_id=item.quotation_id,
+        enquiry_id=item.enquiry_id,
+        number=item.number,
+        status=item.status,
+        current_version=item.current_version,
+        customer_reference=item.customer_reference,
+        currency=item.currency,
+        total=item.total,
+        updated_at=item.updated_at,
+    )
+
+
+def _decision(item: RecordedDecision) -> DecisionOut:
+    return DecisionOut(
+        decision_id=item.decision_id,
+        task_id=item.task_id,
+        version=item.version,
+        action=item.action,
+        actor_subject=item.actor_subject,
+        reason=item.reason,
+        transport=item.transport,
+        decided_at=item.decided_at,
+    )
+
+
+def _detail(item: QuotationDetail, context: TenantContext) -> QuotationDetailOut:
+    tasks = [
+        TaskOut(
+            task_id=task.task_id,
+            version=task.version,
+            content_sha256=task.content_sha256,
+            status=task.status,
+            created_at=task.created_at,
+            decided_at=task.decided_at,
+        )
+        for task in item.tasks
+    ]
+    pending = next((task for task in tasks if task.status is TaskStatus.PENDING), None)
+    current = item.current
+    return QuotationDetailOut(
+        summary=_summary(item.summary),
+        enquiry_text=item.enquiry_text,
+        pricing_issues=[dict(issue) for issue in item.pricing_issues],
+        versions=[
+            VersionOut(
+                version=version.version,
+                content=dict(version.content),
+                content_sha256=version.content_sha256,
+                created_by=version.created_by,
+                reason=version.reason,
+                created_at=version.created_at,
+            )
+            for version in item.versions
+        ],
+        tasks=tasks,
+        decisions=[_decision(decision) for decision in item.decisions],
+        pending_task=pending,
+        # UI hints only; the server re-checks everything when the action is submitted.
+        can_decide=pending is not None
+        and Permission.APPROVE_QUOTATIONS in context.permissions
+        and (current is None or current.created_by != context.subject),
+        can_revise=item.summary.status in REVISABLE
+        and Permission.DRAFT_QUOTATIONS in context.permissions,
+    )
+
+
+def _binding(item: ChannelBinding) -> BindingOut:
+    return BindingOut(
+        binding_id=item.binding_id,
+        subject=item.subject,
+        channel=item.channel,
+        connection_id=item.connection_id,
+        external_user_id=item.external_user_id,
+        created_at=item.created_at,
+        revoked_at=item.revoked_at,
+    )
+
+
+def _quantity(value: str) -> Decimal:
+    try:
+        quantity = Decimal(value)
+    except InvalidOperation:
+        raise ValueError(f"Quantity {value!r} is not a number") from None
+    if not quantity.is_finite():
+        raise ValueError(f"Quantity {value!r} is not a number")
+    return quantity
+
+
+def build_portal_router(
+    auth: PortalAuth,
+    quotations: QuotationService,
+    approvals: ApprovalService,
+    channels: ChannelActionService,
+    enquiries: EnquiryListService,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> APIRouter:
+    router = APIRouter(prefix="/api/v1/tenants/{tenant_id}", tags=["portal"])
+    Context = Annotated[TenantContext, Depends(auth.tenant_context())]
+
+    def guarded[T](action: Callable[[], T]) -> T:
+        try:
+            return action()
+        except PermissionDenied as error:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, str(error) or "Not permitted") from None
+        except (QuotationNotFound, TaskNotFound):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found") from None
+        except DecisionConflict as error:
+            detail: dict[str, object] = {"message": str(error)}
+            if error.recorded is not None:
+                detail["decision"] = _decision(error.recorded).model_dump(mode="json")
+            raise HTTPException(status.HTTP_409_CONFLICT, detail) from None
+        except (StaleVersion, RevisionConflict, RevisionNotAllowed, IntegrityError) as error:
+            message = str(error) if not isinstance(error, IntegrityError) else "Conflict"
+            raise HTTPException(status.HTTP_409_CONFLICT, message) from None
+        except ValueError as error:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+        except SQLAlchemyError:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, _UNAVAILABLE) from None
+
+    @router.get("/quotations", response_model=list[QuotationSummaryOut])
+    def list_quotations(
+        context: Context,
+        status_filter: Annotated[list[QuotationStatus] | None, Query(alias="status")] = None,
+    ) -> list[QuotationSummaryOut]:
+        statuses = frozenset(status_filter) if status_filter else None
+        return [_summary(item) for item in guarded(lambda: quotations.list(context, statuses))]
+
+    @router.get("/quotations/{quotation_id}", response_model=QuotationDetailOut)
+    def get_quotation(quotation_id: UUID, context: Context) -> QuotationDetailOut:
+        return _detail(guarded(lambda: quotations.get(context, quotation_id)), context)
+
+    @router.post(
+        "/approval-tasks/{task_id}/decision",
+        response_model=DecisionResultOut,
+        responses={403: {}, 404: {}, 409: {"description": "Already decided, or stale version"}},
+    )
+    def decide(task_id: UUID, body: DecisionIn, context: Context) -> DecisionResultOut:
+        def run() -> DecisionResultOut:
+            command = DecisionCommand(
+                command_id=body.command_id,
+                tenant_id=context.tenant_id,
+                task_id=task_id,
+                content_sha256=body.content_sha256,
+                action=body.action,
+                reason=body.reason,
+                transport=PORTAL_TRANSPORT,
+                evidence_ref=None,
+                received_at=clock(),
+            )
+            result = approvals.decide(context.subject, command)
+            return DecisionResultOut(decision=_decision(result.decision), replayed=result.replayed)
+
+        return guarded(run)
+
+    @router.post(
+        "/quotations/{quotation_id}/revisions",
+        response_model=RevisionOut,
+        status_code=status.HTTP_201_CREATED,
+        responses={
+            200: {"description": "Replay of an earlier revision command"},
+            409: {"description": "Not waiting for a revision, or changed meanwhile"},
+            422: {"model": list[PricingIssueOut], "description": "Lines cannot be priced"},
+        },
+    )
+    def revise(
+        quotation_id: UUID, body: RevisionIn, context: Context, response: Response
+    ) -> RevisionOut | JSONResponse:
+        def run() -> RevisionOut | JSONResponse:
+            lines = [
+                RequestedLine(line.sku.strip(), _quantity(line.quantity), line.unit.strip())
+                for line in body.lines
+            ]
+            outcome = quotations.revise(
+                context, quotation_id, body.command_id, body.base_version, lines, body.reason
+            )
+            if isinstance(outcome, PricingRejected):
+                return JSONResponse(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    content={
+                        "detail": "These lines cannot be priced from current ERP data",
+                        "issues": [
+                            PricingIssueOut(
+                                line_index=issue.line_index,
+                                sku=issue.sku,
+                                code=issue.code.value,
+                                message=issue.message,
+                            ).model_dump()
+                            for issue in outcome.issues
+                        ],
+                    },
+                )
+            if outcome.replayed:
+                response.status_code = status.HTTP_200_OK
+            return RevisionOut(
+                quotation_id=outcome.quotation_id,
+                version=outcome.version,
+                replayed=outcome.replayed,
+            )
+
+        return guarded(run)
+
+    @router.get("/enquiries", response_model=list[EnquirySummaryOut])
+    def list_enquiries(
+        context: Context,
+        status_filter: Annotated[list[EnquiryStatus] | None, Query(alias="status")] = None,
+    ) -> list[EnquirySummaryOut]:
+        statuses = frozenset(status_filter) if status_filter else None
+        return [
+            EnquirySummaryOut(
+                enquiry_id=item.enquiry_id,
+                channel=item.channel.value,
+                status=item.status,
+                customer_reference=item.customer_reference,
+                received_at=item.received_at,
+                preview=item.preview,
+            )
+            for item in guarded(lambda: enquiries.list(context, statuses))
+        ]
+
+    @router.post(
+        "/channel-enrollments", response_model=EnrollmentOut, status_code=status.HTTP_201_CREATED
+    )
+    def enroll(body: EnrollmentIn, context: Context) -> EnrollmentOut:
+        new = guarded(lambda: channels.start_enrollment(context, body.channel.value))
+        return EnrollmentOut(channel=body.channel, code=new.code, expires_at=new.expires_at)
+
+    @router.get("/channel-bindings", response_model=list[BindingOut])
+    def list_bindings(context: Context) -> list[BindingOut]:
+        return [_binding(item) for item in guarded(lambda: channels.bindings(context))]
+
+    @router.delete(
+        "/channel-bindings/{binding_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        responses={404: {}},
+    )
+    def revoke(binding_id: UUID, context: Context) -> None:
+        if not guarded(lambda: channels.revoke(context, binding_id)):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+    return router

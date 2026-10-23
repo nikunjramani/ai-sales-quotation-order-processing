@@ -28,7 +28,7 @@ Entry point: `POST /api/v1/enquiries`. See [enquiry intake](../features/enquiry-
 5. The API returns 202 after the commit.
 6. The worker claims the job with a lease (`FOR UPDATE SKIP LOCKED`) and sets the job's tenant context. It inspects each file: clean ones move to `clean/`, rejected ones stay quarantined. The enquiry becomes `ready_for_extraction` or `needs_review`, and the job completes, fenced by its lease token.
 7. Failures retry with backoff, up to 5 attempts, then `dead`. A crashed worker's job is reclaimed when its lease expires.
-Implemented reliability: durable receipt before acknowledgement, inbox dedupe, an atomic business change plus job intent, leased and fenced jobs, and idempotent handlers. Not yet implemented: the outbox for external sends (M5) and graph resume jobs (M3/M4).
+Implemented reliability: durable receipt before acknowledgement, inbox dedupe, an atomic business change plus job intent, leased and fenced jobs, and idempotent handlers. Not yet implemented: the outbox for external sends (M5). Graph resume jobs arrived in M4.
 
 ## Implemented M3 trace (requirement extraction)
 Entry point: the `extract_requirements` job, queued atomically by preparation when all attachments are clean. See [enquiry extraction](../features/enquiry-extraction.md).
@@ -37,7 +37,30 @@ Entry point: the `extract_requirements` job, queued atomically by preparation wh
 3. **match:** an ERP search per verified item. The interpreter may choose only among ERP candidates.
 4. **assess:** deterministic outcome with template questions or review reasons.
 5. **ready / clarify / review:** store the outcome in `workflow_runs` and update the enquiry status. Each step is checkpointed in PostgreSQL.
-Not yet implemented: human interrupts and approval resume (M4), automatic drafting/pricing of ready enquiries (M4), and sending clarification questions (M5/M7).
+A ready outcome also queues `draft_quotation` in the same transaction (M4). Not yet implemented: sending clarification questions (M5/M7).
+
+## Implemented M4 trace (drafting and approval)
+Entry points:
+- the `draft_quotation`, `resume_quotation` and `notify_approvers` jobs;
+- the portal API;
+- the simulated channel webhook.
+
+See [quotation approval](../features/quotation-approval.md).
+1. QuotationJobHandler takes a per-run advisory lock. It then starts the `quotation-approval-v1` graph, or recovers a crashed step.
+2. **draft:** price the extracted lines with the M1 calculator, using a system sales identity. Store version 1, or `pricing_failed` with the issues.
+3. **request_approval:** create the version's task once and queue `notify_approvers`. **await_decision** then interrupts; its state is kept in PostgreSQL.
+4. **notify_approvers:** store a reference hash for each bound current approver, then send the review packet (simulated outbox).
+5. **Decision:** a portal request (session + CSRF) or a signed channel event becomes a DecisionCommand. `ApprovalService.decide` locks the task and re-checks:
+   - membership and permission;
+   - task status;
+   - content hash and current version;
+   - self-approval.
+
+   It then atomically records the decision, the task and quotation status, the reference consumption and a `resume_quotation` job.
+6. **Resume:** a resume job continues the pause only if it matches it (the task, or a newer version); otherwise it is ignored. Approve and reject end the run; request_revision pauses again for a revision.
+7. **Revision:** the sales revision is re-priced and stored as version N+1 (optimistic check) with a resume job. The graph then requests approval for it.
+
+Not yet implemented: PDF rendering and delivery of approved versions (M5), real channel adapters (M5/M7), and deadlines/escalation.
 
 ## Planned sales workflow
 

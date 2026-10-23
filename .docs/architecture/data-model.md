@@ -4,7 +4,7 @@ ERP owns SKUs, current prices, stock and final order records. The platform owns 
 A quote stores the exact commercial values reviewed, their source and timestamp. This is evidence, not a second live inventory system.
 Synthetic ERP fixtures are replaceable test infrastructure.
 
-## Implemented tables (M0-M2)
+## Implemented tables (M0-M4)
 | Table | Contents and rules |
 |---|---|
 | tenants | Business ID and name; RLS by `id` |
@@ -31,6 +31,20 @@ All use forced tenant RLS. The worker role additionally sees all `jobs` rows (`w
 | checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations | LangGraph's own schema (frozen copy). No tenant column, so no RLS: only the worker role has access, and only through a workflow_runs row. API and public access revoked |
 
 Enquiry statuses now also include `ready_for_quotation` and `needs_clarification`.
+
+### Added in M4 (migration 0005)
+| Table | Contents and rules |
+|---|---|
+| quotations | One per enquiry (unique tenant+enquiry): status (`pricing_failed`, `pending_approval`, `revision_requested`, `revision_submitted`, `approved`, `rejected`), current version, pricing issues |
+| quotation_versions | Immutable snapshot JSON (lines, ERP price/stock evidence, policy, totals as strings), SHA-256 content hash, currency, total, created_by, reason, revision command ID (unique). Append-only: no UPDATE/DELETE grant, and a trigger also blocks the owner |
+| approval_tasks | One per version (unique): version, content hash, status pending/approved/rejected/revision_requested |
+| approval_decisions | At most one per task; command ID unique per tenant; actor, action, reason, transport, evidence reference, content hash, timestamps. Append-only |
+| channel_enrollments | One-time code hash, subject, channel, expiry, consumed time |
+| channel_bindings | Subject linked to (channel, connection, external user); one active binding per account (partial unique index); revocable |
+| approval_action_refs | Token hash per task and binding (unique), expiry, sent and consumed times |
+| user_sessions | Portal sessions (no tenant): token hash, subject, provider, expiry, revocation. The API sees only the row whose hash it presents |
+
+workflow_runs also records `approved` / `rejected` for the `quotation-approval-v1` graph.
 
 ## Planned entities
 | Entity | Important contents |

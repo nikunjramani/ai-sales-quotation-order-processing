@@ -13,8 +13,8 @@ from sqlalchemy import Connection, Engine, select, text
 from quotation_app.domain.money import RoundingMode
 from quotation_app.domain.pricing import PricingPolicy
 from quotation_app.domain.tenancy import Role, TenantContext
-from quotation_app.persistence.models import Membership, TenantPricingPolicy
-from quotation_app.ports.tenancy import PricingPolicyNotConfigured
+from quotation_app.persistence.models import Membership, Tenant, TenantPricingPolicy
+from quotation_app.ports.tenancy import PricingPolicyNotConfigured, TenantMembership
 
 
 @contextmanager
@@ -44,6 +44,25 @@ class SqlMembershipReader:
                 )
             ).scalars()
             return frozenset(Role(value) for value in values)
+
+    def tenants_for(self, subject: str) -> list[TenantMembership]:
+        """Uses the narrow membership_self_lookup policy (app.subject), not a tenant context."""
+        with self._engine.begin() as connection:
+            connection.execute(
+                text("SELECT set_config('app.subject', :subject, true)"), {"subject": subject}
+            )
+            rows = connection.execute(
+                select(Membership.tenant_id, Tenant.name, Membership.role)
+                .join(Tenant, Tenant.id == Membership.tenant_id)
+                .where(Membership.subject == subject)
+                .order_by(Tenant.name, Membership.tenant_id)
+            ).all()
+        grouped: dict[UUID, TenantMembership] = {}
+        for row in rows:
+            known = grouped.get(row.tenant_id)
+            roles = (known.roles if known else frozenset()) | {Role(row.role)}
+            grouped[row.tenant_id] = TenantMembership(row.tenant_id, row.name, roles)
+        return list(grouped.values())
 
 
 class SqlPricingPolicyReader:

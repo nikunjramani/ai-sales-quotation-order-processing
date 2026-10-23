@@ -109,3 +109,19 @@ class PreparationStore(Protocol):
         """Set the enquiry status; if READY_FOR_EXTRACTION, queue the extraction job in the
         same transaction so the next step can never be lost."""
         ...
+
+
+@dataclass(frozen=True)
+class EnquirySummary:
+    enquiry_id: UUID
+    channel: Channel
+    status: EnquiryStatus
+    customer_reference: str | None
+    received_at: datetime
+    preview: str  # the start of the customer's text, for lists
+
+
+class EnquiryListReader(Protocol):
+    def list_enquiries(
+        self, tenant_id: UUID, statuses: frozenset[EnquiryStatus] | None, limit: int
+    ) -> list[EnquirySummary]: ...

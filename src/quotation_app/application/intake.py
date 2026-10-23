@@ -14,12 +14,20 @@ from quotation_app.domain.attachments import StorageArea, attachment_key
 from quotation_app.domain.intake import (
     AttachmentRecord,
     Channel,
+    EnquiryStatus,
     EnquirySubmission,
     InboundEnvelope,
     validate_idempotency_key,
 )
 from quotation_app.domain.tenancy import Permission, TenantContext
-from quotation_app.ports.intake import EnquiryView, IdempotencyConflict, IntakeStore, Receipt
+from quotation_app.ports.intake import (
+    EnquiryListReader,
+    EnquirySummary,
+    EnquiryView,
+    IdempotencyConflict,
+    IntakeStore,
+    Receipt,
+)
 from quotation_app.ports.storage import ObjectStorage
 
 
@@ -114,3 +122,16 @@ class EnquiryIntakeService:
     def _discard(self, attachments: tuple[AttachmentRecord, ...]) -> None:
         for record in attachments:
             self._storage.delete(record.storage_key)
+
+
+class EnquiryListService:
+    """Portal list of a tenant's enquiries, e.g. those needing review or clarification."""
+
+    def __init__(self, reader: EnquiryListReader) -> None:
+        self._reader = reader
+
+    def list(
+        self, context: TenantContext, statuses: frozenset[EnquiryStatus] | None = None
+    ) -> list[EnquirySummary]:
+        context.require(Permission.VIEW_ENQUIRIES)
+        return self._reader.list_enquiries(context.tenant_id, statuses, 100)

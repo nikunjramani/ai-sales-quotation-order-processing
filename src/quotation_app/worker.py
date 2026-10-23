@@ -9,23 +9,34 @@ import argparse
 import logging
 import time
 
+from quotation_app.adapters.channels.simulated import SimulatedChannelNotifier
 from quotation_app.adapters.documents.text import PdfAndTextReader
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.factory import build_interpreter
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.application.jobs import JobRunner
+from quotation_app.application.notifications import ApprovalNotificationHandler
 from quotation_app.application.preparation import EnquiryPreparationHandler
+from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.config import Settings
 from quotation_app.domain.jobs import JobKind
+from quotation_app.persistence.channels import SqlNotificationStore
 from quotation_app.persistence.database import build_engine
 from quotation_app.persistence.intake import SqlPreparationStore
 from quotation_app.persistence.jobs import SqlJobQueue
+from quotation_app.persistence.quotations import SqlQuotationWorkflowStore
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
+from quotation_app.persistence.tenancy import SqlPricingPolicyReader
 from quotation_app.persistence.workflow import SqlWorkflowStore, open_checkpointer
 from quotation_app.workflows.enquiry import (
     EnquiryWorkflowDeps,
     ExtractionJobHandler,
     build_enquiry_graph,
+)
+from quotation_app.workflows.quotation import (
+    QuotationJobHandler,
+    QuotationWorkflowDeps,
+    build_quotation_graph,
 )
 
 
@@ -48,12 +59,26 @@ def main() -> None:
     # Only the simulated ERP exists until a pilot ERP is connected (M7).
     erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
     workflow_store = SqlWorkflowStore(engine)
+    quotation_store = SqlQuotationWorkflowStore(engine)
+    pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
+    # Manager channels: only the simulated one exists (dev/test), enabled with its secret.
+    notifiers = (
+        {"simulated": SimulatedChannelNotifier(settings.storage_dir / "simulated-channel")}
+        if settings.simulated_channel_secret is not None
+        else {}
+    )
     logging.info("Enquiry interpreter: %s", settings.model_provider)
     try:
         with open_checkpointer(settings.worker_url()) as checkpointer:
             graph = build_enquiry_graph(
                 EnquiryWorkflowDeps(workflow_store, storage, PdfAndTextReader(), interpreter, erp),
                 checkpointer,
+            )
+            quotations = QuotationJobHandler(
+                build_quotation_graph(
+                    QuotationWorkflowDeps(quotation_store, pricing), checkpointer
+                ),
+                quotation_store,
             )
             runner = JobRunner(
                 SqlJobQueue(engine),
@@ -62,6 +87,11 @@ def main() -> None:
                         SqlPreparationStore(engine), storage
                     ),
                     JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(graph, workflow_store),
+                    JobKind.DRAFT_QUOTATION: quotations,
+                    JobKind.RESUME_QUOTATION: quotations,
+                    JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(
+                        SqlNotificationStore(engine), notifiers
+                    ),
                 },
             )
             while True:

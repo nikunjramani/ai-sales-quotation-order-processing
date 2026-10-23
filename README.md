@@ -4,7 +4,7 @@ A multi-business platform, still being built, that turns customer enquiries into
 
 The goal is a reusable product that many businesses (tenants) can use with their own email or messaging channels and their existing ERP or inventory system. It is also a learning project for LangChain, LangGraph and reliable workflow engineering, so every part is documented in plain language.
 
-> **Status (2026-10-22):** M0-M3 are complete (local and CI), including requirement extraction with LangGraph and provider-independent models (free by default). Approvals, PDFs, email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
+> **Status (2026-10-23):** M0-M3 are complete (local and CI). M4 is implemented and verified locally: drafted quotation versions, a shared approval service, a React portal with a development login, and a simulated manager channel. PDFs, real email/Telegram and orders are **not built yet**; see the [roadmap](.docs/plan/roadmap.md).
 
 ## What it will do
 1. Receive an enquiry from email, Telegram, an API and later WhatsApp or Instagram.
@@ -25,10 +25,11 @@ The goal is a reusable product that many businesses (tenants) can use with their
 | Enquiry intake API with API keys, replay-safe idempotency keys and durable receipt | ✅ M2 |
 | Background worker with leased, retried, crash-safe jobs; attachment quarantine and inspection | ✅ M2 |
 | Requirement extraction (LangGraph, checkpoints): free rules interpreter or local Ollama model, swappable; verbatim checks, ERP matching, clarification questions | ✅ M3 |
-| Approvals, PDFs, email/Telegram, orders | ⏳ Planned (M4-M7) |
+| Quotation versions, manager approval (portal + simulated channel), revision loop, React portal with dev login | ✅ M4 (local; CI pending) |
+| PDFs, email/Telegram, orders, OIDC login | ⏳ Planned (M5-M7) |
 
 ## Tech stack
-Python 3.13, [uv](https://docs.astral.sh/uv/), FastAPI, SQLAlchemy 2, Alembic, PostgreSQL 17 (Docker Compose), pytest, Ruff, mypy (strict) and GitHub Actions. LangChain and LangGraph power requirement extraction (M3).
+Python 3.13, [uv](https://docs.astral.sh/uv/), FastAPI, SQLAlchemy 2, Alembic, PostgreSQL 17 (Docker Compose), pytest, Ruff, mypy (strict) and GitHub Actions. LangChain and LangGraph power requirement extraction (M3) and the approval workflow (M4). The portal is React + TypeScript (Vite, Vitest; Node 22.12+).
 
 ## Quick start
 **Prerequisites:** Python 3.13, uv 0.13+, Git, and Docker Desktop with Linux containers running. On Windows, Docker needs the WSL / Virtual Machine Platform features enabled.
@@ -65,7 +66,7 @@ Run the API:
 ```powershell
 uv run uvicorn quotation_app.api.app:create_app --factory --host 127.0.0.1 --port 8000
 ```
-Then open http://127.0.0.1:8000/docs.
+Then open http://127.0.0.1:8000/docs. For the portal and approvals, see [approvals and portal](.docs/development/setup.md#approvals-and-portal-m4).
 
 Stop the database with `docker compose down`. Your data is kept; adding `-v` deletes it.
 The full walkthrough and troubleshooting are in the [setup guide](.docs/development/setup.md).
@@ -88,12 +89,13 @@ src/quotation_app/
   ports/         Contracts (interfaces) that adapters implement, e.g. ErpReader
   application/   Use cases: tenant context, pricing, enquiry intake, job running
   adapters/      Implementations of ports: simulated ERP, file storage, PDF reading, interpreters
-  workflows/     LangGraph workflows (enquiry extraction)
+  workflows/     LangGraph workflows (enquiry extraction, quotation approval)
   persistence/   Database models, tenant-scoped repositories, job queue, checkpoints, demo seed
-  api/           FastAPI app: health and /api/v1/enquiries
+  api/           FastAPI app: health, enquiries, portal (auth, quotations, approvals), channel webhook
   worker.py      Background job worker process
   config.py      Validated settings from environment / .env
 migrations/      Alembic schema migrations
+portal/          React portal: src/app, src/shared, src/features/<feature>/<layer>; tests/ mirrors src
 evals/           Synthetic evaluation dataset for enquiry interpreters
 scripts/         Local helpers: credentials, database checks, pricing demo, API keys
 tests/
@@ -117,7 +119,7 @@ Domain code imports no framework, database or provider code; [a test](tests/unit
 - [Documentation index](.docs/README.md): start here.
 - [Roadmap](.docs/plan/roadmap.md) and [current handoff](.docs/handoff.md): what is done and what is next.
 - [System architecture](.docs/architecture/system.md) and [execution flow](.docs/architecture/execution-flow.md).
-- [Quotation pricing (M1)](.docs/features/quotation-pricing.md), [enquiry intake (M2)](.docs/features/enquiry-intake.md), [enquiry extraction (M3)](.docs/features/enquiry-extraction.md) and [code map](.docs/development/code-map.md).
+- [Quotation pricing (M1)](.docs/features/quotation-pricing.md), [enquiry intake (M2)](.docs/features/enquiry-intake.md), [enquiry extraction (M3)](.docs/features/enquiry-extraction.md), [quotation approval (M4)](.docs/features/quotation-approval.md) and [code map](.docs/development/code-map.md).
 - [Architecture decisions (ADRs)](.docs/adr/README.md) and the [learning guide](.docs/learning/guide.md).
 
 ## Contributing

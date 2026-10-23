@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dev: stop all",
+      "detail": "Stop running API, worker and portal (ports 8000/5173 and worker process)",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/.vscode/stop-dev.ps1"],
+      "presentation": { "reveal": "silent", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: start database",
+      "detail": "docker compose up -d --wait (Docker Desktop must be running)",
+      "type": "shell",
+      "command": "docker.exe compose up -d --wait",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: migrate",
+      "detail": "Apply database migrations to quotation_dev",
+      "type": "shell",
+      "command": "uv run alembic upgrade head",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: prepare",
+      "detail": "Stop old processes, start the database, migrate",
+      "dependsOrder": "sequence",
+      "dependsOn": ["dev: stop all", "dev: start database", "dev: migrate"],
+      "problemMatcher": []
+    }
+  ]
+}
+

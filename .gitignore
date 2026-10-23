@@ -28,3 +28,7 @@ var/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# React portal (npm)
+portal/node_modules/
+portal/dist/

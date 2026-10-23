@@ -1,5 +1,5 @@
 # Code map
-Status: the M0 foundation, M1 domain/tenancy, M2 intake/jobs and M3 extraction modules below exist. The remaining module map is a plan.
+Status: the M0 foundation, M1 domain/tenancy, M2 intake/jobs, M3 extraction and M4 approval/portal modules below exist. The remaining module map is a plan.
 
 ## Implemented foundation
 | Actual file | Responsibility |
@@ -81,6 +81,32 @@ Entry point: `extract_requirements` jobs in the worker ([worker.py](../../src/qu
 | [evaluation.py](../../src/quotation_app/evaluation.py) / [evaluate_extraction.py](../../scripts/evaluate_extraction.py) / [dataset](../../evals/enquiry_extraction.jsonl) | Provider evaluation through the real graph |
 | [tests/unit/workflows/test_enquiry.py](../../tests/unit/workflows/test_enquiry.py), [tests/integration/workflows/test_enquiry.py](../../tests/integration/workflows/test_enquiry.py) | Branches, invented facts, crash/resume, isolation; Postgres end to end including M1 pricing |
 
+## Implemented M4 drafting, approval and portal
+Entry points:
+- quotation jobs in the worker;
+- portal and channel routes in the API ([api/app.py](../../src/quotation_app/api/app.py));
+- the React app in [portal/](../../portal/src/app/App.tsx).
+
+See [quotation approval](../features/quotation-approval.md).
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/quotations.py](../../src/quotation_app/domain/quotations.py) | Statuses, DecisionCommand, version content and hash, review text, approval errors |
+| [ports/approvals.py](../../src/quotation_app/ports/approvals.py), [ports/quotations.py](../../src/quotation_app/ports/quotations.py), [ports/channels.py](../../src/quotation_app/ports/channels.py), [ports/identity.py](../../src/quotation_app/ports/identity.py) | Decision unit of work; quotation read, revision and workflow stores; channel bindings, references and notifier; identity and sessions |
+| [application/approvals.py](../../src/quotation_app/application/approvals.py) | ApprovalService: the one decision path for portal and channels |
+| [application/quotations.py](../../src/quotation_app/application/quotations.py) | List, detail, re-priced revisions |
+| [application/channel_actions.py](../../src/quotation_app/application/channel_actions.py) / [notifications.py](../../src/quotation_app/application/notifications.py) | Enrollment and channel decisions / review delivery job |
+| [application/sessions.py](../../src/quotation_app/application/sessions.py) | Session tokens, expiry, CSRF |
+| [workflows/quotation.py](../../src/quotation_app/workflows/quotation.py) | Approval graph with interrupts; QuotationJobHandler (run lock, stale-resume protection) |
+| [adapters/identity/dev.py](../../src/quotation_app/adapters/identity/dev.py) | Development login (the OIDC adapter goes next to it) |
+| [adapters/channels/simulated.py](../../src/quotation_app/adapters/channels/simulated.py) | Simulated provider: outbox files, HMAC signatures |
+| [api/auth.py](../../src/quotation_app/api/auth.py), [api/portal.py](../../src/quotation_app/api/portal.py), [api/channels.py](../../src/quotation_app/api/channels.py) | Sign-in and session dependencies, tenant routes, signed webhook |
+| [persistence/quotations.py](../../src/quotation_app/persistence/quotations.py), [channels.py](../../src/quotation_app/persistence/channels.py), [sessions.py](../../src/quotation_app/persistence/sessions.py) | SQL stores, advisory run lock, job queuing in the same transaction |
+| [0005_approvals.py](../../migrations/versions/0005_approvals.py) | M4 tables, append-only triggers, column grants, narrow RLS policies |
+| [scripts/simulated_channel.py](../../scripts/simulated_channel.py) | Play the manager's phone: inbox, enroll, decide |
+| [portal/src/](../../portal/src/app/App.tsx) | React portal organised by feature (auth, tenant, quotations, enquiries, channels) and layer (model, api, services, store, hooks, ui, routes). See [portal architecture](portal-architecture.md). Tests live in [portal/tests/](../../portal/tests/architecture.test.ts), mirroring src |
+| [tests/unit/conftest.py](../../tests/unit/conftest.py) | In-memory M4 "database" and harness used by unit tests |
+
 ## Planned modules
 
 | Proposed location | Responsibility |
@@ -88,7 +114,6 @@ Entry point: `extract_requirements` jobs in the worker ([worker.py](../../src/qu
 | src/quotation_app/api/ | HTTP routes, auth dependency and webhook handling |
 | src/quotation_app/domain/ | Business models, money, pricing and policy rules |
 | src/quotation_app/application/ | Use cases, transaction boundaries and authorization |
-| src/quotation_app/application/approvals/ | Common review/decision service used by portal and manager channel adapters |
 | src/quotation_app/application/negotiation/ (later) | Counteroffer lifecycle reusing existing quotation/approval services; deferred |
 | src/quotation_app/application/manager_commands/ (later) | Verified stock enquiries and scoped change requests through existing services; deferred |
 | src/quotation_app/workflows/ | LangGraph state, nodes, routing and versioning |
@@ -96,7 +121,6 @@ Entry point: `extract_requirements` jobs in the worker ([worker.py](../../src/qu
 | src/quotation_app/adapters/ | Provider-specific implementations and simulated ERP |
 | src/quotation_app/persistence/ | Repositories, tables, tenant context and checkpoint access |
 | src/quotation_app/workers/ | Jobs, scheduler, outbox and reconciliation |
-| src/quotation_app/web/ | Portal templates and static assets |
 | src/quotation_app/observability/ | Logging, tracing and metrics configuration |
 | migrations/ | Alembic migrations and data transition notes |
 | tests/ | Unit, integration, contract, security, workflow and evaluation suites |

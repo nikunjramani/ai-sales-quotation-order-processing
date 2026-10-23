@@ -1,0 +1,38 @@
+import { http, isApiError, setCsrfToken } from "@/shared/api/httpClient";
+
+import type { AuthConfig, Session } from "../model/types";
+
+// Repository: HTTP calls for sign-in and sessions. It also keeps the CSRF token in sync,
+// because every session the server returns carries the token for later changes.
+export const authRepository = {
+  config: () => http<AuthConfig>("/auth/config"),
+
+  /** The current session, or null when nobody is signed in. */
+  async session(): Promise<Session | null> {
+    try {
+      const session = await http<Session>("/auth/session");
+      setCsrfToken(session.csrf_token);
+      return session;
+    } catch (error) {
+      if (isApiError(error, 401)) {
+        setCsrfToken(null);
+        return null;
+      }
+      throw error;
+    }
+  },
+
+  async devLogin(subject: string): Promise<Session> {
+    const session = await http<Session>("/auth/dev-login", { method: "POST", body: { subject } });
+    setCsrfToken(session.csrf_token);
+    return session;
+  },
+
+  async logout(): Promise<void> {
+    try {
+      await http<void>("/auth/logout", { method: "POST" });
+    } finally {
+      setCsrfToken(null);
+    }
+  },
+};

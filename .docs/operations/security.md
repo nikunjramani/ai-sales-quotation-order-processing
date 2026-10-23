@@ -17,6 +17,31 @@
 - Provider webhook verification is necessary but not sufficient: validate the acting manager, task/version, recipient binding and expiry. Forwarded actions and uncorrelated text must not approve anything.
 - Mobile channel review may expose commercial documents to provider storage; configure permitted channels and disclosure per tenant. Never include reusable action secrets in model input or logs.
 
+## Implemented controls (M4)
+- **Portal sessions:**
+  - 256-bit random tokens in `HttpOnly; SameSite=Strict; Path=/api` cookies (Secure in production);
+  - only SHA-256 hashes stored, an 8-hour lifetime and server-side logout;
+  - state changes need an `X-CSRF-Token` derived from the session;
+  - the React app never stores tokens.
+- **Dev login:** it asks for no password, so configuration refuses it in production, and it only admits stored members. OIDC is required before any other deployment.
+- **Access checks:**
+  - Every portal request re-resolves membership for the tenant in the URL; non-members get 404.
+  - Every decision re-checks the approve permission, so people who were removed or demoted cannot act on old pages or messages.
+  - Every decision also re-checks the content hash and current version (no stale approvals) and forbids approving a version you created.
+- **One decision per task**, taken under a row lock:
+  - Replays return the original decision; conflicting actions get 409.
+  - Decisions and versions are append-only, enforced by grants and triggers.
+- **Channel events:**
+  - Verified by provider signature (HMAC-SHA256, constant-time) before parsing.
+  - Action references are random, stored hashed, single use and expire after 24 h. They only work for the bound account and connection, so forwarded messages fail.
+  - Binding an account requires a 10-minute one-time code sent from it; bindings are revocable.
+  - All rejections share one generic message.
+- **Narrow RLS additions:**
+  - A person may list only their own memberships and tenant names (`app.subject`).
+  - Sessions are visible only by token hash.
+  - The worker gained read access to memberships, tenants and pricing policies, still tenant-scoped.
+- **Simulated outbox:** it holds live references in plain files under the git-ignored storage folder, so it is for development only.
+
 ## Implemented controls (M3)
 - Model output is untrusted: strict JSON schemas with no extra fields, verbatim quote checks against the customer's text, product choices limited to ERP candidates, template (not model-written) customer questions. Prices, stock and permissions never come from a model.
 - Customer content is wrapped in data tags; attempts to close the tag are neutralised. Invalid answers go to human review.

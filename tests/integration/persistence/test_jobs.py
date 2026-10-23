@@ -117,6 +117,10 @@ def test_worker_role_sees_only_the_queue_across_tenants(
         assert connection.execute(text("SELECT count(*) FROM inbox_events")).scalar_one() == 0
     with tenant_transaction(worker_engine, industrial_tenant) as connection:
         assert connection.execute(text("SELECT count(*) FROM inbox_events")).scalar_one() == 1
-    for statement in ("SELECT count(*) FROM memberships", "DELETE FROM jobs"):
+    # Since M4 the worker may read memberships (to notify current approvers), but only
+    # within a tenant context; it can still never change them or delete jobs.
+    with worker_engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM memberships")).scalar_one() == 0
+    for statement in ("DELETE FROM memberships", "DELETE FROM jobs", "SELECT * FROM api_keys"):
         with pytest.raises(ProgrammingError), worker_engine.begin() as connection:
             connection.execute(text(statement))

@@ -13,6 +13,7 @@ from quotation_app.persistence.models import Attachment, Enquiry, InboxEvent, Jo
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.intake import (
     AttachmentView,
+    EnquirySummary,
     EnquiryView,
     ExtractedLineView,
     ExtractionView,
@@ -183,6 +184,7 @@ class SqlIntakeStore:
                 .where(
                     WorkflowRun.tenant_id == tenant_id,
                     WorkflowRun.enquiry_id == enquiry_id,
+                    WorkflowRun.graph_version.like("enquiry-extraction-%"),
                     WorkflowRun.outcome.is_not(None),
                 )
                 .order_by(WorkflowRun.updated_at.desc())
@@ -294,3 +296,43 @@ class SqlPreparationStore:
                         correlation_id=correlation_id,
                     )
                 )
+
+
+PREVIEW_CHARACTERS = 160
+
+
+class SqlEnquiryListReader:
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def list_enquiries(
+        self, tenant_id: UUID, statuses: frozenset[EnquiryStatus] | None, limit: int
+    ) -> list[EnquirySummary]:
+        query = (
+            select(
+                Enquiry.id,
+                Enquiry.channel,
+                Enquiry.status,
+                Enquiry.customer_reference,
+                Enquiry.received_at,
+                func.left(Enquiry.text, PREVIEW_CHARACTERS).label("preview"),
+            )
+            .where(Enquiry.tenant_id == tenant_id)
+            .order_by(Enquiry.received_at.desc(), Enquiry.id)
+            .limit(limit)
+        )
+        if statuses is not None:
+            query = query.where(Enquiry.status.in_([status.value for status in statuses]))
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            rows = connection.execute(query).all()
+        return [
+            EnquirySummary(
+                enquiry_id=row.id,
+                channel=Channel(row.channel),
+                status=EnquiryStatus(row.status),
+                customer_reference=row.customer_reference,
+                received_at=row.received_at,
+                preview=row.preview,
+            )
+            for row in rows
+        ]

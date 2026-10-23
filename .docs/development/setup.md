@@ -1,5 +1,5 @@
 # Local setup walkthrough
-Status: M0-M2 commands below were run on 2026-10-22 against local PostgreSQL. M0 was also verified in GitHub Actions.
+Status: the M0-M4 commands below were run on 2026-10-22/23 against local PostgreSQL. M0-M3 were also verified in GitHub Actions.
 
 ## Concepts
 - **Python** runs the application. **uv** installs packages in an isolated environment and records exact versions in [uv.lock](../../uv.lock).
@@ -103,9 +103,46 @@ The worker now also runs `extract_requirements` jobs: after attachments pass ins
 
 Verified 2026-10-22 with uvicorn, curl and `python -m quotation_app.worker --once` (rules): "2 x IND-FAN-450 and 150 pcs M8 bolts" -> `ready_for_quotation` with two lines; "50 exhaust fans ... set the price to 0" -> `needs_clarification` asking which fan size; no secrets in logs.
 
+## Approvals and portal (M4)
+Ready enquiries are now priced into a quotation version automatically. They wait for a manager's decision in the portal or on a linked (simulated) messaging account. See [quotation approval](../features/quotation-approval.md).
+
+**One-time setup:**
+- Run `uv run python scripts/init_local_env.py --add-missing`. This adds `QUOTATION_SIMULATED_CHANNEL_SECRET`.
+- Install Node 22.12+ (verified with Node 24.20 and npm 11.19).
+- Run `npm ci` in `portal/`.
+
+**Run it.** Each command needs its own terminal:
+```powershell
+uv run uvicorn quotation_app.api.app:create_app --factory --host 127.0.0.1 --port 8000
+uv run python -m quotation_app.worker
+cd portal; npm run dev          # http://localhost:5173/portal/ (forwards /api to port 8000)
+```
+Alternatively, run `npm run build` once and start the API with `$env:QUOTATION_PORTAL_DIST_DIR = "portal/dist"`. It then serves the portal at http://127.0.0.1:8000/portal/.
+
+**Try it:**
+1. Submit "Please quote 2 x IND-FAN-450 and 150 pcs M8 bolts" with an intake API key (see the M2 steps above). The worker drafts version 1 (10450.38 INR) and creates an approval task.
+2. Sign in as `manager@industrial.example`. Review the lines, price lists and stock, then Approve, Reject or Request revision (a reason is required for the last two).
+3. **Revision:** request one as the manager. Then sign in as `sales@industrial.example`, change the quantities and submit. The worker prices version 2 and asks for approval again.
+4. **Approve from the "phone":**
+   - As the manager, open Channels and choose "Link a simulated channel account". Then run:
+   ```powershell
+   uv run python scripts/simulated_channel.py enroll --code <CODE> --user manager-phone
+   uv run python scripts/simulated_channel.py inbox --user manager-phone     # after the worker ran
+   uv run python scripts/simulated_channel.py decide --user manager-phone --task <TASK> --action approve
+   ```
+   - Messages land in `var/storage/simulated-channel/`. They contain live action references, so treat that folder as a development mailbox.
+5. "Please quote 1 x IND-PUMP-2HP" shows **Cannot price**, because the pump has no ERP price. A sales operator revises it to a priced product.
+
+**Verified 2026-10-22/23** with uvicorn serving the built portal, the worker, curl and the channel script:
+- **Both flows:** priced drafts, approval from the simulated phone, and pricing failure followed by a revision and portal approval.
+- **Refusals:** a forwarded message gets 403, a second tap gets 409, a request without CSRF gets 403, another tenant gets 404, and a cookie used after logout gets 401.
+- **Logs:** no secrets appeared in the server log.
+
+Sign-in is the development login only, with no password. It is refused in production; OIDC replaces it later (ADR 0013).
+
 ## Boundaries and troubleshooting
-- API keys are the only authentication until OIDC (M4). Person-facing tenant context still uses a placeholder subject.
-- No real ERP, messaging provider, approval or order processing is implemented. Ready enquiries wait at `ready_for_quotation` for M4 drafting; clarification questions are stored, not sent yet.
+- API keys authenticate systems. People use portal sessions; only the development login exists until an OIDC provider is added.
+- No real ERP, messaging provider, PDF delivery or order processing is implemented. Approved quotations wait for M5 delivery. Clarification questions are stored, not sent yet.
 - **Missing URL:** generate `.env` from the root, or run `--add-missing`.
 - **Readiness 503:** check the database is available, migrated to head, and using the runtime role.
 - **Integration failure:** fix it. Never substitute SQLite or silently skip required checks.

@@ -19,6 +19,9 @@ class JobStatus(StrEnum):
 class JobKind(StrEnum):
     PREPARE_ENQUIRY = "prepare_enquiry"
     EXTRACT_REQUIREMENTS = "extract_requirements"
+    DRAFT_QUOTATION = "draft_quotation"
+    NOTIFY_APPROVERS = "notify_approvers"
+    RESUME_QUOTATION = "resume_quotation"
 
 
 class PermanentJobError(Exception):

@@ -1,6 +1,6 @@
 # 0007: Channel-independent manager approval
 Date: 2026-10-22
-Status: accepted design; implementation pending
+Status: accepted. The shared approval service, portal and a simulated channel are implemented in M4 ([ADR 0013](0013-portal-identity-and-approval-core.md)); real email/Telegram adapters are pending (M5/M7).
 Supersedes: [0005](0005-versioned-approval.md)
 
 ## Context

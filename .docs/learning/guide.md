@@ -42,9 +42,17 @@ Learning must explain the real architecture; it must not weaken release requirem
 | Structured output | The model answers in a fixed JSON shape, checked strictly | Extra fields like a price make the answer invalid |
 | Prompt injection | Customer text trying to give the AI orders | Treated as data; prices never come from the model |
 | Evaluation dataset | Fixed test enquiries with expected answers | Compare free rules, Ollama or a paid model fairly |
+| Immutable version | A quotation snapshot that never changes; edits create a new one | The manager approves exactly version 2, not "the quote" |
+| Content hash | A fingerprint of the content | A decision on an old page fails because the hash no longer matches |
+| Interrupt / resume | A workflow pauses for a person and continues later from its checkpoint | Waiting days for approval survives worker restarts |
+| Session cookie + CSRF token | A sign-in cookie scripts cannot read, plus a header only our page knows | Another website cannot approve on your behalf |
+| Row lock | The database lets one transaction at a time change a row | Two managers clicking at once produce one decision |
+| Channel binding | Proof that a messaging account belongs to a manager | A forwarded approval message does not work for someone else |
+| Webhook signature | The provider signs each callback with a shared secret | A faked or altered event is rejected before reading it |
 
 M1 trace: run `uv run python scripts/demo_quotation.py`. Every price, unit and stock number comes from the ERP; the calculator only does arithmetic and checks rules. No AI is involved yet.
 M3 trace: run `uv run python scripts/evaluate_extraction.py`, then submit "Please quote 50 exhaust fans" and "Please quote 2 x IND-FAN-450" through the API and run the worker - one asks which fan size, the other is ready for pricing.
+M4 trace: follow [approvals and portal](../development/setup.md#approvals-and-portal-m4). Prices come from the calculator and the ERP; the person decides; the workflow only waits and continues.
 M2 trace: follow [enquiry intake in the setup guide](../development/setup.md#enquiry-intake-m2) - submit twice with the same Idempotency-Key, run the worker, and watch the status and the files move from quarantine to clean.
 
 Teaching sequence: business scenario -> term -> minimal example -> production implementation -> trace inputs/outputs -> test failure -> explain tradeoffs.

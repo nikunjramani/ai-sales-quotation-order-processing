@@ -4,13 +4,17 @@ Claiming uses FOR UPDATE SKIP LOCKED: concurrent workers each lock a different r
 waiting or taking the same job. Times come from the database clock so all workers agree.
 """
 
+from collections.abc import Mapping
 from datetime import timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import Engine, text
+from sqlalchemy import Connection, Engine, func, insert, text
 
-from quotation_app.domain.jobs import JobKind
+from quotation_app.domain.jobs import JobKind, JobStatus
+from quotation_app.persistence.models import Job
 from quotation_app.ports.jobs import ClaimedJob, LeaseLost
+
+MAX_JOB_ATTEMPTS = 5
 
 _EXPIRE_FINAL_ATTEMPTS = text(
     "UPDATE jobs SET status = 'dead', lease_token = NULL, updated_at = now(), "
@@ -30,6 +34,28 @@ _CLAIM = text(
     ") "
     "RETURNING id, tenant_id, kind, payload, attempts, max_attempts, correlation_id"
 )
+
+
+def queue_job(
+    connection: Connection,
+    tenant_id: UUID,
+    kind: JobKind,
+    payload: Mapping[str, str],
+    correlation_id: UUID,
+) -> None:
+    """Queue a job inside the caller's transaction, so it exists only if the change commits."""
+    connection.execute(
+        insert(Job).values(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            kind=kind.value,
+            payload=dict(payload),
+            status=JobStatus.PENDING.value,
+            max_attempts=MAX_JOB_ATTEMPTS,
+            run_at=func.now(),
+            correlation_id=correlation_id,
+        )
+    )
 
 
 class SqlJobQueue:

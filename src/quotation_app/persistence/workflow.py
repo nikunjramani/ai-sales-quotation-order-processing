@@ -13,7 +13,9 @@ from sqlalchemy.engine import make_url
 
 from quotation_app.domain.attachments import AttachmentStatus
 from quotation_app.domain.intake import EnquiryStatus
+from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.requirements import ExtractionOutcome
+from quotation_app.persistence.jobs import queue_job
 from quotation_app.persistence.models import Attachment, Enquiry, WorkflowRun
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.workflow import CleanAttachment, EnquiryContent
@@ -90,7 +92,7 @@ class SqlWorkflowStore:
                 .where(WorkflowRun.tenant_id == tenant_id, WorkflowRun.id == run_id)
                 .values(status=outcome.value, outcome=dict(details), updated_at=func.now())
             )
-            connection.execute(
+            moved = connection.execute(
                 update(Enquiry)
                 .where(
                     Enquiry.tenant_id == tenant_id,
@@ -98,7 +100,17 @@ class SqlWorkflowStore:
                     Enquiry.status == EnquiryStatus.READY_FOR_EXTRACTION.value,
                 )
                 .values(status=EnquiryStatus(outcome.value).value, updated_at=func.now())
-            )
+                .returning(Enquiry.correlation_id)
+            ).one_or_none()
+            # Only the first recording moves the enquiry on, so drafting is queued once (M4).
+            if moved is not None and outcome is ExtractionOutcome.READY_FOR_QUOTATION:
+                queue_job(
+                    connection,
+                    tenant_id,
+                    JobKind.DRAFT_QUOTATION,
+                    {"enquiry_id": str(enquiry_id)},
+                    moved.correlation_id,
+                )
 
 
 def psycopg_url(sqlalchemy_url: str) -> str:

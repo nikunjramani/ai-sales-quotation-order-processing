@@ -1,0 +1,452 @@
+"""M4 on PostgreSQL: enquiry -> draft version -> approval (portal or channel) -> resume.
+
+Also proves concurrency (one decision wins), worker restart, append-only versions/decisions,
+narrow session/membership visibility and tenant isolation through the real roles.
+"""
+
+import json
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import UUID, uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
+from sqlalchemy import Engine, text
+from sqlalchemy.exc import DBAPIError, ProgrammingError
+
+from quotation_app.adapters.channels.simulated import (
+    SIGNATURE_HEADER,
+    SimulatedChannelNotifier,
+    sign,
+)
+from quotation_app.adapters.documents.text import PdfAndTextReader
+from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
+from quotation_app.adapters.interpreters.rules import RulesInterpreter
+from quotation_app.adapters.storage.local import LocalObjectStorage
+from quotation_app.api.app import create_app
+from quotation_app.api.auth import CSRF_HEADER
+from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.jobs import JobRunner
+from quotation_app.application.notifications import ApprovalNotificationHandler
+from quotation_app.application.preparation import EnquiryPreparationHandler
+from quotation_app.application.pricing import QuotationPricingService
+from quotation_app.application.tenancy import TenantContextResolver
+from quotation_app.config import Settings
+from quotation_app.domain.jobs import JobKind
+from quotation_app.domain.quotations import ApprovalAction, DecisionCommand, DecisionConflict
+from quotation_app.domain.tenancy import Role
+from quotation_app.persistence.channels import SqlNotificationStore
+from quotation_app.persistence.intake import SqlPreparationStore
+from quotation_app.persistence.jobs import SqlJobQueue
+from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
+from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
+from quotation_app.persistence.tenancy import (
+    SqlMembershipReader,
+    SqlPricingPolicyReader,
+    tenant_transaction,
+)
+from quotation_app.persistence.workflow import SqlWorkflowStore, open_checkpointer
+from quotation_app.workflows.enquiry import (
+    EnquiryWorkflowDeps,
+    ExtractionJobHandler,
+    build_enquiry_graph,
+)
+from quotation_app.workflows.quotation import (
+    QuotationJobHandler,
+    QuotationWorkflowDeps,
+    build_quotation_graph,
+)
+
+type ApiKeyFactory = Callable[[UUID, Role], str]
+
+MANAGER = "manager@industrial.example"
+SALES = "sales@industrial.example"
+SECRET = "integration-channel-secret"
+ENQUIRY = "Please quote 2 x IND-FAN-450 and 150 pcs M8 bolts"
+
+
+@pytest.fixture
+def settings(integration_settings: Settings) -> Settings:
+    return integration_settings.model_copy(update={"simulated_channel_secret": SecretStr(SECRET)})
+
+
+@pytest.fixture
+def make_client(settings: Settings, runtime_engine: Engine) -> Iterator[Callable[[], TestClient]]:
+    """One TestClient per person, so each keeps its own session cookie."""
+    clients: list[TestClient] = []
+
+    def build() -> TestClient:
+        client = TestClient(create_app(settings))
+        client.__enter__()
+        clients.append(client)
+        return client
+
+    yield build
+    for client in clients:
+        client.__exit__(None, None, None)
+
+
+@contextmanager
+def running_worker(settings: Settings, engine: Engine) -> Iterator[JobRunner]:
+    """Everything python -m quotation_app.worker wires, in-process (rules interpreter)."""
+    storage = LocalObjectStorage(settings.storage_dir)
+    erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
+    runs = SqlWorkflowStore(engine)
+    quotation_store = SqlQuotationWorkflowStore(engine)
+    pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
+    with open_checkpointer(settings.worker_url()) as checkpointer:
+        enquiry_graph = build_enquiry_graph(
+            EnquiryWorkflowDeps(runs, storage, PdfAndTextReader(), RulesInterpreter(), erp),
+            checkpointer,
+        )
+        quotations = QuotationJobHandler(
+            build_quotation_graph(QuotationWorkflowDeps(quotation_store, pricing), checkpointer),
+            quotation_store,
+        )
+        yield JobRunner(
+            SqlJobQueue(engine),
+            {
+                JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(
+                    SqlPreparationStore(engine), storage
+                ),
+                JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(enquiry_graph, runs),
+                JobKind.DRAFT_QUOTATION: quotations,
+                JobKind.RESUME_QUOTATION: quotations,
+                JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(
+                    SqlNotificationStore(engine),
+                    {"simulated": SimulatedChannelNotifier(settings.storage_dir / "outbox")},
+                ),
+            },
+        )
+
+
+def drain(settings: Settings, engine: Engine) -> None:
+    with running_worker(settings, engine) as worker:
+        while worker.run_once():
+            pass
+
+
+def submit(client: TestClient, token: str, text_: str) -> str:
+    response = client.post(
+        "/api/v1/enquiries",
+        json={"text": text_, "customer_reference": "CUST-42"},
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": f"k-{uuid4()}"},
+    )
+    assert response.status_code == 202, response.text
+    return str(response.json()["enquiry_id"])
+
+
+def login(client: TestClient, subject: str) -> dict[str, str]:
+    response = client.post("/api/v1/auth/dev-login", json={"subject": subject})
+    assert response.status_code == 200, response.text
+    return {CSRF_HEADER: response.json()["csrf_token"]}
+
+
+def base(tenant: UUID = INDUSTRIAL_TENANT) -> str:
+    return f"/api/v1/tenants/{tenant}"
+
+
+@pytest.fixture
+def quoted(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+) -> dict[str, Any]:
+    """An industrial enquiry, drafted and waiting for approval; returns the quotation detail."""
+    intake = make_client()
+    submit(intake, make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE), ENQUIRY)
+    drain(settings, worker_engine)
+    manager = make_client()
+    login(manager, MANAGER)
+    listed = manager.get(f"{base()}/quotations", params={"status": "pending_approval"}).json()
+    assert len(listed) == 1
+    detail: dict[str, Any] = manager.get(f"{base()}/quotations/{listed[0]['quotation_id']}").json()
+    return detail
+
+
+def decide(
+    client: TestClient,
+    headers: dict[str, str],
+    detail: dict[str, Any],
+    action: str,
+    reason: str | None = None,
+) -> Any:
+    task = detail["pending_task"]
+    return client.post(
+        f"{base()}/approval-tasks/{task['task_id']}/decision",
+        json={
+            "command_id": str(uuid4()),
+            "action": action,
+            "content_sha256": task["content_sha256"],
+            "reason": reason,
+        },
+        headers=headers,
+    )
+
+
+def run_status(owner_engine: Engine, quotation_id: str) -> tuple[str, str]:
+    with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
+        row = connection.execute(
+            text(
+                "SELECT q.status, r.status AS run FROM quotations q JOIN workflow_runs r "
+                "ON r.enquiry_id = q.enquiry_id AND r.graph_version = 'quotation-approval-v1' "
+                "WHERE q.id = :id"
+            ),
+            {"id": quotation_id},
+        ).one()
+    return row.status, row.run
+
+
+def test_enquiry_is_drafted_approved_in_the_portal_and_the_run_resumes(
+    quoted: dict[str, Any],
+    make_client: Callable[[], TestClient],
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    summary = quoted["summary"]
+    # 2 x 4250.00 + 150 x 2.375 = 8856.25; 18% tax 1594.125 -> 1594.13 (half up).
+    assert (summary["total"], summary["currency"]) == ("10450.38", "INR")
+    assert summary["customer_reference"] == "CUST-42" and summary["current_version"] == 1
+    assert quoted["versions"][0]["created_by"] == "system:quotation-workflow"
+    assert quoted["can_decide"] is True
+
+    manager = make_client()
+    headers = login(manager, MANAGER)
+    response = decide(manager, headers, quoted, "approve")
+    assert response.status_code == 200, response.text
+    assert run_status(owner_engine, summary["quotation_id"]) == ("approved", "running")
+    drain(settings, worker_engine)
+    assert run_status(owner_engine, summary["quotation_id"]) == ("approved", "approved")
+
+
+def test_revision_loop_between_manager_and_sales(
+    quoted: dict[str, Any],
+    make_client: Callable[[], TestClient],
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    quotation_id = quoted["summary"]["quotation_id"]
+    manager, sales = make_client(), make_client()
+    manager_headers, sales_headers = login(manager, MANAGER), login(sales, SALES)
+    assert decide(sales, sales_headers, quoted, "approve").status_code == 403
+    assert decide(manager, manager_headers, quoted, "request_revision", "3 fans").status_code == 200
+    drain(settings, worker_engine)
+
+    revision = sales.post(
+        f"{base()}/quotations/{quotation_id}/revisions",
+        json={
+            "command_id": str(uuid4()),
+            "base_version": 1,
+            "lines": [{"sku": "IND-FAN-450", "quantity": "3", "unit": "each"}],
+            "reason": "Customer confirmed 3 fans",
+        },
+        headers=sales_headers,
+    )
+    assert revision.status_code == 201, revision.text
+    drain(settings, worker_engine)
+    detail = manager.get(f"{base()}/quotations/{quotation_id}").json()
+    assert [version["version"] for version in detail["versions"]] == [1, 2]
+    assert detail["versions"][1]["created_by"] == SALES
+    assert detail["pending_task"]["version"] == 2
+    assert [task["status"] for task in detail["tasks"]] == ["revision_requested", "pending"]
+    assert decide(manager, manager_headers, detail, "approve").status_code == 200
+    drain(settings, worker_engine)
+    assert run_status(owner_engine, quotation_id) == ("approved", "approved")
+
+
+def test_manager_approves_from_the_simulated_channel(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    manager = make_client()
+    headers = login(manager, MANAGER)
+    code = manager.post(
+        f"{base()}/channel-enrollments", json={"channel": "simulated"}, headers=headers
+    ).json()["code"]
+
+    def post(event: dict[str, Any]) -> Any:
+        raw = json.dumps(event).encode()
+        return manager.post(
+            "/api/v1/channels/simulated/events",
+            content=raw,
+            headers={SIGNATURE_HEADER: sign(SECRET, raw)},
+        )
+
+    common = {"tenant_id": str(INDUSTRIAL_TENANT), "connection_id": "simulated-local"}
+    enrolled = post({**common, "event_id": "e1", "external_user_id": "phone-1", "type": "enroll",
+                     "code": code})  # fmt: skip
+    assert enrolled.json()["result"] == "enrolled"
+
+    submit(make_client(), make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE), ENQUIRY)
+    drain(settings, worker_engine)
+    [message_file] = list(Path(settings.storage_dir / "outbox").rglob("*.json"))
+    message = json.loads(message_file.read_text(encoding="utf-8"))
+    assert message["to"] == "phone-1" and "total 10450.38 INR" in message["text"]
+
+    decision = {**common, "external_user_id": "phone-1", "type": "decision",
+                "action_reference": message["action_reference"], "action": "approve"}  # fmt: skip
+    forwarded = post({**decision, "event_id": "e2", "external_user_id": "phone-2"})
+    assert forwarded.status_code == 403
+    assert post({**decision, "event_id": "e3"}).json()["result"] == "recorded"
+    assert post({**decision, "event_id": "e3"}).json()["result"] == "replayed"
+    drain(settings, worker_engine)
+    listed = manager.get(f"{base()}/quotations").json()
+    assert run_status(owner_engine, listed[0]["quotation_id"]) == ("approved", "approved")
+    detail = manager.get(f"{base()}/quotations/{listed[0]['quotation_id']}").json()
+    assert detail["decisions"][0]["transport"] == "simulated"
+
+
+def test_concurrent_decisions_record_exactly_one(
+    quoted: dict[str, Any], runtime_engine: Engine, owner_engine: Engine
+) -> None:
+    service = ApprovalService(
+        SqlApprovalStore(runtime_engine), TenantContextResolver(SqlMembershipReader(runtime_engine))
+    )
+    task = quoted["pending_task"]
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def attempt(action: ApprovalAction) -> None:
+        command = DecisionCommand(
+            command_id=uuid4(),
+            tenant_id=INDUSTRIAL_TENANT,
+            task_id=UUID(task["task_id"]),
+            content_sha256=task["content_sha256"],
+            action=action,
+            reason=None if action is ApprovalAction.APPROVE else "no",
+            transport="portal",
+            evidence_ref=None,
+            received_at=datetime.now(UTC),
+        )
+        barrier.wait()
+        try:
+            service.decide(MANAGER, command)
+            outcomes.append("recorded")
+        except DecisionConflict:
+            outcomes.append("conflict")
+
+    threads = [
+        threading.Thread(target=attempt, args=(action,))
+        for action in (ApprovalAction.APPROVE, ApprovalAction.REJECT)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(outcomes) == ["conflict", "recorded"]
+    with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
+        assert connection.execute(text("SELECT count(*) FROM approval_decisions")).scalar() == 1
+        resumes = "SELECT count(*) FROM jobs WHERE kind = 'resume_quotation'"
+        assert connection.execute(text(resumes)).scalar() == 1
+
+
+def test_waiting_run_survives_a_worker_restart(
+    quoted: dict[str, Any],
+    make_client: Callable[[], TestClient],
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    # `quoted` drained with one worker instance (its checkpointer connection is closed now).
+    manager = make_client()
+    assert decide(manager, login(manager, MANAGER), quoted, "approve").status_code == 200
+    drain(settings, worker_engine)  # a brand-new worker, graph and checkpointer connection
+    assert run_status(owner_engine, quoted["summary"]["quotation_id"]) == ("approved", "approved")
+
+
+def test_unpriceable_enquiry_waits_for_a_sales_revision(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+) -> None:
+    submit(make_client(), make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE),
+           "Please quote 1 x IND-PUMP-2HP")  # fmt: skip
+    drain(settings, worker_engine)
+    sales = make_client()
+    headers = login(sales, SALES)
+    [item] = sales.get(f"{base()}/quotations").json()
+    assert item["status"] == "pricing_failed" and item["total"] is None
+    detail = sales.get(f"{base()}/quotations/{item['quotation_id']}").json()
+    assert detail["pricing_issues"][0]["code"] == "price_missing" and detail["can_revise"]
+    revision = sales.post(
+        f"{base()}/quotations/{item['quotation_id']}/revisions",
+        json={
+            "command_id": str(uuid4()),
+            "base_version": None,
+            "lines": [{"sku": "IND-FAN-450", "quantity": "1", "unit": "each"}],
+            "reason": "Pump unavailable; offering a fan",
+        },
+        headers=headers,
+    )
+    assert revision.status_code == 201, revision.text
+    drain(settings, worker_engine)
+    detail = sales.get(f"{base()}/quotations/{item['quotation_id']}").json()
+    assert detail["summary"]["status"] == "pending_approval"
+    assert detail["pending_task"]["version"] == 1
+
+
+def test_other_tenants_cannot_see_the_quotation(
+    quoted: dict[str, Any], make_client: Callable[[], TestClient]
+) -> None:
+    office = make_client()
+    login(office, "sales@office.example")
+    quotation_id = quoted["summary"]["quotation_id"]
+    assert office.get(f"{base()}/quotations").status_code == 404
+    assert office.get(f"{base(OFFICE_TENANT)}/quotations").json() == []
+    assert office.get(f"{base(OFFICE_TENANT)}/quotations/{quotation_id}").status_code == 404
+
+
+def test_versions_and_decisions_are_append_only(
+    quoted: dict[str, Any],
+    make_client: Callable[[], TestClient],
+    runtime_engine: Engine,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    manager = make_client()
+    assert decide(manager, login(manager, MANAGER), quoted, "approve").status_code == 200
+    for engine in (runtime_engine, worker_engine):
+        for statement in (
+            "UPDATE quotation_versions SET total = 0",
+            "DELETE FROM quotation_versions",
+            "UPDATE approval_decisions SET action = 'reject'",
+        ):
+            with pytest.raises(ProgrammingError):  # no privilege at all
+                with tenant_transaction(engine, INDUSTRIAL_TENANT) as connection:
+                    connection.execute(text(statement))
+    for statement in (
+        "UPDATE quotation_versions SET total = 0",
+        "DELETE FROM approval_decisions",
+    ):
+        with pytest.raises(DBAPIError, match="immutable"):  # even the owner, via the trigger
+            with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
+                connection.execute(text(statement))
+
+
+def test_sessions_and_memberships_are_only_visible_to_their_owner(
+    make_client: Callable[[], TestClient], runtime_engine: Engine, worker_engine: Engine
+) -> None:
+    login(make_client(), MANAGER)
+    login(make_client(), SALES)
+    with runtime_engine.begin() as connection:
+        assert connection.execute(text("SELECT count(*) FROM user_sessions")).scalar() == 0
+        assert connection.execute(text("SELECT count(*) FROM memberships")).scalar() == 0
+        connection.execute(text("SELECT set_config('app.subject', :s, true)"), {"s": MANAGER})
+        subjects = connection.execute(text("SELECT DISTINCT subject FROM memberships")).scalars()
+        assert list(subjects) == [MANAGER]
+        tenants = connection.execute(text("SELECT name FROM tenants")).scalars()
+        assert list(tenants) == ["Demo Industrial Supplies"]
+    with pytest.raises(ProgrammingError), worker_engine.begin() as connection:
+        connection.execute(text("SELECT * FROM user_sessions"))

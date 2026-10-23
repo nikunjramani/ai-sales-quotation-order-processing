@@ -9,8 +9,9 @@ from quotation_app.ports.tenancy import MembershipReader
 class TenantContextResolver:
     """The only intended way to build a TenantContext.
 
-    subject must come from authentication (OIDC arrives in M4). The requested tenant is only a
-    request; stored membership decides. Non-members get the same error as unknown tenants.
+    subject must come from authentication (a portal session or API key; ADR 0013). The
+    requested tenant is only a request; stored membership decides. Non-members get the same
+    error as unknown tenants.
     """
 
     def __init__(self, memberships: MembershipReader) -> None:

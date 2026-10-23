@@ -4,15 +4,27 @@
 tests/
   conftest.py          Shared options, fixtures and in-memory fakes for every test
   unit/                Offline; folders mirror src/quotation_app
+    conftest.py        M4 in-memory quotation/approval/channel/session store and service harness
     domain/  application/  ports/  workflows/  api/  persistence/
     adapters/erp/  adapters/storage/  adapters/documents/  adapters/interpreters/
+    adapters/identity/  adapters/channels/  (covered through application/api tests)
     test_config.py  test_architecture.py  test_evaluation.py
   integration/         Real PostgreSQL (quotation_test only); auto-marked `integration`
     conftest.py        Database settings, engines, cleanup, API-key and storage fixtures
     api/  persistence/  workflows/
+
+portal/
+  src/                 React source only (no test files); see portal-architecture.md
+  tests/               Vitest tests; folders mirror portal/src
+    setup.ts           Shared test setup (cleanup, mocks)
+    support/           renderWithProviders, test session, JSON responses (helpers, not mirrors)
+    architecture.test.ts   enforces layers, feature boundaries and "no tests in src"
+    shared/api/  shared/lib/
+    features/<feature>/<layer>/...   e.g. features/quotations/ui/components/DecisionPanel.test.tsx
 ```
 Rules:
 - A unit test for `src/quotation_app/<path>/<module>.py` lives in `tests/unit/<path>/test_<module>.py`. Integration tests follow the same mirroring under `tests/integration/`.
+- The same applies to the portal: a test for `portal/src/<path>/<Name>.tsx` lives in `portal/tests/<path>/<Name>.test.tsx`. Test files never sit next to UI code; Vitest only collects `portal/tests/**`.
 - `tests/` has no `__init__.py` files. Pytest runs with `--import-mode=importlib` and mypy with `explicit_package_bases`, so names such as `domain/test_pricing.py` and `application/test_pricing.py` can coexist.
 - Shared setup lives in fixtures, not copied helpers. Test modules never import `conftest.py`.
 - Every test under `tests/integration/` is marked `integration` automatically. A test elsewhere can opt in with the marker, for example a future real-ERP contract case.
@@ -33,6 +45,14 @@ Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
 | `api_key_reader` | In-memory ApiKeyReader; tests add records to `.records` |
 | `make_pdf(lines)` | Builds a small synthetic PDF with a real text layer |
 
+[tests/unit/conftest.py](../../tests/unit/conftest.py) adds:
+
+| Fixture | Provides |
+|---|---|
+| `quotation_db` | MemoryQuotations: one in-memory store implementing every M4 port. It enforces one task per version, one decision per task, unique commands and optimistic revisions. `.fail_next` injects failures; `.jobs` shows queued jobs |
+| `harness` | Real ApprovalService, QuotationService, ChannelActionService, quotation graph (InMemorySaver) and job handlers over `quotation_db`. `run_jobs()` drains jobs; `handler()` builds a fresh graph, as after a restart |
+| `memory_sessions`, `memory_directory` | SessionStore and MembershipDirectory views of `quotation_db` |
+
 [tests/integration/conftest.py](../../tests/integration/conftest.py) adds:
 
 | Fixture | Provides |
@@ -43,10 +63,10 @@ Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
 | `make_api_key(tenant_id, role)` | Creates a key with owner credentials and returns its token |
 | `storage` | LocalObjectStorage under the temporary storage folder |
 
-## Current checks (M0-M3)
+## Current checks (M0-M4)
 Run uv run ruff check ., uv run ruff format --check ., uv run mypy and uv run pytest from the root; `uv run pytest tests/unit` runs only the unit tests.
 
-Result on 2026-10-22 (M3): 206 unit tests passed and 27 integration tests were skipped. With PostgreSQL via `check_database.py --cycle`, all 233 passed, then passed again after a downgrade to empty and re-upgrade. Run `uv sync --locked --all-extras` first so the optional Ollama adapter is installed.
+Result on 2026-10-23 (M4): 260 unit tests passed and 36 integration tests were skipped. With PostgreSQL via `check_database.py --cycle`, all 296 passed, then passed again after a downgrade to empty and re-upgrade. Portal: `cd portal; npm run typecheck; npm test; npm run build` passed (27 tests). Run `uv sync --locked --all-extras` first so the optional Ollama adapter is installed.
 
 | Suite | Checks |
 |---|---|
@@ -71,16 +91,24 @@ Result on 2026-10-22 (M3): 206 unit tests passed and 27 integration tests were s
 | [unit/workflows/test_enquiry.py](../../tests/unit/workflows/test_enquiry.py) | Graph branches, PDF attachment reading, invented item and invalid answer go to review, crash resumes without a second model call, finished runs not repeated, other tenant's products and enquiries invisible |
 | [unit/test_evaluation.py](../../tests/unit/test_evaluation.py) | Synthetic dataset passes 12/12 with the rules interpreter and 0 invented facts; evaluation detects failures |
 | [unit/persistence/test_checkpoint_schema.py](../../tests/unit/persistence/test_checkpoint_schema.py) | Frozen LangGraph checkpoint schema equals the installed library's |
+| [unit/domain/test_quotations.py](../../tests/unit/domain/test_quotations.py) | Exact version content, stable content hash, decision command validation, review text |
+| [unit/workflows/test_quotation.py](../../tests/unit/workflows/test_quotation.py) | Draft, interrupt, approve and reject; revision loop; pricing failure waits for a revision; duplicate and stale resumes ignored; early resume and run lock retried; crash resumes without re-pricing; ERP outage retried |
+| [unit/application/test_approvals.py](../../tests/unit/application/test_approvals.py) | Replay, conflict, reused command, only approvers, other tenants, removed membership, stale hash, self-approval, revision rules and isolation |
+| [unit/application/test_channel_actions.py](../../tests/unit/application/test_channel_actions.py) | Enrollment code rules, channel approval, forwarded or other connection refused, revoked binding, expired reference, lost role, only current approvers notified, failed delivery retried with a fresh token |
+| [unit/application/test_sessions.py](../../tests/unit/application/test_sessions.py) | Hashed tokens, expiry, logout, CSRF |
+| [unit/api/test_portal.py](../../tests/unit/api/test_portal.py) | Cookie flags, dev-login rules, CSRF on changes, non-member 404, decision replay/conflict/stale, revision 201/200/409/422, signed webhook (unsigned or tampered gets 401), binding revocation |
+| [portal/tests/](../../portal/tests/architecture.test.ts) | Architecture rules; HTTP client (CSRF only on changes, query strings, error mapping); exact formatting; quotation service rules; decision panel (same command ID on retry, reason required, refresh on conflict); current tenant (fallback, remembered choice, removed membership); route guard |
 | [integration/persistence/test_tenancy.py](../../tests/integration/persistence/test_tenancy.py) | Runtime role: cross-tenant membership denied, rows invisible without/across context, cannot add memberships or change policies, per-tenant policies, end-to-end pricing |
 | [integration/api/test_enquiries.py](../../tests/integration/api/test_enquiries.py) | API to worker to status end to end; replay/conflict store one row; 8 concurrent duplicates create exactly one enquiry and one file; failed transaction leaves no rows or files; cross-tenant 404, revoked key 401; API role cannot read jobs |
 | [integration/persistence/test_jobs.py](../../tests/integration/persistence/test_jobs.py) | Cross-tenant claims with SKIP LOCKED, crashed worker reclaimed and stale completion rejected, backoff delays claims, expired final attempt becomes dead, worker role sees only the queue |
 | [integration/persistence/test_api_keys.py](../../tests/integration/persistence/test_api_keys.py) | API role sees no keys, or only the presented one |
 | [integration/workflows/test_enquiry.py](../../tests/integration/workflows/test_enquiry.py) | API to worker to LangGraph (PostgreSQL checkpoints) to extracted lines (incl. a PDF attachment) priced by the M1 calculator; clarification path; resume after a simulated worker restart without a second model call; API role cannot read checkpoints; runs isolated per tenant |
+| [integration/workflows/test_quotation.py](../../tests/integration/workflows/test_quotation.py) | Enquiry, draft, portal approval, resume; manager/sales revision loop; simulated channel enroll/deliver/approve with forwarded refusal and replay; two concurrent decisions record one; resume after worker restart; pricing failure revised; other tenant 404; versions and decisions append-only (grants and trigger); session and membership RLS |
 | [integration/persistence/test_database.py](../../tests/integration/persistence/test_database.py), [test_seed.py](../../tests/integration/persistence/test_seed.py), [integration/api/test_app.py](../../tests/integration/api/test_app.py) | Readiness and owner-role rejection, idempotent seed, tenant visibility, context cleared on pooled connections, denied runtime writes |
 
 Run [check_database.py](../../scripts/check_database.py) only after local PostgreSQL starts. It migrates and checks `quotation_dev` and `quotation_test`, then runs every test against `quotation_test`. With integration tests enabled, missing or non-`_test` URLs make the run fail; by default they are skipped visibly.
 
-CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the M0 sequence; [CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222) and [CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875) passed for M1 and M2, and [CI run 39747434193](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39747434193) passed for M3.
+CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Actions [run 39734937763](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39734937763) passed the M0 sequence; [CI run 39738532222](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39738532222) and [CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875) passed for M1 and M2, and [CI run 39747434193](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39747434193) passed for M3. CI for M4 (including the new `portal` job) runs after push.
 
 ## Planned business suites
 - Domain unit tests: Decimal totals, rounding, quantity/unit validation, expiry, pricing policies, missing values.

@@ -19,7 +19,7 @@ M1 needs commercial arithmetic that is exact and explainable, tenant context tha
 Float arithmetic; rounding only the grand total; tax per line; treating missing prices or stock as zero; guessing unit conversions; trusting a tenant ID from the request; letting the runtime role manage memberships; exception-free result objects for ERP failures.
 
 ## Consequences
-Per-line rounding and subtotal-level tax are synthetic defaults. A pilot business may need per-line tax, multiple tax rates, discounts or customer-specific price lists, which need a policy version change and tests. Discounts are not implemented: negotiated changes are human-approved revisions (M4/M11). Membership and policy administration have no API yet, so they are seeded by the owner role until admin features exist. The authenticated subject is a placeholder string until OIDC arrives in M4.
+Per-line rounding and subtotal-level tax are synthetic defaults. A pilot business may need per-line tax, multiple tax rates, discounts or customer-specific price lists, which need a policy version change and tests. Discounts are not implemented: negotiated changes are human-approved revisions (M4/M11). Membership and policy administration have no API yet, so they are seeded by the owner role until admin features exist. Since M4 the subject comes from a portal session (dev login now, OIDC later; ADR 0013) or an API key.
 
 ## Verification
 Rule, service, contract, architecture and two-tenant PostgreSQL tests are listed in [testing](../development/testing.md); results are in the [handoff](../handoff.md).

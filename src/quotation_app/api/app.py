@@ -2,20 +2,42 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import FastAPI, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
+from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
+from quotation_app.adapters.identity.dev import DevIdentityProvider
 from quotation_app.adapters.storage.local import LocalObjectStorage
+from quotation_app.api.auth import PortalAuth, build_auth_router
+from quotation_app.api.channels import build_channel_router
 from quotation_app.api.enquiries import build_enquiry_router
+from quotation_app.api.portal import build_portal_router
 from quotation_app.application.api_keys import ApiKeyAuthenticator
-from quotation_app.application.intake import EnquiryIntakeService
+from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.intake import EnquiryIntakeService, EnquiryListService
+from quotation_app.application.pricing import QuotationPricingService
+from quotation_app.application.quotations import QuotationService
+from quotation_app.application.sessions import SessionService
+from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
 from quotation_app.persistence.api_keys import SqlApiKeyReader
+from quotation_app.persistence.channels import SqlChannelStore
 from quotation_app.persistence.database import build_engine, database_ready
-from quotation_app.persistence.intake import SqlIntakeStore
+from quotation_app.persistence.intake import SqlEnquiryListReader, SqlIntakeStore
+from quotation_app.persistence.quotations import (
+    SqlApprovalStore,
+    SqlQuotationReader,
+    SqlRevisionStore,
+)
+from quotation_app.persistence.seed import DEMO_MEMBERSHIPS, INDUSTRIAL_TENANT, OFFICE_TENANT
+from quotation_app.persistence.sessions import SqlSessionStore
+from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
 
 
 class HealthResponse(BaseModel):
@@ -59,4 +81,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         SqlIntakeStore(engine), LocalObjectStorage(configuration.storage_dir)
     )
     app.include_router(build_enquiry_router(ApiKeyAuthenticator(SqlApiKeyReader(engine)), intake))
+
+    # Portal (M4): sessions, quotations, approvals and manager channels.
+    memberships = SqlMembershipReader(engine)
+    resolver = TenantContextResolver(memberships)
+    auth = PortalAuth(
+        SessionService(SqlSessionStore(engine), timedelta(hours=configuration.session_hours)),
+        resolver,
+    )
+    dev_login = configuration.portal_login == "dev"
+    app.include_router(
+        build_auth_router(
+            auth,
+            memberships,
+            DevIdentityProvider(memberships) if dev_login else None,
+            sorted({subject for _, subject, _ in DEMO_MEMBERSHIPS}) if dev_login else [],
+            configuration.cookie_secure,
+        )
+    )
+    # Only the simulated ERP exists until a pilot ERP is connected (M7).
+    erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
+    approvals = ApprovalService(SqlApprovalStore(engine), resolver)
+    channels = ChannelActionService(SqlChannelStore(engine), approvals)
+    app.include_router(
+        build_portal_router(
+            auth,
+            QuotationService(
+                SqlQuotationReader(engine),
+                SqlRevisionStore(engine),
+                QuotationPricingService(erp, SqlPricingPolicyReader(engine)),
+            ),
+            approvals,
+            channels,
+            EnquiryListService(SqlEnquiryListReader(engine)),
+        )
+    )
+    secret = configuration.simulated_channel_secret
+    app.include_router(
+        build_channel_router(channels, None if secret is None else secret.get_secret_value())
+    )
+    if configuration.portal_dist_dir is not None and configuration.portal_dist_dir.is_dir():
+        app.mount(
+            "/portal", StaticFiles(directory=configuration.portal_dist_dir, html=True), "portal"
+        )
     return app

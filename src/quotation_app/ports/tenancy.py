@@ -1,5 +1,6 @@
 """Contracts for reading tenant membership and tenant-owned configuration."""
 
+from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
@@ -19,3 +20,16 @@ class MembershipReader(Protocol):
 
 class PricingPolicyReader(Protocol):
     def get(self, context: TenantContext) -> PricingPolicy: ...
+
+
+@dataclass(frozen=True)
+class TenantMembership:
+    tenant_id: UUID
+    tenant_name: str
+    roles: frozenset[Role]
+
+
+class MembershipDirectory(Protocol):
+    def tenants_for(self, subject: str) -> list[TenantMembership]:
+        """Every tenant where this subject has a membership (used for login and tenant choice)."""
+        ...
