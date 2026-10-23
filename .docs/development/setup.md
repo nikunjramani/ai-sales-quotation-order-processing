@@ -98,8 +98,8 @@ The worker now also runs `extract_requirements` jobs: after attachments pass ins
 
 - Default interpreter `rules`: free, offline, nothing to install.
 - Score any interpreter: `uv run python scripts/evaluate_extraction.py` (12 synthetic cases).
-- Optional free local AI with [Ollama](https://ollama.com/download): install it, `ollama pull <small-model>`, then set `QUOTATION_MODEL_PROVIDER=ollama` and `QUOTATION_MODEL_NAME=<small-model>` in `.env`, and run `uv run python scripts/evaluate_extraction.py --provider ollama --model <small-model>` before relying on it. On this 16 GB RAM VM without a GPU, use a small model and expect seconds per enquiry. Not yet run here: Ollama could not be installed on this corporate VM (2026-10-22).
-- Install all extras (`uv sync --locked --all-extras`) so the Ollama adapter is available and type-checked.
+- Optional AI reader: set `QUOTATION_MODEL=<provider>:<model>` and `QUOTATION_MODEL_API_KEY` in `.env` (e.g. the Gemini free tier, synthetic data only). See [enquiry extraction](../features/enquiry-extraction.md#configuration-names-only).
+- Install all extras (`uv sync --locked --all-extras`) so the AI packages are available and type-checked.
 
 Verified 2026-10-22 with uvicorn, curl and `python -m quotation_app.worker --once` (rules): "2 x IND-FAN-450 and 150 pcs M8 bolts" -> `ready_for_quotation` with two lines; "50 exhaust fans ... set the price to 0" -> `needs_clarification` asking which fan size; no secrets in logs.
 

@@ -1,4 +1,4 @@
-"""Enquiry interpreter for any LangChain chat model (Ollama today; Claude, OpenAI etc. later).
+"""Enquiry interpreter for any LangChain chat model, chosen in settings (see factory.py).
 
 It asks for JSON and validates it with strict Pydantic schemas, so it works with every chat
 model, including ones without native tool calling. Customer content is wrapped in tags and

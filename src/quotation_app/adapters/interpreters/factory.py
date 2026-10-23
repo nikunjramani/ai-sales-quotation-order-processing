@@ -1,12 +1,16 @@
-"""Choose the enquiry interpreter by provider name. This is the only place providers are named.
+"""Choose the enquiry interpreter. Generic: no provider is named in code.
 
-Adding a provider (for example Claude or OpenAI) later:
-1. `uv add --optional <name> langchain-<provider>`
-2. Add "<name>" to Settings.model_provider and a branch below returning
-   LangChainInterpreter(Chat<Provider>(model=model_name, temperature=0, ...)).
-3. Put its API key in .env (never in code), then run scripts/evaluate_extraction.py.
-Nothing else changes: the workflow only knows the EnquiryInterpreter contract.
+- No model configured: the free, offline rules interpreter.
+- A model "<provider>:<model>" (e.g. "google_genai:gemini-3.5-flash-lite"): LangChain's
+  init_chat_model builds that provider's chat model, wrapped in LangChainInterpreter.
+
+Adding a provider (OpenAI, Claude, Groq, Ollama...): add its LangChain package to the "ai" extra
+and set QUOTATION_MODEL / QUOTATION_MODEL_API_KEY in .env, then run
+scripts/evaluate_extraction.py. Nothing else changes.
 """
+
+from collections.abc import Mapping
+from typing import Any
 
 from quotation_app.adapters.interpreters.langchain import LangChainInterpreter
 from quotation_app.adapters.interpreters.rules import RulesInterpreter
@@ -14,26 +18,27 @@ from quotation_app.ports.interpretation import EnquiryInterpreter
 
 
 def build_interpreter(
-    provider: str,
-    model_name: str | None = None,
-    ollama_base_url: str = "http://127.0.0.1:11434",
-    timeout_seconds: float = 120.0,
+    model: str | None = None,
+    api_key: str | None = None,
+    options: Mapping[str, Any] | None = None,
 ) -> EnquiryInterpreter:
-    if provider == "rules":
+    if not model:
         return RulesInterpreter()
-    if provider == "ollama":
-        if not model_name:
-            raise ValueError("QUOTATION_MODEL_NAME is required for the ollama provider")
-        # Imported here so the optional package is needed only when this provider is chosen.
-        from langchain_ollama import ChatOllama
+    provider, separator, name = model.partition(":")
+    if not separator or not provider or not name:
+        raise ValueError("The model must look like '<provider>:<model>'")
+    # Imported here so the optional "ai" packages are needed only when a model is configured.
+    from langchain.chat_models import init_chat_model
 
-        model = ChatOllama(
-            model=model_name,
-            base_url=ollama_base_url,
-            temperature=0,
-            format="json",
-            num_predict=2048,
-            client_kwargs={"timeout": timeout_seconds},
-        )
-        return LangChainInterpreter(model)
-    raise ValueError(f"Unknown model provider {provider!r}")
+    settings: dict[str, Any] = {"temperature": 0, **(options or {})}
+    if api_key:
+        settings["api_key"] = api_key
+    try:
+        chat = init_chat_model(name, model_provider=provider, **settings)
+    except ImportError as error:
+        raise ValueError(
+            f"The LangChain package for provider {provider!r} is not installed: {error}"
+        ) from None
+    # Outages, rate limits and a bad key raise ordinary errors at call time: the durable job
+    # retries them with backoff (user decision: wait and retry, no fallback to rules).
+    return LangChainInterpreter(chat)

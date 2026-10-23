@@ -80,7 +80,7 @@ M5 results (same day): 296 unit, 335 with PostgreSQL, 36 portal.
 M5 adds:
 - **PDF content checks:** pypdf extracts the text and compares it with the approved version.
 - **Delivery outcome tests:** rejected, uncertain, transient, crash while sending, no adapter, tampered file and unrenderable content.
-- **PostgreSQL tests:** append-only documents and delivery column grants. Run `uv sync --locked --all-extras` first so the optional Ollama adapter is installed.
+- **PostgreSQL tests:** append-only documents and delivery column grants. Run `uv sync --locked --all-extras` first so the optional AI packages are installed.
 
 | Suite | Checks |
 |---|---|
@@ -151,7 +151,7 @@ CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Action
 - Order confirmation requires confirmed ERP success; failed confirmation retries must never create another order.
 
 ## AI evaluation dataset
-Implemented in M3: [evals/enquiry_extraction.jsonl](../../evals/enquiry_extraction.jsonl) (12 synthetic cases: single and multiple items, units, ambiguous and unknown products, missing quantity, fractional counts, prompt injection, no items, cross-tenant product, measurements that are not quantities). `uv run python scripts/evaluate_extraction.py [--provider ollama --model <name>]` runs them through the real graph and reports pass/fail, invented facts, errors and latency. Rules interpreter 2026-10-22: 12/12, 0 invented facts, about 0.01 s per case. Ollama: not yet run (could not be installed on this corporate VM, 2026-10-22).
+Implemented in M3: [evals/enquiry_extraction.jsonl](../../evals/enquiry_extraction.jsonl) (12 synthetic cases: single and multiple items, units, ambiguous and unknown products, missing quantity, fractional counts, prompt injection, no items, cross-tenant product, measurements that are not quantities). `uv run python scripts/evaluate_extraction.py [--model <provider>:<model>]` runs them through the real graph and reports pass/fail, invented facts, errors and latency. Rules interpreter 2026-10-22: 12/12, 0 invented facts, about 0.01 s per case. Ollama was never run (could not be installed on this corporate VM; its adapter was removed in favour of the generic reader, ADR 0017), 2026-10-22).
 Planned extensions follow below.
 
 Synthetic cases include aliases, misspellings, ambiguous SKUs, multiple items, missing quantities, conflicting dates, units, currencies, malicious instructions and unsupported attachment formats.

@@ -7,10 +7,9 @@ Implemented in [Settings](../../src/quotation_app/config.py). Explicit construct
 | QUOTATION_MIGRATION_DATABASE_URL | Owner URL, needed only for migrations, seed and API-key management; never used as a fallback |
 | QUOTATION_WORKER_DATABASE_URL | Worker-role URL, needed only by `python -m quotation_app.worker`; never used as a fallback |
 | QUOTATION_STORAGE_DIR | Attachment storage root (default `var/storage`, ignored by Git) |
-| QUOTATION_MODEL_PROVIDER | Enquiry interpreter: `rules` (default, free, offline) or `ollama` (free local model) |
-| QUOTATION_MODEL_NAME | Model name, required for `ollama` (any model you have pulled) |
-| QUOTATION_OLLAMA_BASE_URL | Ollama server (default `http://127.0.0.1:11434`) |
-| QUOTATION_MODEL_TIMEOUT_SECONDS | Per-call model timeout (default 120) |
+| QUOTATION_MODEL | AI enquiry reader as `<provider>:<model>` (any LangChain chat model, e.g. `google_genai:gemini-3.5-flash-lite`). Unset = free offline rules, no AI (ADR 0017) |
+| QUOTATION_MODEL_API_KEY | Secret API key for that provider; never commit it |
+| QUOTATION_MODEL_OPTIONS | Optional JSON passed to the model as is, e.g. `{"timeout": 60, "max_retries": 2}` or `{"base_url": "..."}` |
 | QUOTATION_AUTH_PROVIDER | Portal sign-in: `dev` (pick a synthetic member, no password) or `disabled`. Unset means `dev` in development/test and `disabled` in production; `dev` in production is rejected |
 | QUOTATION_SESSION_HOURS | Portal session lifetime (default 8, max 24) |
 | QUOTATION_SESSION_COOKIE_SECURE | Force the Secure cookie flag locally (always on in production) |

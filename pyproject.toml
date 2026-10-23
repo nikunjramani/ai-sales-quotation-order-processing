@@ -19,8 +19,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ollama = [
-    "langchain-ollama>=1,<2",
+# AI enquiry reader: the generic model loader plus the provider packages in use. Any other
+# LangChain provider is added here as a package only (no code change); see ADR 0017.
+ai = [
+    "langchain>=1.4,<2",
+    "langchain-google-genai>=4.4,<5",
 ]
 
 [dependency-groups]
@@ -66,4 +69,4 @@ markers = ["integration: requires an explicitly configured disposable PostgreSQL
 
 [tool.uv]
 # Transitive pins: only versions released at least 14 days before adoption.
-constraint-dependencies = ["pillow>=12.3,<13"]
+constraint-dependencies = ["pillow>=12.3,<13", "google-genai<=2.29.0", "google-auth<=2.61.0", "pycparser<=3.1"]

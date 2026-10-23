@@ -61,10 +61,9 @@ def main() -> None:
     engine = build_engine(settings.worker_url())
     storage = LocalObjectStorage(settings.storage_dir)
     interpreter = build_interpreter(
-        settings.model_provider,
-        settings.model_name,
-        settings.ollama_base_url,
-        settings.model_timeout_seconds,
+        settings.model,
+        settings.model_api_key.get_secret_value() if settings.model_api_key else None,
+        settings.model_options,
     )
     # Only the simulated ERP exists until a pilot ERP is connected (M7).
     erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
@@ -91,7 +90,7 @@ def main() -> None:
     response_notices = ResponseNotificationHandler(
         responses, SqlNotificationStore(engine), notifiers
     )
-    logging.info("Enquiry interpreter: %s", settings.model_provider)
+    logging.info("Enquiry interpreter: %s", settings.model or "rules (no AI)")
     try:
         with open_checkpointer(settings.worker_url()) as checkpointer:
             graph = build_enquiry_graph(

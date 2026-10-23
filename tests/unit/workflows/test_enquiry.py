@@ -160,6 +160,45 @@ def test_invalid_model_answer_goes_to_review(
     assert "required format" in details["review_reasons"][0]
 
 
+def test_unknown_product_reply_names_the_categories(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID
+) -> None:
+    harness = make_harness()
+    outcome, details = harness.run(
+        industrial_tenant, harness.enquiry(industrial_tenant, "Please quote 2 tata sierra cars")
+    )
+    assert outcome is ExtractionOutcome.NEEDS_CLARIFICATION
+    assert details["questions"] == [
+        "We could not find 'tata sierra cars' in our catalogue. We supply: Cables, Exhaust fans, "
+        "Fasteners, Pumps. Ask about a category to see its products, or share a product code."
+    ]
+
+
+def test_nothing_understood_reply_names_the_categories(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID
+) -> None:
+    harness = make_harness()
+    _, details = harness.run(
+        industrial_tenant, harness.enquiry(industrial_tenant, "can you get price for tata cars")
+    )
+    assert details["questions"][0].startswith("Which products and quantities")
+    assert "We supply: Cables, Exhaust fans, Fasteners, Pumps." in details["questions"][0]
+
+
+def test_category_lookup_failure_is_retried_not_guessed(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID
+) -> None:
+    harness = make_harness()
+    enquiry = harness.enquiry(industrial_tenant, "Please quote 2 tata sierra cars")
+    harness.erp.failures["list_categories"] = ErpError(ErpErrorCode.TEMPORARY_UNAVAILABLE, "down")
+    with pytest.raises(ErpError):
+        harness.run(industrial_tenant, enquiry)
+    del harness.erp.failures["list_categories"]
+    outcome, details = harness.run(industrial_tenant, enquiry)
+    assert outcome is ExtractionOutcome.NEEDS_CLARIFICATION
+    assert "We supply:" in details["questions"][0]
+
+
 def test_crash_resumes_without_asking_the_model_again(
     make_harness: Callable[..., Harness], industrial_tenant: UUID
 ) -> None:
@@ -187,7 +226,11 @@ def test_other_tenants_products_are_not_matched(
         office_tenant, harness.enquiry(office_tenant, "Please quote 4 x IND-FAN-450")
     )
     assert outcome is ExtractionOutcome.NEEDS_CLARIFICATION
-    assert "could not identify" in details["questions"][0]
+    question = details["questions"][0]
+    assert "could not find 'IND-FAN-450' in our catalogue" in question
+    # Only this business's own categories are named.
+    assert "We supply: Desks, Office chairs." in question
+    assert "Exhaust fans" not in question
 
 
 def test_missing_enquiry_is_permanent(

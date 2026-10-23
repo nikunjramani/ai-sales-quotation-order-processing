@@ -1,5 +1,5 @@
 # Enquiry extraction workflow (M3)
-**Status and milestone:** implemented in M3 and verified locally. The free `rules` interpreter is the default. The `ollama` adapter is built and unit-tested but not yet evaluated live, because Ollama isn't installed here.
+**Status and milestone:** implemented in M3 and verified locally. The free `rules` interpreter is the default. Since 2026-10-23 the AI reader is generic: any LangChain chat model from settings (the Gemini free tier is the first one), and the category replies were added ([ADR 0017](../adr/0017-gemini-reader-and-category-replies.md)); a live Gemini evaluation waits for the user's key.
 
 **Business purpose:** turn "Please quote 2 x IND-FAN-450 and 150 pcs M8 bolts" into exact catalogue lines ready for pricing. When something is unclear, ask a precise question instead of guessing.
 
@@ -36,6 +36,7 @@ When the preparation job finds every attachment clean, it sets the enquiry to `r
    - With several, the interpreter may pick one, which is accepted only if it's in the list. Otherwise the item is ambiguous.
 3. **assess:** deterministic rules.
    - A missing quantity, a unit that doesn't match the product's unit (no conversion), an ambiguous or unknown product, or no items at all each produce a template question.
+   - For an unknown product or no items, the question names the business's categories from the ERP (`list_categories`), e.g. "We could not find 'tata sierra car' in our catalogue. We supply: Cables, Exhaust fans, Fasteners, Pumps. Ask about a category to see its products, or share a product code." Categories are fetched only when needed.
    - Invented items or unreadable files produce a review reason.
 4. **ready / clarify / review:** store the outcome in `workflow_runs` and set the enquiry status to `ready_for_quotation`, `needs_clarification` or `needs_review`.
 
@@ -65,7 +66,7 @@ The `lines` are exactly what the M1 calculator accepts as `RequestedLine`s. Clar
 ## Failures and recovery
 | Failure | What happens |
 |---|---|
-| Model unavailable, ERP temporarily down | Job retried with backoff; resumes from the checkpoint |
+| Model unavailable, rate-limited or bad key, ERP temporarily down | Job retried with backoff (5 attempts, then dead); resumes from the checkpoint. No fallback to rules (user decision) |
 | Invalid model output | `needs_review` (not retried) |
 | Enquiry missing or belongs to another tenant | Job becomes dead (permanent) |
 | Unreadable attachment | `needs_review`, with the reason |
@@ -73,19 +74,18 @@ The `lines` are exactly what the M1 calculator accepts as `RequestedLine`s. Clar
 ## Configuration (names only)
 | Setting | Meaning |
 |---|---|
-| `QUOTATION_MODEL_PROVIDER` | `rules` (default) or `ollama` |
-| `QUOTATION_MODEL_NAME` | Required for `ollama` |
-| `QUOTATION_OLLAMA_BASE_URL` | Default `http://127.0.0.1:11434` |
-| `QUOTATION_MODEL_TIMEOUT_SECONDS` | Default 120 |
+| `QUOTATION_MODEL` | Unset: free rules (default). Otherwise `<provider>:<model>`, any LangChain chat model |
+| `QUOTATION_MODEL_API_KEY` | The provider's key (secret) |
+| `QUOTATION_MODEL_OPTIONS` | Optional JSON for the model (timeout, retries, base URL...) |
 
-To switch on Ollama:
-1. Install Ollama.
-2. Pull a small model.
-3. Set the provider and model name in `.env`.
-4. Run `scripts/evaluate_extraction.py --provider ollama --model <name>` before relying on it.
+The reader is generic ([factory.py](../../src/quotation_app/adapters/interpreters/factory.py) uses LangChain's `init_chat_model`); no provider is named in code. To use a provider:
+1. Make sure its LangChain package is in the `ai` extra in `pyproject.toml` (today: `langchain-google-genai`). Adding another provider is a package line, not code.
+2. `uv sync --extra ai` (CI and `--all-extras` already include it).
+3. Set `QUOTATION_MODEL` and `QUOTATION_MODEL_API_KEY` in `.env`, e.g. `google_genai:gemini-3.5-flash-lite` with a key from aistudio.google.com (free tier: synthetic data only).
+4. Run `uv run python scripts/evaluate_extraction.py --model <provider>:<model>`, then restart the worker.
 
 ## Tests and evaluation
-See [testing](../development/testing.md). Rules interpreter on 2026-10-22: 12/12 cases, 0 invented facts, about 0.01 s per case.
+See [testing](../development/testing.md). Rules interpreter on 2026-10-22: 12/12 cases, 0 invented facts, about 0.01 s per case; on 2026-10-23: 14/14 (two "unsold product" cases check the category reply via `expected_question`).
 
 ## Known limitations
 - No OCR.

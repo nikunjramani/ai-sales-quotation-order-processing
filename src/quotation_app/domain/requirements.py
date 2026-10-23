@@ -118,6 +118,27 @@ def decide_match(
     return ProductMatch(item_index, MatchStatus.AMBIGUOUS, None, skus)
 
 
+def needs_categories(
+    requirements: ExtractedRequirements, matches: Sequence[ProductMatch], unverified: Sequence[int]
+) -> bool:
+    """True when assess will tell the customer what the business supplies."""
+    if not requirements.items:
+        return True
+    found = {match.item_index for match in matches if match.status is not MatchStatus.NOT_FOUND}
+    return any(
+        index not in unverified and index not in found for index in range(len(requirements.items))
+    )
+
+
+def _what_we_supply(categories: Sequence[str], alternative: str) -> str:
+    if not categories:
+        return ""
+    return (
+        f" We supply: {', '.join(categories)}. "
+        f"Ask about a category to see its products{alternative}."
+    )
+
+
 class ExtractionOutcome(StrEnum):
     READY_FOR_QUOTATION = "ready_for_quotation"
     NEEDS_CLARIFICATION = "needs_clarification"
@@ -138,8 +159,13 @@ def assess(
     products: Mapping[str, Product],
     unverified: Sequence[int],
     unsupported_documents: Sequence[str],
+    categories: Sequence[str] = (),
 ) -> Assessment:
-    """Decide the next step. Questions are fixed templates, never model-written text."""
+    """Decide the next step. Questions are fixed templates, never model-written text.
+
+    categories are the business's product groups from the ERP. They are named when nothing was
+    understood or a product is not in the catalogue, so the customer learns what is sold.
+    """
     reasons = [f"Item {index + 1} is not supported by the customer's text" for index in unverified]
     reasons += [
         f"Attachment {name!r} could not be read; a person should check it"
@@ -148,7 +174,10 @@ def assess(
     questions: list[str] = []
     lines: list[RequestedLine] = []
     if not requirements.items:
-        questions.append("Which products and quantities would you like a quotation for?")
+        questions.append(
+            "Which products and quantities would you like a quotation for?"
+            + _what_we_supply(categories, "")
+        )
     by_index = {match.item_index: match for match in matches}
     for index, item in enumerate(requirements.items):
         if index in unverified:
@@ -156,10 +185,10 @@ def assess(
         match = by_index.get(index)
         label = item.product_text
         if match is None or match.status is MatchStatus.NOT_FOUND:
-            questions.append(
-                f"We could not identify {label!r}. "
-                "Could you share the product code or more details?"
+            hint = _what_we_supply(categories, ", or share a product code") or (
+                " Could you share the product code or more details?"
             )
+            questions.append(f"We could not find {label!r} in our catalogue.{hint}")
             continue
         if match.status is MatchStatus.AMBIGUOUS or match.sku is None:
             options = ", ".join(

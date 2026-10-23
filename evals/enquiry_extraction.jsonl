@@ -10,3 +10,5 @@
 {"name": "other_tenant_product_invisible", "tenant": "office", "text": "Please quote 4 x IND-FAN-450.", "expected_outcome": "needs_clarification", "expected_lines": []}
 {"name": "office_ready", "tenant": "office", "text": "Please quote 4 ergonomic office chairs and 2 desks for Berlin.", "expected_outcome": "ready_for_quotation", "expected_lines": [["OFF-CHAIR-ERG", "4", "each"], ["OFF-DESK-160", "2", "each"]]}
 {"name": "dimension_is_not_quantity", "tenant": "industrial", "text": "Please quote 6 x IND-FAN-450 (450 mm blades).", "expected_outcome": "ready_for_quotation", "expected_lines": [["IND-FAN-450", "6", "each"]]}
+{"name": "unsold_product", "tenant": "industrial", "text": "I need a price for 2 Tata Sierra cars.", "expected_outcome": "needs_clarification", "expected_lines": [], "expected_question": "We supply: Cables, Exhaust fans, Fasteners, Pumps."}
+{"name": "unsold_product_no_quantity", "tenant": "industrial", "text": "can you get price for tata cars", "expected_outcome": "needs_clarification", "expected_lines": [], "expected_question": "We supply: Cables, Exhaust fans, Fasteners, Pumps."}
