@@ -165,3 +165,11 @@ def test_categories_are_needed_only_for_nothing_understood_or_not_found() -> Non
     assert needs_categories(requirements(fans, cars), [matched(0, FAN), not_found], [])
     # An invented (unverified) item goes to review, not to a "we supply" reply.
     assert not needs_categories(requirements(fans, cars), [matched(0, FAN)], [1])
+
+
+def test_the_same_question_is_asked_once() -> None:
+    found = requirements(
+        item("cables price", "cables", None), item("list of cables", "cables", None)
+    )
+    result = assess(found, [matched(0, CABLE), matched(1, CABLE)], PRODUCTS, [], [])
+    assert result.questions == ("How many metre of Power cable do you need?",)
