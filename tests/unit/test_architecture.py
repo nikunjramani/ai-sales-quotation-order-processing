@@ -19,7 +19,7 @@ ALLOWED = {
 # Layer -> third-party packages it may import. Domain, ports and application use only stdlib,
 # so business rules never depend on a framework, database or AI provider.
 THIRD_PARTY = {
-    "adapters": {"pypdf", "langchain_core", "langchain_ollama", "pydantic"},
+    "adapters": {"pypdf", "reportlab", "langchain_core", "langchain_ollama", "pydantic"},
     "workflows": {"langgraph", "langchain_core"},
 }
 

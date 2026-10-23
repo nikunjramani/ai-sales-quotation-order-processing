@@ -1,6 +1,6 @@
 """Quotation, version and approval storage. Every query is tenant-scoped (filter + RLS).
 
-- SqlQuotationWorkflowStore: worker role; drafting, approval tasks, run locking.
+- SqlQuotationWorkflowStore: worker role; drafting, approval tasks, delivery queueing, run locking.
 - SqlApprovalStore, SqlQuotationReader, SqlRevisionStore: API role; decisions and revisions.
 Versions are inserted, never updated. Business changes and the jobs they trigger are written
 in the same transaction.
@@ -29,6 +29,7 @@ from quotation_app.domain.quotations import (
     TaskStatus,
     quotation_number,
 )
+from quotation_app.persistence.documents import queue_delivery
 from quotation_app.persistence.jobs import queue_job
 from quotation_app.persistence.models import (
     ApprovalActionRef,
@@ -300,6 +301,10 @@ class SqlQuotationWorkflowStore:
                 )
             ).one_or_none()
         return None if row is None else _decision(row)
+
+    def queue_delivery(self, tenant_id: UUID, quotation_id: UUID, version: int) -> bool:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            return queue_delivery(connection, tenant_id, quotation_id, version)
 
     def finish(self, tenant_id: UUID, run_id: UUID, status: str) -> None:
         with tenant_transaction(self._engine, tenant_id) as connection:

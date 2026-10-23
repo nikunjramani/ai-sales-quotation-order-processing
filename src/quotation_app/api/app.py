@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
+from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.identity.dev import DevIdentityProvider
 from quotation_app.adapters.storage.local import LocalObjectStorage
@@ -20,6 +21,7 @@ from quotation_app.api.portal import build_portal_router
 from quotation_app.application.api_keys import ApiKeyAuthenticator
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.documents import QuotationDocumentService
 from quotation_app.application.intake import EnquiryIntakeService, EnquiryListService
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
@@ -29,6 +31,7 @@ from quotation_app.config import Settings
 from quotation_app.persistence.api_keys import SqlApiKeyReader
 from quotation_app.persistence.channels import SqlChannelStore
 from quotation_app.persistence.database import build_engine, database_ready
+from quotation_app.persistence.documents import SqlDocumentReader
 from quotation_app.persistence.intake import SqlEnquiryListReader, SqlIntakeStore
 from quotation_app.persistence.quotations import (
     SqlApprovalStore,
@@ -77,10 +80,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return HealthResponse(status="ready" if available else "not_ready")
 
     # Composition root: wire adapters to application services. Nothing connects until used.
-    intake = EnquiryIntakeService(
-        SqlIntakeStore(engine), LocalObjectStorage(configuration.storage_dir)
+    storage = LocalObjectStorage(configuration.storage_dir)
+    intake = EnquiryIntakeService(SqlIntakeStore(engine), storage)
+    # Quotation PDFs (M5): previews for staff, approved documents for staff and customers.
+    documents = QuotationDocumentService(
+        SqlDocumentReader(engine), storage, ReportLabQuotationRenderer()
     )
-    app.include_router(build_enquiry_router(ApiKeyAuthenticator(SqlApiKeyReader(engine)), intake))
+    app.include_router(
+        build_enquiry_router(ApiKeyAuthenticator(SqlApiKeyReader(engine)), intake, documents)
+    )
 
     # Portal (M4): sessions, quotations, approvals and manager channels.
     memberships = SqlMembershipReader(engine)
@@ -114,6 +122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             approvals,
             channels,
             EnquiryListService(SqlEnquiryListReader(engine)),
+            documents,
         )
     )
     secret = configuration.simulated_channel_secret

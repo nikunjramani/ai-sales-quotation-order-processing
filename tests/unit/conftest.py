@@ -1,4 +1,5 @@
-"""Unit-test fakes for M4: one in-memory "database" implementing every quotation/approval port.
+"""Unit-test fakes for M4/M5: one in-memory "database" implementing every quotation, approval,
+document and delivery port.
 
 It mirrors the SQL rules that matter for behaviour (one task per version, one decision per
 task, unique command IDs, optimistic revision checks, single-use action references) so the
@@ -17,13 +18,24 @@ from uuid import UUID, uuid4
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
+from quotation_app.adapters.delivery.api import ApiPullDelivery
+from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.erp.simulated import SimulatedErp
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.delivery import QuotationDeliveryHandler
+from quotation_app.application.documents import QuotationDocumentService
 from quotation_app.application.notifications import ApprovalNotificationHandler
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.tenancy import TenantContextResolver
+from quotation_app.domain.documents import (
+    OFFERED_STATUSES,
+    DeliveryRecord,
+    DeliveryStatus,
+    DocumentSource,
+    StoredDocument,
+)
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.pricing import RequestedLine
 from quotation_app.domain.quotations import (
@@ -42,6 +54,13 @@ from quotation_app.domain.quotations import (
 from quotation_app.domain.tenancy import Role, TenantContext
 from quotation_app.ports.approvals import TaskState
 from quotation_app.ports.channels import ActionReference, ChannelBinding
+from quotation_app.ports.documents import (
+    DeliveryChannel,
+    DeliveryReceipt,
+    DeliveryRequest,
+    DeliveryWork,
+    ReceiptKind,
+)
 from quotation_app.ports.identity import SessionRecord, VerifiedIdentity
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.quotations import (
@@ -50,6 +69,7 @@ from quotation_app.ports.quotations import (
     TaskView,
     VersionView,
 )
+from quotation_app.ports.storage import ObjectStorage
 from quotation_app.workflows.quotation import (
     QuotationJobHandler,
     QuotationWorkflowDeps,
@@ -187,6 +207,10 @@ class MemoryQuotations:
     binding_enrollment: dict[UUID, UUID] = field(default_factory=dict)
     references: dict[UUID, ReferenceRow] = field(default_factory=dict)
     sessions: dict[str, SessionRecord] = field(default_factory=dict)
+    # enquiry -> (channel, recipient) of whoever sent it; default: an API client.
+    senders: dict[UUID, tuple[str, str]] = field(default_factory=dict)
+    delivery_rows: dict[UUID, tuple[UUID, DeliveryRecord]] = field(default_factory=dict)
+    documents: dict[UUID, tuple[UUID, StoredDocument]] = field(default_factory=dict)
     # Name of a method -> exception raised on its next call (failure injection).
     fail_next: dict[str, Exception] = field(default_factory=dict)
 
@@ -603,6 +627,199 @@ class MemoryQuotations:
         if record is not None:
             self.sessions[token_sha256] = replace(record, revoked=True)
 
+    # --- QuotationWorkflowStore.queue_delivery, DeliveryStore and DocumentReader ---------
+    def queue_delivery(self, tenant_id: UUID, quotation_id: UUID, version: int) -> bool:
+        row = self._quotation(tenant_id, quotation_id)
+        if (
+            row is None
+            or row.status is not QuotationStatus.APPROVED
+            or row.current_version != version
+        ):
+            return False
+        channel, recipient = self.senders.get(row.enquiry_id, ("api", "api-key:test-client"))
+        target = (tenant_id, quotation_id, version, channel, recipient)
+        for tenant, record in self.delivery_rows.values():
+            key = (tenant, record.quotation_id, record.version, record.channel, record.recipient)
+            if key == target:
+                return True
+        now = self.clock()
+        delivery_id = uuid4()
+        self.delivery_rows[delivery_id] = (
+            tenant_id,
+            DeliveryRecord(
+                delivery_id=delivery_id,
+                quotation_id=quotation_id,
+                version=version,
+                channel=channel,
+                recipient=recipient,
+                status=DeliveryStatus.PENDING,
+                document_id=None,
+                provider_reference=None,
+                last_error=None,
+                created_at=now,
+                updated_at=now,
+                delivered_at=None,
+                first_downloaded_at=None,
+            ),
+        )
+        self.jobs.append(
+            Job(tenant_id, JobKind.DELIVER_QUOTATION, {"delivery_id": str(delivery_id)})
+        )
+        return True
+
+    def _document_for(
+        self, tenant_id: UUID, quotation_id: UUID, version: int
+    ) -> StoredDocument | None:
+        return next(
+            (
+                document
+                for tenant, document in self.documents.values()
+                if tenant == tenant_id
+                and document.quotation_id == quotation_id
+                and document.version == version
+            ),
+            None,
+        )
+
+    def delivery(self, tenant_id: UUID, delivery_id: UUID) -> DeliveryWork | None:
+        found = self.delivery_rows.get(delivery_id)
+        if found is None or found[0] != tenant_id:
+            return None
+        record = found[1]
+        quotation = self.quotations[record.quotation_id]
+        return DeliveryWork(
+            record,
+            self.tenant_names.get(tenant_id, "Demo"),
+            self.customer_refs.get(quotation.enquiry_id),
+            self._document_for(tenant_id, record.quotation_id, record.version),
+        )
+
+    def _source(self, tenant_id: UUID, quotation_id: UUID, version: int) -> DocumentSource | None:
+        quotation = self._quotation(tenant_id, quotation_id)
+        stored = next(
+            (row for row in self._versions(tenant_id, quotation_id) if row.view.version == version),
+            None,
+        )
+        if quotation is None or stored is None:
+            return None
+        approved_at = next(
+            (
+                decision.decided_at
+                for tenant, decision in self.decisions.values()
+                if tenant == tenant_id
+                and decision.quotation_id == quotation_id
+                and decision.version == version
+                and decision.action is ApprovalAction.APPROVE
+                and self.tasks[decision.task_id].content_sha256 == stored.view.content_sha256
+            ),
+            None,
+        )
+        return DocumentSource(
+            tenant_name=self.tenant_names.get(tenant_id, "Demo"),
+            quotation_id=quotation_id,
+            version=version,
+            content=dict(stored.view.content),
+            content_sha256=stored.view.content_sha256,
+            customer_reference=self.customer_refs.get(quotation.enquiry_id),
+            approved_at=approved_at,
+        )
+
+    def approved_source(
+        self, tenant_id: UUID, quotation_id: UUID, version: int
+    ) -> DocumentSource | None:
+        source = self._source(tenant_id, quotation_id, version)
+        quotation = self._quotation(tenant_id, quotation_id)
+        if (
+            source is None
+            or source.approved_at is None
+            or quotation is None
+            or quotation.status is not QuotationStatus.APPROVED
+            or quotation.current_version != version
+        ):
+            return None
+        return source
+
+    def save_document(self, tenant_id: UUID, document: StoredDocument) -> StoredDocument:
+        existing = self._document_for(tenant_id, document.quotation_id, document.version)
+        if existing is not None:
+            return existing
+        self.documents[document.document_id] = (tenant_id, document)
+        return document
+
+    def set_status(
+        self,
+        tenant_id: UUID,
+        delivery_id: UUID,
+        status: DeliveryStatus,
+        *,
+        expected: frozenset[DeliveryStatus],
+        document_id: UUID | None = None,
+        provider_reference: str | None = None,
+        error: str | None = None,
+    ) -> bool:
+        found = self.delivery_rows.get(delivery_id)
+        if found is None or found[0] != tenant_id or found[1].status not in expected:
+            return False
+        record = found[1]
+        now = self.clock()
+        self.delivery_rows[delivery_id] = (
+            tenant_id,
+            replace(
+                record,
+                status=status,
+                last_error=error,
+                updated_at=now,
+                document_id=document_id or record.document_id,
+                provider_reference=provider_reference or record.provider_reference,
+                delivered_at=now if status in OFFERED_STATUSES else record.delivered_at,
+            ),
+        )
+        return True
+
+    def source(self, tenant_id: UUID, quotation_id: UUID, version: int) -> DocumentSource | None:
+        return self._source(tenant_id, quotation_id, version)
+
+    def approved_document(self, tenant_id: UUID, quotation_id: UUID) -> StoredDocument | None:
+        found = [
+            document
+            for tenant, document in self.documents.values()
+            if tenant == tenant_id and document.quotation_id == quotation_id
+        ]
+        return max(found, key=lambda document: document.version, default=None)
+
+    def deliveries(self, tenant_id: UUID, quotation_id: UUID) -> list[DeliveryRecord]:
+        return [
+            record
+            for tenant, record in self.delivery_rows.values()
+            if tenant == tenant_id and record.quotation_id == quotation_id
+        ]
+
+    def offered(
+        self, tenant_id: UUID, enquiry_id: UUID, channel: str
+    ) -> tuple[DeliveryRecord, StoredDocument, dict[str, object]] | None:
+        candidates = [
+            record
+            for tenant, record in self.delivery_rows.values()
+            if tenant == tenant_id
+            and self.quotations[record.quotation_id].enquiry_id == enquiry_id
+            and record.channel == channel
+            and record.status in OFFERED_STATUSES
+            and record.document_id is not None
+        ]
+        if not candidates:
+            return None
+        record = max(candidates, key=lambda item: item.version)
+        assert record.document_id is not None
+        document = self.documents[record.document_id][1]
+        source = self._source(tenant_id, record.quotation_id, record.version)
+        assert source is not None
+        return record, document, source.content
+
+    def record_download(self, tenant_id: UUID, delivery_id: UUID, at: datetime) -> None:
+        tenant, record = self.delivery_rows[delivery_id]
+        if tenant == tenant_id and record.first_downloaded_at is None:
+            self.delivery_rows[delivery_id] = (tenant, replace(record, first_downloaded_at=at))
+
     # --- QuotationReader (last: `list` would shadow the builtin in later annotations) --
     def list(
         self, tenant_id: UUID, statuses: frozenset[QuotationStatus] | None, limit: int
@@ -691,6 +908,24 @@ def quotation_db(now: datetime, industrial_tenant: UUID, office_tenant: UUID) ->
     return db
 
 
+class RecordingDeliveryChannel:
+    """Push DeliveryChannel fake ("email"). `outcome` decides the next attempt:
+    None = accept, or an exception instance to raise once."""
+
+    channel = "email"
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[DeliveryRequest, bytes]] = []
+        self.outcome: Exception | None = None
+
+    def deliver(self, request: DeliveryRequest, document: bytes) -> DeliveryReceipt:
+        if self.outcome is not None:
+            error, self.outcome = self.outcome, None
+            raise error
+        self.sent.append((request, document))
+        return DeliveryReceipt(ReceiptKind.SENT, f"msg-{len(self.sent)}")
+
+
 class RecordingNotifier:
     """ApprovalNotifier fake: keeps sent messages; `fail` makes the next send raise."""
 
@@ -723,6 +958,18 @@ class QuotationHarness:
     channels: ChannelActionService
     tenant_id: UUID
     clock: Callable[[], datetime]
+    storage: ObjectStorage
+    renderer: ReportLabQuotationRenderer = field(default_factory=ReportLabQuotationRenderer)
+    email: RecordingDeliveryChannel = field(default_factory=RecordingDeliveryChannel)
+
+    def deliveries(self) -> QuotationDeliveryHandler:
+        channels: dict[str, DeliveryChannel] = {"api": ApiPullDelivery(), "email": self.email}
+        return QuotationDeliveryHandler(
+            self.db, self.storage, self.renderer, channels, clock=self.clock
+        )
+
+    def documents(self) -> QuotationDocumentService:
+        return QuotationDocumentService(self.db, self.storage, self.renderer, clock=self.clock)
 
     def handler(self) -> QuotationJobHandler:
         """A fresh graph on the same checkpoints, as after a worker restart."""
@@ -752,6 +999,8 @@ class QuotationHarness:
                                  uuid4())  # fmt: skip
             if job.kind is JobKind.NOTIFY_APPROVERS:
                 self.notifications()(claimed)
+            elif job.kind is JobKind.DELIVER_QUOTATION:
+                self.deliveries()(claimed)
             else:
                 self.handler()(claimed)
             handled += 1
@@ -799,6 +1048,7 @@ def harness(
     policy_reader: Any,
     now: datetime,
     industrial_tenant: UUID,
+    memory_storage: ObjectStorage,
 ) -> QuotationHarness:
     def clock() -> datetime:
         return now
@@ -817,6 +1067,7 @@ def harness(
         channels=ChannelActionService(quotation_db, approvals, clock=clock),
         tenant_id=industrial_tenant,
         clock=clock,
+        storage=memory_storage,
     )
 
 

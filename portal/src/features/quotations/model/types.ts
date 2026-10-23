@@ -117,6 +117,36 @@ export interface RevisionRequest {
   reason: string;
 }
 
+// Approved PDF and its delivery to the customer (M5).
+export type DeliveryStatus = "pending" | "sending" | "available" | "sent" | "failed" | "unknown";
+
+export interface QuotationDocument {
+  version: number;
+  sha256: string;
+  size_bytes: number;
+  renderer: string;
+  created_at: string;
+}
+
+export interface Delivery {
+  delivery_id: string;
+  version: number;
+  channel: string;
+  recipient: string;
+  status: DeliveryStatus;
+  provider_reference: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  delivered_at: string | null;
+  first_downloaded_at: string | null;
+}
+
+export interface DeliveryOverview {
+  document: QuotationDocument | null;
+  deliveries: Delivery[];
+}
+
 export interface RevisionResult {
   quotation_id: string;
   version: number;

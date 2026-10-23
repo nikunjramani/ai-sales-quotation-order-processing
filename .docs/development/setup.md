@@ -140,9 +140,33 @@ Alternatively, run `npm run build` once and start the API with `$env:QUOTATION_P
 
 Sign-in is the development login only, with no password. It is refused in production; OIDC replaces it later (ADR 0013).
 
+## Quotation PDFs and delivery (M5)
+Migrate first (`uv run alembic upgrade head`, or `check_database.py`). No new settings are needed.
+1. Submit the fan and bolts enquiry with an intake API key, run the worker, and open the quotation in the portal. **Quotation PDF -> Preview PDF** downloads a copy marked "PREVIEW - NOT AN OFFER".
+2. As `manager@industrial.example`, approve it and run the worker again (`uv run python -m quotation_app.worker --once`). The panel then shows **Download approved PDF** and the delivery "API client - Available to the customer".
+3. As the customer's system (same tenant's API key):
+   ```powershell
+   $h = @{ Authorization = "Bearer $env:QUOTATION_DEMO_KEY" }   # your intake key, never commit it
+   Invoke-RestMethod "http://127.0.0.1:8000/api/v1/enquiries/<ENQUIRY_ID>/quotation" -Headers $h
+   Invoke-WebRequest "http://127.0.0.1:8000/api/v1/enquiries/<ENQUIRY_ID>/quotation.pdf" -Headers $h -OutFile quotation.pdf
+   ```
+   The JSON shows the approved lines and totals and the PDF's SHA-256. Before approval both calls return 404. The portal then shows when the customer first downloaded it.
+4. PDFs are stored under `var/storage/tenants/<tenant>/documents/`.
+
+**Verified 2026-10-23** (real uvicorn + worker processes on `quotation_dev`, HTTP only):
+- **Before approval:** a pending quotation gives the customer 404, the preview was marked, and the approved PDF gave 404.
+- **After approval and one worker pass:**
+  - The delivery was `available`.
+  - The customer JSON showed Q-... v1, 10450.38 INR.
+  - The customer PDF's SHA-256 matched, it contained the total and reference "PO-M5-LIVE" and no preview mark, and it was identical to the staff download.
+- **Download tracking:** the first download was recorded once.
+- **Refusals:** another tenant's key got 404, and no key got 401.
+- **Repeat runs:** another worker pass created nothing new.
+- **Logs:** no API keys appeared in the server or worker logs; the temporary keys were revoked.
+
 ## Boundaries and troubleshooting
 - API keys authenticate systems. People use portal sessions; only the development login exists until an OIDC provider is added.
-- No real ERP, messaging provider, PDF delivery or order processing is implemented. Approved quotations wait for M5 delivery. Clarification questions are stored, not sent yet.
+- No real ERP, messaging provider (email, Telegram) or order processing is implemented. Approved PDFs are delivered only to API clients (pull). Clarification questions are stored, not sent yet.
 - **Missing URL:** generate `.env` from the root, or run `--add-missing`.
 - **Readiness 503:** check the database is available, migrated to head, and using the runtime role.
 - **Integration failure:** fix it. Never substitute SQLite or silently skip required checks.

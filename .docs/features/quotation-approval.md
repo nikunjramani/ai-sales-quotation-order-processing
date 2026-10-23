@@ -1,5 +1,5 @@
 # Quotation drafting, approval and the portal (M4)
-**Status:** M4 is implemented, verified locally on PostgreSQL and by a live run. CI runs after push.
+**Status:** M4 is complete: verified locally on PostgreSQL, by a live run and in [CI run 39900219005](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39900219005).
 
 **Business purpose:** every quotation is checked by a person with approval rights before it can go to a customer. Managers can decide in the portal or from an enrolled messaging account, under exactly the same rules.
 
@@ -55,7 +55,7 @@
 
    It then records everything atomically and queues `resume_quotation`.
 7. **apply_decision:**
-   - approve -> run `approved`. Delivery comes in M5.
+   - approve -> run `approved`, which queues delivery of the approved PDF ([quotation delivery](quotation-delivery.md), M5).
    - reject -> run `rejected`.
    - request revision -> pause for a revision.
 8. **Revision:** a sales operator submits new lines and a reason. The server re-prices, stores version N+1 (if the base version is still current) and queues a resume. The graph then requests approval for the new version.
@@ -110,14 +110,14 @@ These are names only; see [configuration](../development/configuration.md):
   - [unit/api/test_portal.py](../../tests/unit/api/test_portal.py)
   - [unit/domain/test_quotations.py](../../tests/unit/domain/test_quotations.py)
 - **PostgreSQL:** [integration/workflows/test_quotation.py](../../tests/integration/workflows/test_quotation.py).
-- **Portal:** `npm test` in portal/ (tests in [portal/tests/](../../portal/tests/components/DecisionPanel.test.tsx)).
+- **Portal:** `npm test` in portal/ (tests in [portal/tests/](../../portal/tests/features/quotations/ui/components/DecisionPanel.test.tsx)).
 - **Walkthrough:** in [setup](../development/setup.md#approvals-and-portal-m4).
 
 ## Known limitations
 - Dev login only; OIDC is pending.
 - No approval deadlines, escalation, delegation or multi-level policy.
 - Quotations have no validity date yet (M6 offer lifecycle).
-- Approved versions are not yet rendered or sent (M5).
+- Approved versions are rendered and delivered by M5 ([quotation delivery](quotation-delivery.md)).
 - Only the simulated channel exists.
 - Enquiry exceptions are listed but cannot yet be edited or answered in the portal.
 - Revisions cannot add free-text terms or discounts (deferred, ADR 0008).

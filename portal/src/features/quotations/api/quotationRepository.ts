@@ -1,7 +1,8 @@
-import { http, tenantPath } from "@/shared/api/httpClient";
+import { apiUrl, http, tenantPath } from "@/shared/api/httpClient";
 
 import type {
   DecisionRequest,
+  DeliveryOverview,
   QuotationDetail,
   QuotationStatus,
   QuotationSummary,
@@ -30,4 +31,21 @@ export const quotationRepository = {
       tenantPath(tenantId, `/quotations/${encodeURIComponent(quotationId)}/revisions`),
       { method: "POST", body: request },
     ),
+
+  delivery: (tenantId: string, quotationId: string) =>
+    http<DeliveryOverview>(
+      tenantPath(tenantId, `/quotations/${encodeURIComponent(quotationId)}/delivery`),
+    ),
+
+  // PDFs are opened by the browser as downloads (the session cookie goes with them).
+  previewPdfUrl: (tenantId: string, quotationId: string, version: number) =>
+    apiUrl(
+      tenantPath(
+        tenantId,
+        `/quotations/${encodeURIComponent(quotationId)}/versions/${version}/preview.pdf`,
+      ),
+    ),
+
+  approvedPdfUrl: (tenantId: string, quotationId: string) =>
+    apiUrl(tenantPath(tenantId, `/quotations/${encodeURIComponent(quotationId)}/document.pdf`)),
 };

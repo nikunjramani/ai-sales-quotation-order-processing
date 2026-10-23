@@ -141,6 +141,22 @@ button.danger {
   border-color: var(--danger);
 }
 
+a.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+}
+
+a.button.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+
 button.link,
 a.link {
   border: none;
@@ -220,6 +236,10 @@ textarea {
 
 .row.static {
   align-items: center;
+}
+
+.row.deliveries {
+  align-items: flex-start;
 }
 
 .row-end {

@@ -49,12 +49,17 @@ function withQuery(path: string, query: RequestOptions["query"]): string {
   return params.size ? `${path}?${params.toString()}` : path;
 }
 
+/** Full URL of an API path, for links the browser opens itself (e.g. PDF downloads). */
+export function apiUrl(path: string): string {
+  return `/api/v1${path}`;
+}
+
 export async function http<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
   const headers: Record<string, string> = { Accept: "application/json" };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET" && csrfToken) headers["X-CSRF-Token"] = csrfToken;
-  const response = await fetch(`/api/v1${withQuery(path, options.query)}`, {
+  const response = await fetch(apiUrl(withQuery(path, options.query)), {
     method,
     headers,
     credentials: "same-origin",

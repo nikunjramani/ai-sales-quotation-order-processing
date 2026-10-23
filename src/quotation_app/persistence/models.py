@@ -484,3 +484,87 @@ class ApprovalActionRef(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+DELIVERY_STATUS_CHECK = "status IN ('pending', 'sending', 'available', 'sent', 'failed', 'unknown')"
+
+
+class QuotationDocument(Base):
+    """Rendered PDF of one approved version. Immutable (grants and a trigger enforce it)."""
+
+    __tablename__ = "quotation_documents"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "quotation_id", "version"],
+            [
+                "quotation_versions.tenant_id",
+                "quotation_versions.quotation_id",
+                "quotation_versions.version",
+            ],
+            name="fk_quotation_documents_version",
+        ),
+        UniqueConstraint(
+            "tenant_id", "quotation_id", "version", "kind", name="uq_quotation_documents_version"
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_quotation_documents_tenant_id_id"),
+        CheckConstraint("kind IN ('approved')", name="ck_quotation_documents_kind"),
+        CheckConstraint("size_bytes > 0", name="ck_quotation_documents_size"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    quotation_id: Mapped[UUID] = mapped_column()
+    version: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(16))
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    storage_key: Mapped[str] = mapped_column(String(200))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    renderer: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class QuotationDelivery(Base):
+    """Outbox row: one approved version to one recipient on one channel, with its outcome."""
+
+    __tablename__ = "quotation_deliveries"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "quotation_id", "version"],
+            [
+                "quotation_versions.tenant_id",
+                "quotation_versions.quotation_id",
+                "quotation_versions.version",
+            ],
+            name="fk_quotation_deliveries_version",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "document_id"],
+            ["quotation_documents.tenant_id", "quotation_documents.id"],
+            name="fk_quotation_deliveries_document",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "quotation_id",
+            "version",
+            "channel",
+            "recipient",
+            name="uq_quotation_deliveries_target",
+        ),
+        CheckConstraint(DELIVERY_STATUS_CHECK, name="ck_quotation_deliveries_status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    quotation_id: Mapped[UUID] = mapped_column()
+    version: Mapped[int] = mapped_column(Integer)
+    channel: Mapped[str] = mapped_column(String(32))
+    recipient: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(16))
+    document_id: Mapped[UUID | None] = mapped_column()
+    provider_reference: Mapped[str | None] = mapped_column(String(200))
+    last_error: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

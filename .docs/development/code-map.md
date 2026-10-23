@@ -1,5 +1,5 @@
 # Code map
-Status: the M0 foundation, M1 domain/tenancy, M2 intake/jobs, M3 extraction and M4 approval/portal modules below exist. The remaining module map is a plan.
+Status: the M0 foundation, M1 domain/tenancy, M2 intake/jobs, M3 extraction, M4 approval/portal and M5 documents/delivery modules below exist. The remaining module map is a plan.
 
 ## Implemented foundation
 | Actual file | Responsibility |
@@ -105,7 +105,28 @@ See [quotation approval](../features/quotation-approval.md).
 | [0005_approvals.py](../../migrations/versions/0005_approvals.py) | M4 tables, append-only triggers, column grants, narrow RLS policies |
 | [scripts/simulated_channel.py](../../scripts/simulated_channel.py) | Play the manager's phone: inbox, enroll, decide |
 | [portal/src/](../../portal/src/app/App.tsx) | React portal organised by feature (auth, tenant, quotations, enquiries, channels) and layer (model, api, services, store, hooks, ui, routes). See [portal architecture](portal-architecture.md). Tests live in [portal/tests/](../../portal/tests/architecture.test.ts), mirroring src |
-| [tests/unit/conftest.py](../../tests/unit/conftest.py) | In-memory M4 "database" and harness used by unit tests |
+| [tests/unit/conftest.py](../../tests/unit/conftest.py) | In-memory M4/M5 "database" and harness used by unit tests |
+
+## Implemented M5 quotation PDFs and delivery
+Entry points:
+- the `approved` workflow step (queues delivery);
+- the `deliver_quotation` job in the worker;
+- PDF and delivery routes in the portal API and the enquiry API.
+
+See [quotation delivery](../features/quotation-delivery.md) and [adding channels](adding-channels.md).
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/documents.py](../../src/quotation_app/domain/documents.py) | Delivery statuses, DocumentSource, recipient rule, document IDs/keys, document errors |
+| [ports/documents.py](../../src/quotation_app/ports/documents.py) | QuotationRenderer, DeliveryChannel (+ outcomes), DeliveryStore, DocumentReader |
+| [application/delivery.py](../../src/quotation_app/application/delivery.py) | QuotationDeliveryHandler: render once, compare-and-set, record honest outcomes |
+| [application/documents.py](../../src/quotation_app/application/documents.py) | QuotationDocumentService: previews, verified approved files, customer view and downloads |
+| [adapters/documents/pdf.py](../../src/quotation_app/adapters/documents/pdf.py) | ReportLab renderer: deterministic, escaped, refuses unsupported characters |
+| [adapters/delivery/api.py](../../src/quotation_app/adapters/delivery/api.py) | API pull channel (makes the document available) |
+| [api/pdf.py](../../src/quotation_app/api/pdf.py) | Download response headers, integrity-failure response |
+| [persistence/documents.py](../../src/quotation_app/persistence/documents.py) | `queue_delivery` (outbox row + job), SqlDeliveryStore, SqlDocumentReader |
+| [0006_documents.py](../../migrations/versions/0006_documents.py) | quotation_documents (append-only) and quotation_deliveries, RLS, column grants |
+| portal `features/quotations` | `DocumentPanel`, `DeliveryList`, `deliveryService.ts`, `useQuotationDocuments.ts` |
 
 ## Planned modules
 

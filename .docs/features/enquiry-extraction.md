@@ -49,7 +49,7 @@ When the preparation job finds every attachment clean, it sets the enquiry to `r
   "review_reasons": []
 }
 ```
-The `lines` are exactly what the M1 calculator accepts as `RequestedLine`s. Clarification questions are stored but not yet sent; customer messaging arrives in M5 (email) and M7 (Telegram).
+The `lines` are exactly what the M1 calculator accepts as `RequestedLine`s. Clarification questions are stored but not yet sent; customer messaging arrives with the email and Telegram channels in M7 (Telegram).
 
 ## Tenant and authorization boundary
 - Every business record is read and written with the job's tenant context under RLS.

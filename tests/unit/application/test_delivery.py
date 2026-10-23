@@ -1,0 +1,212 @@
+"""Delivery of approved quotations: only approved versions, honest outcomes, no duplicates."""
+
+import hashlib
+from io import BytesIO
+from typing import Any
+from uuid import UUID, uuid4
+
+import pytest
+from pypdf import PdfReader
+
+from quotation_app.domain.documents import DeliveryRecord, DeliveryStatus
+from quotation_app.domain.jobs import JobKind, PermanentJobError
+from quotation_app.domain.quotations import ApprovalAction
+from quotation_app.ports.documents import DeliveryRejected, DeliveryUncertain
+from quotation_app.ports.jobs import ClaimedJob
+
+FAN = ("IND-FAN-450", "2", "each")
+MANAGER = "manager@industrial.example"
+EMAIL = ("email", "buyer@customer.example")
+
+
+def claimed(harness: Any, delivery_id: UUID, attempt: int = 1) -> ClaimedJob:
+    return ClaimedJob(
+        uuid4(),
+        harness.tenant_id,
+        JobKind.DELIVER_QUOTATION,
+        {"delivery_id": str(delivery_id)},
+        attempt,
+        5,
+        uuid4(),
+        uuid4(),
+    )
+
+
+def approve(harness: Any, sender: tuple[str, str] | None = None) -> tuple[UUID, UUID]:
+    """Draft and approve a quotation; return (enquiry, delivery) with the delivery job unrun."""
+    enquiry = harness.enquiry(FAN)
+    if sender is not None:
+        harness.db.senders[enquiry] = sender
+    harness.run_jobs()
+    harness.approvals.decide(MANAGER, harness.command(harness.pending_task(enquiry)))
+    handler = harness.handler()
+    for job in harness.db.take_jobs(JobKind.RESUME_QUOTATION):
+        handler(ClaimedJob(uuid4(), job.tenant_id, job.kind, job.payload, 1, 5, uuid4(), uuid4()))
+    [job] = harness.db.take_jobs(JobKind.DELIVER_QUOTATION)
+    return enquiry, UUID(job.payload["delivery_id"])
+
+
+def record(harness: Any, delivery_id: UUID) -> DeliveryRecord:
+    found: DeliveryRecord = harness.db.delivery_rows[delivery_id][1]
+    return found
+
+
+def test_api_enquiry_gets_the_approved_pdf_made_available(harness: Any) -> None:
+    enquiry, delivery_id = approve(harness)
+    pending = record(harness, delivery_id)
+    assert pending.status is DeliveryStatus.PENDING
+    assert (pending.channel, pending.recipient) == ("api", "api-key:test-client")
+
+    harness.deliveries()(claimed(harness, delivery_id))
+
+    done = record(harness, delivery_id)
+    assert done.status is DeliveryStatus.AVAILABLE and done.delivered_at is not None
+    [(_, document)] = harness.db.documents.values()
+    assert done.document_id == document.document_id
+    data = harness.storage.get(document.storage_key)
+    assert hashlib.sha256(data).hexdigest() == document.sha256 and len(data) == document.size_bytes
+    version = harness.db.versions[-1].view
+    assert document.content_sha256 == version.content_sha256
+    text = "".join(page.extract_text() for page in PdfReader(BytesIO(data)).pages)
+    assert str(version.content["total"]) in text  # the PDF matches the approved total
+    assert harness.db.run_status[next(iter(harness.db.run_status))] == "approved"
+    assert enquiry
+
+
+def test_a_push_channel_sends_once_with_its_idempotency_key(harness: Any) -> None:
+    _, delivery_id = approve(harness, EMAIL)
+    handler = harness.deliveries()
+    handler(claimed(harness, delivery_id))
+    handler(claimed(harness, delivery_id))  # a duplicate job does nothing more
+    [(request, data)] = harness.email.sent
+    assert request.delivery_id == delivery_id and request.recipient == EMAIL[1]
+    assert hashlib.sha256(data).hexdigest() == request.document_sha256
+    done = record(harness, delivery_id)
+    assert done.status is DeliveryStatus.SENT and done.provider_reference == "msg-1"
+
+
+def test_rejected_and_uncertain_outcomes_are_recorded_not_retried(harness: Any) -> None:
+    _, rejected = approve(harness, EMAIL)
+    harness.email.outcome = DeliveryRejected("mailbox does not exist")
+    harness.deliveries()(claimed(harness, rejected))
+    failed = record(harness, rejected)
+    assert failed.status is DeliveryStatus.FAILED
+    assert failed.last_error == "Rejected by the channel: mailbox does not exist"
+
+    _, uncertain = approve(harness, ("email", "other@customer.example"))
+    harness.email.outcome = DeliveryUncertain("timed out after sending")
+    harness.deliveries()(claimed(harness, uncertain))
+    unknown = record(harness, uncertain)
+    assert unknown.status is DeliveryStatus.UNKNOWN
+    harness.deliveries()(claimed(harness, uncertain, attempt=2))  # never resent automatically
+    assert harness.email.sent == []
+
+
+def test_transient_errors_are_retried_and_the_last_attempt_fails(harness: Any) -> None:
+    _, delivery_id = approve(harness, EMAIL)
+    harness.email.outcome = ConnectionError("provider unavailable")
+    with pytest.raises(ConnectionError):
+        harness.deliveries()(claimed(harness, delivery_id))
+    retry = record(harness, delivery_id)
+    assert retry.status is DeliveryStatus.PENDING
+    assert retry.last_error == "ConnectionError: provider unavailable"
+
+    harness.deliveries()(claimed(harness, delivery_id, attempt=2))
+    assert record(harness, delivery_id).status is DeliveryStatus.SENT
+    assert record(harness, delivery_id).last_error is None
+
+    _, last = approve(harness, ("email", "late@customer.example"))
+    harness.email.outcome = ConnectionError("still down")
+    with pytest.raises(ConnectionError):
+        harness.deliveries()(claimed(harness, last, attempt=5))
+    assert record(harness, last).status is DeliveryStatus.FAILED
+
+
+def test_a_crash_while_sending_becomes_unknown_instead_of_a_second_send(harness: Any) -> None:
+    _, delivery_id = approve(harness, EMAIL)
+    harness.db.set_status(
+        harness.tenant_id,
+        delivery_id,
+        DeliveryStatus.SENDING,
+        expected=frozenset({DeliveryStatus.PENDING}),
+    )  # the previous worker stopped right after handing it over
+    harness.deliveries()(claimed(harness, delivery_id, attempt=2))
+    assert record(harness, delivery_id).status is DeliveryStatus.UNKNOWN
+    assert harness.email.sent == []
+
+
+def test_a_channel_without_an_adapter_fails_visibly(harness: Any) -> None:
+    _, delivery_id = approve(harness, ("telegram", "chat-42"))
+    harness.deliveries()(claimed(harness, delivery_id))
+    failed = record(harness, delivery_id)
+    assert failed.status is DeliveryStatus.FAILED
+    assert failed.last_error == "No delivery channel is configured for 'telegram'"
+
+
+def test_the_document_is_rendered_once_and_reused(harness: Any) -> None:
+    _, first = approve(harness, EMAIL)
+    harness.email.outcome = ConnectionError("down")
+    with pytest.raises(ConnectionError):
+        harness.deliveries()(claimed(harness, first))
+    [(_, document)] = harness.db.documents.values()
+    harness.renderer = None  # a retry must not need to render again
+    harness.deliveries()(claimed(harness, first, attempt=2))
+    assert harness.email.sent[0][1] == harness.storage.get(document.storage_key)
+
+
+def test_a_changed_stored_file_is_never_sent(harness: Any) -> None:
+    _, delivery_id = approve(harness, EMAIL)
+    harness.email.outcome = ConnectionError("down")
+    with pytest.raises(ConnectionError):
+        harness.deliveries()(claimed(harness, delivery_id))
+    [(_, document)] = harness.db.documents.values()
+    harness.storage.put(document.storage_key, b"%PDF-1.4 tampered")
+    harness.deliveries()(claimed(harness, delivery_id, attempt=2))
+    failed = record(harness, delivery_id)
+    assert failed.status is DeliveryStatus.FAILED and "does not match" in (failed.last_error or "")
+    assert harness.email.sent == []
+
+
+def test_unrenderable_content_fails_the_delivery_with_the_reason(harness: Any) -> None:
+    _, delivery_id = approve(harness)
+    harness.db.tenant_names[harness.tenant_id] = "Demo 工業"
+    harness.deliveries()(claimed(harness, delivery_id))
+    failed = record(harness, delivery_id)
+    assert failed.status is DeliveryStatus.FAILED
+    assert failed.last_error == "business name contains characters the PDF fonts cannot show"
+
+
+def test_only_an_approved_current_version_is_delivered(harness: Any) -> None:
+    enquiry = harness.enquiry(FAN)
+    harness.run_jobs()
+    task = harness.pending_task(enquiry)
+    harness.approvals.decide(MANAGER, harness.command(task, ApprovalAction.REJECT, "too high"))
+    harness.run_jobs()
+    assert harness.db.delivery_rows == {}
+    quotation = harness.quotation(enquiry)
+    # Even if someone queued one, a version that is not approved cannot be rendered.
+    assert harness.db.queue_delivery(harness.tenant_id, quotation.quotation_id, 1) is False
+    assert harness.db.approved_source(harness.tenant_id, quotation.quotation_id, 1) is None
+
+
+def test_approved_run_without_a_current_approved_version_stops(harness: Any) -> None:
+    enquiry = harness.enquiry(FAN)
+    harness.run_jobs()
+    harness.approvals.decide(MANAGER, harness.command(harness.pending_task(enquiry)))
+    harness.quotation(enquiry).current_version = 2  # simulates a corrupted/raced state
+    [job] = harness.db.take_jobs(JobKind.RESUME_QUOTATION)
+    with pytest.raises(PermanentJobError):
+        harness.handler()(
+            ClaimedJob(uuid4(), job.tenant_id, job.kind, job.payload, 1, 5, uuid4(), uuid4())
+        )
+    assert harness.db.delivery_rows == {}
+
+
+def test_missing_or_foreign_deliveries_are_permanent_errors(harness: Any) -> None:
+    with pytest.raises(PermanentJobError):
+        harness.deliveries()(claimed(harness, uuid4()))
+    bad = ClaimedJob(
+        uuid4(), harness.tenant_id, JobKind.DELIVER_QUOTATION, {}, 1, 5, uuid4(), uuid4()
+    )
+    with pytest.raises(PermanentJobError):
+        harness.deliveries()(bad)

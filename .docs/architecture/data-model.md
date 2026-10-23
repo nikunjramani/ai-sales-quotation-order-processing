@@ -4,7 +4,7 @@ ERP owns SKUs, current prices, stock and final order records. The platform owns 
 A quote stores the exact commercial values reviewed, their source and timestamp. This is evidence, not a second live inventory system.
 Synthetic ERP fixtures are replaceable test infrastructure.
 
-## Implemented tables (M0-M4)
+## Implemented tables (M0-M5)
 | Table | Contents and rules |
 |---|---|
 | tenants | Business ID and name; RLS by `id` |
@@ -45,6 +45,14 @@ Enquiry statuses now also include `ready_for_quotation` and `needs_clarification
 | user_sessions | Portal sessions (no tenant): token hash, subject, provider, expiry, revocation. The API sees only the row whose hash it presents |
 
 workflow_runs also records `approved` / `rejected` for the `quotation-approval-v1` graph.
+
+### Added in M5 (migration 0006)
+| Table | Contents and rules |
+|---|---|
+| quotation_documents | Approved PDF of one version (unique tenant+quotation+version+kind; tenant FK to the version): storage key, PDF SHA-256, size, renderer version, source content hash. Append-only: grants plus the `reject_change()` trigger |
+| quotation_deliveries | Outbox per target (unique tenant+quotation+version+channel+recipient): status `pending`/`sending`/`available`/`sent`/`failed`/`unknown`, document, provider reference, last error (short), delivered and first-download times. Worker may update only progress columns; API only `first_downloaded_at` |
+
+The PDF bytes live in private object storage (`tenants/<t>/documents/<id>`), not in the database.
 
 ## Planned entities
 | Entity | Important contents |

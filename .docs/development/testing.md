@@ -4,7 +4,7 @@
 tests/
   conftest.py          Shared options, fixtures and in-memory fakes for every test
   unit/                Offline; folders mirror src/quotation_app
-    conftest.py        M4 in-memory quotation/approval/channel/session store and service harness
+    conftest.py        M4/M5 in-memory quotation/approval/channel/session/document store and harness
     domain/  application/  ports/  workflows/  api/  persistence/
     adapters/erp/  adapters/storage/  adapters/documents/  adapters/interpreters/
     adapters/identity/  adapters/channels/  (covered through application/api tests)
@@ -49,8 +49,8 @@ Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
 
 | Fixture | Provides |
 |---|---|
-| `quotation_db` | MemoryQuotations: one in-memory store implementing every M4 port. It enforces one task per version, one decision per task, unique commands and optimistic revisions. `.fail_next` injects failures; `.jobs` shows queued jobs |
-| `harness` | Real ApprovalService, QuotationService, ChannelActionService, quotation graph (InMemorySaver) and job handlers over `quotation_db`. `run_jobs()` drains jobs; `handler()` builds a fresh graph, as after a restart |
+| `quotation_db` | MemoryQuotations: one in-memory store implementing every M4/M5 port. It enforces one task per version, one decision per task, unique commands, optimistic revisions, one delivery per target and compare-and-set delivery statuses. `.fail_next` injects failures; `.jobs` shows queued jobs; `.senders` sets an enquiry's channel and sender |
+| `harness` | Real ApprovalService, QuotationService, ChannelActionService, quotation graph (InMemorySaver), delivery handler (real ReportLab renderer, `memory_storage`) and job handlers over `quotation_db`. `run_jobs()` drains jobs; `handler()` builds a fresh graph, as after a restart; `deliveries()` and `documents()` build the M5 handler and service; `email` is a push-channel fake whose `.outcome` injects rejected, uncertain or transient results |
 | `memory_sessions`, `memory_directory` | SessionStore and MembershipDirectory views of `quotation_db` |
 
 [tests/integration/conftest.py](../../tests/integration/conftest.py) adds:
@@ -63,10 +63,18 @@ Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
 | `make_api_key(tenant_id, role)` | Creates a key with owner credentials and returns its token |
 | `storage` | LocalObjectStorage under the temporary storage folder |
 
-## Current checks (M0-M4)
+## Current checks (M0-M5)
 Run uv run ruff check ., uv run ruff format --check ., uv run mypy and uv run pytest from the root; `uv run pytest tests/unit` runs only the unit tests.
 
-Result on 2026-10-23 (M4): 260 unit tests passed and 36 integration tests were skipped. With PostgreSQL via `check_database.py --cycle`, all 296 passed, then passed again after a downgrade to empty and re-upgrade. Portal: `cd portal; npm run typecheck; npm test; npm run build` passed (27 tests). Run `uv sync --locked --all-extras` first so the optional Ollama adapter is installed.
+Result on 2026-10-23 (M5):
+- **Offline:** 296 unit tests passed and 39 integration tests were skipped.
+- **PostgreSQL** (`check_database.py --cycle`): all 335 passed, then passed again after a downgrade to empty and re-upgrade.
+- **Portal:** `cd portal; npm run typecheck; npm test; npm run build` passed (36 tests).
+
+M5 adds:
+- **PDF content checks:** pypdf extracts the text and compares it with the approved version.
+- **Delivery outcome tests:** rejected, uncertain, transient, crash while sending, no adapter, tampered file and unrenderable content.
+- **PostgreSQL tests:** append-only documents and delivery column grants. Run `uv sync --locked --all-extras` first so the optional Ollama adapter is installed.
 
 | Suite | Checks |
 |---|---|

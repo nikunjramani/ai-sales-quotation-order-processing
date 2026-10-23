@@ -15,6 +15,14 @@ export function money(amount: string | null, currency: string | null): string {
   return amount === null ? "—" : `${amount} ${currency ?? ""}`.trim();
 }
 
+/** 4608 -> "4.5 KB". For file sizes only (display, no maths on money). */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 1024) return `${kilobytes.toFixed(1)} KB`;
+  return `${(kilobytes / 1024).toFixed(1)} MB`;
+}
+
 export function dateTime(iso: string): string {
   return new Date(iso).toLocaleString();
 }

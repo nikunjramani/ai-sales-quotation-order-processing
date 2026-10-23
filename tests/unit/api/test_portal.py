@@ -4,6 +4,7 @@ Real routers and services over the in-memory fakes; tests/integration repeats th
 PostgreSQL.
 """
 
+import hashlib
 import json
 from collections.abc import Iterator
 from typing import Any
@@ -48,6 +49,7 @@ def build_app(harness: Any, sessions: Any, directory: Any, dev: bool = True) -> 
             harness.approvals,
             harness.channels,
             EnquiryListService(NoEnquiries()),
+            harness.documents(),
             clock=harness.clock,
         )
     )
@@ -258,3 +260,67 @@ def test_webhook_is_off_without_a_secret(harness: Any) -> None:
     app.include_router(build_channel_router(harness.channels, None))
     with TestClient(app) as http:
         assert http.post("/api/v1/channels/simulated/events", content=b"{}").status_code == 404
+
+
+def assert_pdf_download(response: Any, filename_suffix: str) -> None:
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/pdf"
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment;") and disposition.endswith(f'{filename_suffix}"')
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.content.startswith(b"%PDF-")
+
+
+def test_preview_then_approved_document_and_delivery_status(
+    client: TestClient, harness: Any, pending: tuple[UUID, Any], office_tenant: UUID
+) -> None:
+    headers = login(client, MANAGER)
+    quotation_id, task = pending
+    url = f"{base(harness)}/quotations/{quotation_id}"
+    assert_pdf_download(client.get(f"{url}/versions/1/preview.pdf"), "-v1-preview.pdf")
+    assert client.get(f"{url}/versions/9/preview.pdf").status_code == 404
+    assert client.get(f"{url}/document.pdf").status_code == 404  # not approved yet
+    assert client.get(f"{url}/delivery").json() == {"document": None, "deliveries": []}
+
+    decision = {
+        "command_id": str(uuid4()),
+        "action": "approve",
+        "content_sha256": task.content_sha256,
+    }
+    decided = client.post(
+        f"{base(harness)}/approval-tasks/{task.task_id}/decision", json=decision, headers=headers
+    )
+    assert decided.status_code == 200
+    harness.run_jobs()
+
+    document = client.get(f"{url}/document.pdf")
+    assert_pdf_download(document, "-v1.pdf")
+    overview = client.get(f"{url}/delivery").json()
+    assert overview["document"]["sha256"] == hashlib.sha256(document.content).hexdigest()
+    [delivery] = overview["deliveries"]
+    assert (delivery["channel"], delivery["status"]) == ("api", "available")
+    assert delivery["first_downloaded_at"] is None  # staff downloads are not customer downloads
+    other = f"/api/v1/tenants/{office_tenant}/quotations/{quotation_id}/document.pdf"
+    assert client.get(other).status_code == 404
+
+
+def test_pdf_problems_are_reported_honestly(
+    client: TestClient, harness: Any, pending: tuple[UUID, Any]
+) -> None:
+    login(client, MANAGER)
+    quotation_id, task = pending
+    url = f"{base(harness)}/quotations/{quotation_id}"
+    harness.db.tenant_names[harness.tenant_id] = "Demo 工業"
+    unrenderable = client.get(f"{url}/versions/1/preview.pdf")
+    assert unrenderable.status_code == 422
+    assert "cannot show" in unrenderable.json()["detail"]
+
+    harness.db.tenant_names[harness.tenant_id] = "Demo Industrial"
+    harness.approvals.decide(MANAGER, harness.command(task))
+    harness.run_jobs()
+    [(_, stored)] = harness.db.documents.values()
+    harness.storage.put(stored.storage_key, b"%PDF-1.4 swapped")
+    tampered = client.get(f"{url}/document.pdf")
+    assert tampered.status_code == 500
+    assert "integrity" in tampered.json()["detail"]

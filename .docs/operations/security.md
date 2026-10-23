@@ -17,6 +17,21 @@
 - Provider webhook verification is necessary but not sufficient: validate the acting manager, task/version, recipient binding and expiry. Forwarded actions and uncorrelated text must not approve anything.
 - Mobile channel review may expose commercial documents to provider storage; configure permitted channels and disclosure per tenant. Never include reusable action secrets in model input or logs.
 
+## Implemented controls (M5)
+- **Only approved content reaches customers:**
+  - Delivery is queued only for the approved current version.
+  - Rendering re-checks that an approve decision exists for exactly that version and content hash.
+  - Customer API routes show only delivered quotations, and other tenants or unknown IDs get the same 404.
+- **Document integrity:** each PDF's SHA-256 is recorded when it is rendered and re-checked on every read. A missing or changed file is never served or sent; the delivery fails visibly and downloads get 500. Document rows are append-only, and the storage key changes with the content, so nothing is overwritten.
+- **Safe rendering:**
+  - ReportLab builds the PDF from data, with no HTML, scripts or URL fetching.
+  - Customer text is escaped before ReportLab's markup parser, so it is printed, never interpreted.
+  - Unsupported characters are refused, not replaced.
+  - Internal evidence (price lists, stock checks) stays out of customer PDFs.
+- **Downloads:** always `attachment` with `Cache-Control: no-store` and `nosniff`. Staff need a session with `quotations:view`; customers need an API key with `enquiries:view` for that tenant.
+- **No duplicate sends:** a compare-and-set lets only one worker hand a document over. An uncertain outcome is recorded as `unknown` and never retried automatically.
+- **Least privilege:** the worker may update only delivery progress columns, and the API may update only `first_downloaded_at`.
+
 ## Implemented controls (M4)
 - **Portal sessions:**
   - 256-bit random tokens in `HttpOnly; SameSite=Strict; Path=/api` cookies (Secure in production);

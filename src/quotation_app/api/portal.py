@@ -4,6 +4,9 @@ GET  /api/v1/tenants/{tenant}/quotations[?status=...]             list
 GET  /api/v1/tenants/{tenant}/quotations/{id}                      versions, tasks, decisions
 POST /api/v1/tenants/{tenant}/approval-tasks/{task}/decision       approve/reject/request revision
 POST /api/v1/tenants/{tenant}/quotations/{id}/revisions            new version (sales operator)
+GET  /api/v1/tenants/{tenant}/quotations/{id}/versions/{v}/preview.pdf  draft preview (not an offer)
+GET  /api/v1/tenants/{tenant}/quotations/{id}/document.pdf         approved document as delivered
+GET  /api/v1/tenants/{tenant}/quotations/{id}/delivery             document and delivery status
 GET  /api/v1/tenants/{tenant}/enquiries[?status=...]               enquiry list (exceptions)
 POST /api/v1/tenants/{tenant}/channel-enrollments                  get a code to link an account
 GET  /api/v1/tenants/{tenant}/channel-bindings                     linked accounts
@@ -13,6 +16,7 @@ The tenant in the URL is only a request: stored membership decides access, and n
 404. Decisions use the same ApprovalService as every manager channel.
 """
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -25,10 +29,20 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from quotation_app.api.auth import PortalAuth
+from quotation_app.api.pdf import integrity_failure, pdf_response
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.documents import QuotationDocumentService
 from quotation_app.application.intake import EnquiryListService
 from quotation_app.application.quotations import QuotationService
+from quotation_app.domain.documents import (
+    DeliveryRecord,
+    DeliveryStatus,
+    DocumentIntegrityError,
+    DocumentNotAvailable,
+    StoredDocument,
+    UnrenderableContent,
+)
 from quotation_app.domain.intake import EnquiryStatus
 from quotation_app.domain.pricing import PricingRejected, RequestedLine
 from quotation_app.domain.quotations import (
@@ -50,8 +64,10 @@ from quotation_app.domain.quotations import (
 from quotation_app.domain.tenancy import Permission, PermissionDenied, TenantContext
 from quotation_app.ports.channels import ChannelBinding
 from quotation_app.ports.quotations import QuotationDetail, QuotationSummary
+from quotation_app.ports.storage import ObjectNotFound
 
 _UNAVAILABLE = "Temporarily unavailable; try again"
+logger = logging.getLogger(__name__)
 
 
 class QuotationSummaryOut(BaseModel):
@@ -178,6 +194,59 @@ class BindingOut(BaseModel):
     revoked_at: datetime | None
 
 
+class DocumentOut(BaseModel):
+    version: int
+    sha256: str
+    size_bytes: int
+    renderer: str
+    created_at: datetime
+
+
+class DeliveryOut(BaseModel):
+    delivery_id: UUID
+    version: int
+    channel: str
+    recipient: str
+    status: DeliveryStatus
+    provider_reference: str | None
+    last_error: str | None
+    created_at: datetime
+    updated_at: datetime
+    delivered_at: datetime | None
+    first_downloaded_at: datetime | None
+
+
+class DeliveryOverviewOut(BaseModel):
+    document: DocumentOut | None
+    deliveries: list[DeliveryOut]
+
+
+def _document(item: StoredDocument) -> DocumentOut:
+    return DocumentOut(
+        version=item.version,
+        sha256=item.sha256,
+        size_bytes=item.size_bytes,
+        renderer=item.renderer,
+        created_at=item.created_at,
+    )
+
+
+def _delivery(item: DeliveryRecord) -> DeliveryOut:
+    return DeliveryOut(
+        delivery_id=item.delivery_id,
+        version=item.version,
+        channel=item.channel,
+        recipient=item.recipient,
+        status=item.status,
+        provider_reference=item.provider_reference,
+        last_error=item.last_error,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        delivered_at=item.delivered_at,
+        first_downloaded_at=item.first_downloaded_at,
+    )
+
+
 def _summary(item: QuotationSummary) -> QuotationSummaryOut:
     return QuotationSummaryOut(
         quotation_id=item.quotation_id,
@@ -274,6 +343,7 @@ def build_portal_router(
     approvals: ApprovalService,
     channels: ChannelActionService,
     enquiries: EnquiryListService,
+    documents: QuotationDocumentService,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/tenants/{tenant_id}", tags=["portal"])
@@ -284,8 +354,13 @@ def build_portal_router(
             return action()
         except PermissionDenied as error:
             raise HTTPException(status.HTTP_403_FORBIDDEN, str(error) or "Not permitted") from None
-        except (QuotationNotFound, TaskNotFound):
+        except (QuotationNotFound, TaskNotFound, DocumentNotAvailable):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found") from None
+        except (DocumentIntegrityError, ObjectNotFound):
+            logger.exception("Stored quotation document failed its integrity check")
+            raise integrity_failure() from None
+        except UnrenderableContent as error:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
         except DecisionConflict as error:
             detail: dict[str, object] = {"message": str(error)}
             if error.recorded is not None:
@@ -296,7 +371,7 @@ def build_portal_router(
             raise HTTPException(status.HTTP_409_CONFLICT, message) from None
         except ValueError as error:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
-        except SQLAlchemyError:
+        except (SQLAlchemyError, OSError):
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, _UNAVAILABLE) from None
 
     @router.get("/quotations", response_model=list[QuotationSummaryOut])
@@ -310,6 +385,30 @@ def build_portal_router(
     @router.get("/quotations/{quotation_id}", response_model=QuotationDetailOut)
     def get_quotation(quotation_id: UUID, context: Context) -> QuotationDetailOut:
         return _detail(guarded(lambda: quotations.get(context, quotation_id)), context)
+
+    @router.get(
+        "/quotations/{quotation_id}/versions/{version}/preview.pdf",
+        response_class=Response,
+        responses={200: {"content": {"application/pdf": {}}}, 404: {}, 422: {}},
+    )
+    def preview_pdf(quotation_id: UUID, version: int, context: Context) -> Response:
+        return pdf_response(guarded(lambda: documents.preview(context, quotation_id, version)))
+
+    @router.get(
+        "/quotations/{quotation_id}/document.pdf",
+        response_class=Response,
+        responses={200: {"content": {"application/pdf": {}}}, 404: {}},
+    )
+    def approved_pdf(quotation_id: UUID, context: Context) -> Response:
+        return pdf_response(guarded(lambda: documents.approved(context, quotation_id)))
+
+    @router.get("/quotations/{quotation_id}/delivery", response_model=DeliveryOverviewOut)
+    def delivery(quotation_id: UUID, context: Context) -> DeliveryOverviewOut:
+        overview = guarded(lambda: documents.overview(context, quotation_id))
+        return DeliveryOverviewOut(
+            document=None if overview.document is None else _document(overview.document),
+            deliveries=[_delivery(item) for item in overview.deliveries],
+        )
 
     @router.post(
         "/approval-tasks/{task_id}/decision",

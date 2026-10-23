@@ -12,7 +12,7 @@ M0 targets Python 3.13 and has a reproducible [uv lockfile](../../uv.lock). Runt
 | Background work | PostgreSQL job table, leased workers, scheduler and transactional outbox | Durable jobs without introducing a separate broker initially |
 | Portal | FastAPI-rendered Jinja templates, mobile-friendly forms initially | Authenticated screens; optional review surface alongside in-channel approval |
 | Identity | Standards-based OIDC provider, selected before M4 | Login; local role/tenant membership authorization |
-| Documents | Private object storage by M2; bounded PDF/text parser by M3; PDF renderer by M5 | Quarantined inbound attachments, draft previews and approved quotation PDFs; OCR capability decided before scanned-PDF support |
+| Documents | Private object storage by M2; bounded PDF/text parser by M3; PDF renderer (ReportLab) in M5 | Quarantined inbound attachments, draft previews and approved quotation PDFs; OCR capability decided before scanned-PDF support |
 | Operations | Docker Compose locally; CI checks; structured logging and OpenTelemetry-compatible instrumentation | Reproducible services and operational visibility |
 | Quality | pytest, Ruff, type checking, adapter contracts and AI evaluations | Business correctness and regression prevention |
 | Integration automation | Optional n8n | Peripheral triggers and notifications through authenticated APIs |
@@ -29,7 +29,7 @@ Frontend framework, hosting vendor, model vendor, identity vendor, and PDF libra
 | Model API credentials and budget | M3 | Developer/organization; use secret storage and synthetic examples |
 | OIDC test tenant/client | M4 | Developer; configured callback URLs and role mapping |
 | Private development object storage | M2 | Developer; synthetic attachments and isolated quarantine |
-| Email sandbox with inbound and outbound access | M5 | Developer; restricted test recipients and verified manager reply ingestion |
+| Email sandbox with inbound and outbound access | M7 (deferred from M5 by the user) | Developer; restricted test recipients and verified manager reply ingestion |
 | Telegram bot token and reachable HTTPS callback | M7 | Developer; register webhook, validate its secret, enroll manager identity and test approval capabilities |
 | ERP sandbox API credentials and field/API documentation | M7 | Pilot business; least privilege, scoped read/write capabilities |
 | Optional CRM sandbox and n8n instance | M7 | Business/developer; no duplicate orchestration ownership |

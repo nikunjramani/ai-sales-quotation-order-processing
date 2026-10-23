@@ -1,14 +1,18 @@
-"""M4 on PostgreSQL: enquiry -> draft version -> approval (portal or channel) -> resume.
+"""M4/M5 on PostgreSQL: enquiry -> draft version -> approval (portal or channel) -> resume ->
+approved PDF rendered, stored and offered to the API client that sent the enquiry.
 
-Also proves concurrency (one decision wins), worker restart, append-only versions/decisions,
-narrow session/membership visibility and tenant isolation through the real roles.
+Also proves concurrency (one decision wins), worker restart, append-only versions/decisions/
+documents, column-limited delivery updates, narrow session/membership visibility and tenant
+isolation through the real roles.
 """
 
+import hashlib
 import json
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -16,6 +20,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from pypdf import PdfReader
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
@@ -24,6 +29,8 @@ from quotation_app.adapters.channels.simulated import (
     SimulatedChannelNotifier,
     sign,
 )
+from quotation_app.adapters.delivery.api import ApiPullDelivery
+from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.documents.text import PdfAndTextReader
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.rules import RulesInterpreter
@@ -31,6 +38,7 @@ from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.app import create_app
 from quotation_app.api.auth import CSRF_HEADER
 from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.delivery import QuotationDeliveryHandler
 from quotation_app.application.jobs import JobRunner
 from quotation_app.application.notifications import ApprovalNotificationHandler
 from quotation_app.application.preparation import EnquiryPreparationHandler
@@ -41,6 +49,7 @@ from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.quotations import ApprovalAction, DecisionCommand, DecisionConflict
 from quotation_app.domain.tenancy import Role
 from quotation_app.persistence.channels import SqlNotificationStore
+from quotation_app.persistence.documents import SqlDeliveryStore
 from quotation_app.persistence.intake import SqlPreparationStore
 from quotation_app.persistence.jobs import SqlJobQueue
 from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
@@ -120,6 +129,12 @@ def running_worker(settings: Settings, engine: Engine) -> Iterator[JobRunner]:
                 JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(
                     SqlNotificationStore(engine),
                     {"simulated": SimulatedChannelNotifier(settings.storage_dir / "outbox")},
+                ),
+                JobKind.DELIVER_QUOTATION: QuotationDeliveryHandler(
+                    SqlDeliveryStore(engine),
+                    storage,
+                    ReportLabQuotationRenderer(),
+                    {"api": ApiPullDelivery()},
                 ),
             },
         )
@@ -450,3 +465,118 @@ def test_sessions_and_memberships_are_only_visible_to_their_owner(
         assert list(tenants) == ["Demo Industrial Supplies"]
     with pytest.raises(ProgrammingError), worker_engine.begin() as connection:
         connection.execute(text("SELECT * FROM user_sessions"))
+
+
+# --- M5: documents and delivery -------------------------------------------------------------
+
+
+def delivery_rows(owner_engine: Engine, tenant: UUID = INDUSTRIAL_TENANT) -> list[Any]:
+    with tenant_transaction(owner_engine, tenant) as connection:
+        return list(
+            connection.execute(
+                text(
+                    "SELECT d.status, d.channel, d.recipient, d.first_downloaded_at, "
+                    "doc.storage_key, doc.sha256 FROM quotation_deliveries d "
+                    "LEFT JOIN quotation_documents doc ON doc.id = d.document_id"
+                )
+            ).all()
+        )
+
+
+def test_approved_quotation_is_rendered_stored_and_offered_to_the_api_client(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    intake = make_client()
+    token = make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE)
+    customer = {"Authorization": f"Bearer {token}"}
+    enquiry_id = submit(intake, token, ENQUIRY)
+    drain(settings, worker_engine)
+    url = f"/api/v1/enquiries/{enquiry_id}/quotation"
+    assert intake.get(url, headers=customer).status_code == 404  # pending approval: invisible
+
+    manager = make_client()
+    headers = login(manager, MANAGER)
+    [listed] = manager.get(f"{base()}/quotations").json()
+    detail = manager.get(f"{base()}/quotations/{listed['quotation_id']}").json()
+    quotation_url = f"{base()}/quotations/{listed['quotation_id']}"
+    preview = manager.get(f"{quotation_url}/versions/1/preview.pdf")
+    assert preview.status_code == 200 and b"%PDF-" in preview.content[:8]
+    assert decide(manager, headers, detail, "approve").status_code == 200
+    drain(settings, worker_engine)
+
+    [row] = delivery_rows(owner_engine)
+    assert (row.status, row.channel) == ("available", "api")
+    assert row.recipient.startswith("api-key:")
+    stored = (settings.storage_dir / row.storage_key).read_bytes()
+    assert hashlib.sha256(stored).hexdigest() == row.sha256
+
+    issued = intake.get(url, headers=customer)
+    assert issued.status_code == 200, issued.text
+    assert issued.json()["total"] == "10450.38" and issued.json()["version"] == 1
+    pdf = intake.get(f"{url}.pdf", headers=customer)
+    assert pdf.status_code == 200 and pdf.content == stored
+    text_ = "".join(page.extract_text() for page in PdfReader(BytesIO(pdf.content)).pages)
+    assert "10450.38" in text_ and "CUST-42" in text_ and "PREVIEW" not in text_
+    [row] = delivery_rows(owner_engine)
+    assert row.first_downloaded_at is not None
+
+    overview = manager.get(f"{quotation_url}/delivery").json()
+    assert overview["document"]["sha256"] == row.sha256
+    assert overview["deliveries"][0]["first_downloaded_at"] is not None
+    assert manager.get(f"{quotation_url}/document.pdf").content == stored
+
+    drain(settings, worker_engine)  # nothing left to do; no second delivery or document
+    assert len(delivery_rows(owner_engine)) == 1
+    office_key = make_api_key(OFFICE_TENANT, Role.INTAKE_SERVICE)
+    office = {"Authorization": f"Bearer {office_key}"}
+    assert intake.get(url, headers=office).status_code == 404
+    assert delivery_rows(owner_engine, OFFICE_TENANT) == []
+
+
+def test_rejected_quotation_is_never_rendered_or_offered(
+    quoted: dict[str, Any],
+    make_client: Callable[[], TestClient],
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    manager = make_client()
+    response = decide(manager, login(manager, MANAGER), quoted, "reject", "Price too high")
+    assert response.status_code == 200
+    drain(settings, worker_engine)
+    assert delivery_rows(owner_engine) == []
+    quotation_url = f"{base()}/quotations/{quoted['summary']['quotation_id']}"
+    assert manager.get(f"{quotation_url}/document.pdf").status_code == 404
+
+
+def test_documents_are_append_only_and_delivery_updates_are_column_limited(
+    quoted: dict[str, Any],
+    make_client: Callable[[], TestClient],
+    settings: Settings,
+    runtime_engine: Engine,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    manager = make_client()
+    assert decide(manager, login(manager, MANAGER), quoted, "approve").status_code == 200
+    drain(settings, worker_engine)
+    assert len(delivery_rows(owner_engine)) == 1
+    for engine, statement in (
+        (runtime_engine, "UPDATE quotation_documents SET sha256 = 'x'"),
+        (worker_engine, "UPDATE quotation_documents SET sha256 = 'x'"),
+        (worker_engine, "DELETE FROM quotation_documents"),
+        (runtime_engine, "UPDATE quotation_deliveries SET status = 'sent'"),
+        (runtime_engine, "INSERT INTO quotation_deliveries (id) VALUES (gen_random_uuid())"),
+        (worker_engine, "UPDATE quotation_deliveries SET first_downloaded_at = now()"),
+        (worker_engine, "UPDATE quotation_deliveries SET recipient = 'attacker@x.test'"),
+    ):
+        with pytest.raises(ProgrammingError):  # no privilege for this table or column
+            with tenant_transaction(engine, INDUSTRIAL_TENANT) as connection:
+                connection.execute(text(statement))
+    with pytest.raises(DBAPIError, match="immutable"):  # even the owner, via the trigger
+        with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection:
+            connection.execute(text("DELETE FROM quotation_documents"))

@@ -37,7 +37,7 @@ Entry point: the `extract_requirements` job, queued atomically by preparation wh
 3. **match:** an ERP search per verified item. The interpreter may choose only among ERP candidates.
 4. **assess:** deterministic outcome with template questions or review reasons.
 5. **ready / clarify / review:** store the outcome in `workflow_runs` and update the enquiry status. Each step is checkpointed in PostgreSQL.
-A ready outcome also queues `draft_quotation` in the same transaction (M4). Not yet implemented: sending clarification questions (M5/M7).
+A ready outcome also queues `draft_quotation` in the same transaction (M4). Not yet implemented: sending clarification questions (with the email/Telegram channels, M7).
 
 ## Implemented M4 trace (drafting and approval)
 Entry points:
@@ -60,7 +60,19 @@ See [quotation approval](../features/quotation-approval.md).
 6. **Resume:** a resume job continues the pause only if it matches it (the task, or a newer version); otherwise it is ignored. Approve and reject end the run; request_revision pauses again for a revision.
 7. **Revision:** the sales revision is re-priced and stored as version N+1 (optimistic check) with a resume job. The graph then requests approval for it.
 
-Not yet implemented: PDF rendering and delivery of approved versions (M5), real channel adapters (M5/M7), and deadlines/escalation.
+Not yet implemented: real channel adapters (M7), and deadlines/escalation.
+
+## Implemented M5 trace (approved PDF and delivery)
+See [quotation delivery](../features/quotation-delivery.md).
+1. **approved** (graph step):
+   - Only if the version is the quotation's approved, current version.
+   - Insert one `quotation_deliveries` row (`pending`) for the enquiry's channel and sender, and queue `deliver_quotation`, in one transaction. Then end the run.
+2. **deliver_quotation:**
+   - Nothing to do if final. A leftover `sending` becomes `unknown` and is never resent.
+   - Get the document: reuse the stored one (hash re-checked), or check the approve decision for this exact version and hash, render deterministically, store it and record it.
+   - Compare-and-set `pending` -> `sending`, then call the channel adapter.
+   - Record `available`/`sent`, `failed` (with reason), `unknown`, or `pending` again for a retry (`failed` after the last attempt).
+3. **Customer (API channel):** `GET /api/v1/enquiries/{id}/quotation(.pdf)` returns only delivered approved versions and records the first download.
 
 ## Planned sales workflow
 

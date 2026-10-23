@@ -1,6 +1,7 @@
 """HTTP contract of the enquiry API, using the real router and services over in-memory fakes."""
 
 import base64
+import hashlib
 from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
@@ -22,11 +23,13 @@ BODY = {"text": "Please quote 50 industrial fans for Pune", "customer_reference"
 
 @pytest.fixture
 def client(
-    api_key_reader: Any, intake_store: Any, memory_storage: Any, now: datetime
+    api_key_reader: Any, intake_store: Any, memory_storage: Any, now: datetime, harness: Any
 ) -> Iterator[TestClient]:
     app = FastAPI()
     intake = EnquiryIntakeService(intake_store, memory_storage, clock=lambda: now)
-    app.include_router(build_enquiry_router(ApiKeyAuthenticator(api_key_reader), intake))
+    app.include_router(
+        build_enquiry_router(ApiKeyAuthenticator(api_key_reader), intake, harness.documents())
+    )
     with TestClient(app) as http:
         yield http
 
@@ -167,3 +170,45 @@ def test_storage_failure_is_503_and_nothing_is_accepted(
     assert response.status_code == 503
     assert "retry with the same Idempotency-Key" in response.json()["detail"]
     assert intake_store.receipts == {}
+
+
+def test_customers_see_only_an_issued_quotation(
+    client: TestClient,
+    make_headers: Any,
+    harness: Any,
+    industrial_tenant: UUID,
+    office_tenant: UUID,
+) -> None:
+    enquiry = harness.enquiry(("IND-FAN-450", "2", "each"))
+    harness.run_jobs()
+    headers = make_headers(industrial_tenant)
+    url = f"/api/v1/enquiries/{enquiry}/quotation"
+    waiting = client.get(url, headers=headers)
+    assert waiting.status_code == 404  # drafted but not approved: invisible to the customer
+    assert waiting.json()["detail"] == "No quotation has been issued for this enquiry yet"
+    assert client.get(f"{url}.pdf", headers=headers).status_code == 404
+
+    task = harness.pending_task(enquiry)
+    harness.approvals.decide("manager@industrial.example", harness.command(task))
+    harness.run_jobs()
+
+    issued = client.get(url, headers=headers)
+    assert issued.status_code == 200, issued.text
+    body = issued.json()
+    version = harness.db.versions[-1].view.content
+    assert body["version"] == 1 and body["total"] == version["total"]
+    assert body["quotation_number"].startswith("Q-") and body["currency"] == version["currency"]
+    assert set(body["lines"][0]) == {
+        "sku", "description", "quantity", "unit", "unit_price", "line_total"
+    }  # fmt: skip
+    assert body["document"]["download_path"] == f"{url}.pdf"
+
+    pdf = client.get(f"{url}.pdf", headers=headers)
+    assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf"
+    assert pdf.headers["cache-control"] == "no-store"
+    assert hashlib.sha256(pdf.content).hexdigest() == body["document"]["sha256"]
+    [(_, delivery)] = harness.db.delivery_rows.values()
+    assert delivery.first_downloaded_at is not None
+
+    assert client.get(url, headers=make_headers(office_tenant)).status_code == 404
+    assert client.get(url).status_code == 401

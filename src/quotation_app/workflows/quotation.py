@@ -11,6 +11,7 @@
                     the pause lives in the PostgreSQL checkpoint.
 - apply_decision:   read the recorded decision (the approval service already stored it).
 - await_revision:   pause until a sales operator stores a new version.
+- approved:         queue delivery of the approved version to the customer (M5), then end.
 
 Resume jobs carry what they answer (a task's decision or a new version). A job that does not
 match what the run is waiting for is stale and ignored, so a duplicate can never apply twice.
@@ -27,6 +28,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
 
 from quotation_app.application.pricing import QuotationPricingService
+from quotation_app.domain.documents import NoDeliveryAddress
 from quotation_app.domain.jobs import JobKind, PermanentJobError
 from quotation_app.domain.pricing import PricingRejected
 from quotation_app.domain.quotations import (
@@ -133,8 +135,18 @@ def build_quotation_graph(
         return {}
 
     def approved(state: QuotationState) -> QuotationState:
-        # Delivery of the approved version is M5; the run ends here for now.
-        store.finish(_tenant(state), UUID(state["run_id"]), "approved")
+        # Hand the approved version to the delivery outbox (rendering and sending happen in
+        # the deliver_quotation job, with its own retries), then end the run.
+        tenant_id, version = _tenant(state), state.get("version")
+        try:
+            queued = version is not None and store.queue_delivery(
+                tenant_id, UUID(state["quotation_id"]), version
+            )
+        except NoDeliveryAddress as error:
+            raise PermanentJobError(str(error)) from None
+        if not queued:
+            raise PermanentJobError("The approved version is not the quotation's current one")
+        store.finish(tenant_id, UUID(state["run_id"]), "approved")
         return {}
 
     def rejected(state: QuotationState) -> QuotationState:

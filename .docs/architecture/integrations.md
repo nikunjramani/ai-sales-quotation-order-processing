@@ -29,7 +29,7 @@ Maintain identities per tenant/channel; link customers across channels only thro
 Required operations: verify_event, normalize_event, send_message, upload_or_link_document, normalize_delivery_event.
 Capabilities include attachments, buttons, threading, message limits and permitted outbound initiation. Unsupported capability is explicit.
 Provider-specific reply windows, consent, template requirements and permissions are adapter policy inputs and must be verified at implementation.
-Retries preserve operation identity. Delivery status distinguishes pending, provider_accepted, delivered, failed and unknown.
+Retries preserve operation identity. Delivery status distinguishes pending, provider_accepted, delivered, failed and unknown. M5 implements quotation delivery with `pending`, `sending`, `available` (pull), `sent` (provider accepted), `failed` and `unknown` through the `DeliveryChannel` port ([quotation delivery](../features/quotation-delivery.md)); provider "delivered" receipts arrive with the first push channel.
 
 ## Manager approval adapters
 Manager approval is an additional capability, not automatically granted by general send/receive support. An approval adapter renders a common review packet, verifies callback/message provenance, resolves an enrolled internal identity and maps the interaction to the shared approval decision command.

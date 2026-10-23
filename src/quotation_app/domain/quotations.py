@@ -62,7 +62,8 @@ QUOTATION_STATUS_AFTER: Mapping[ApprovalAction, QuotationStatus] = {
 
 
 class ApprovalChannel(StrEnum):
-    """Manager approval channels. Real providers (email, Telegram) are added in M5/M7."""
+    """Manager approval channels. Real providers (email, Telegram...) are added as adapters;
+    see .docs/development/adding-channels.md."""
 
     SIMULATED = "simulated"
 

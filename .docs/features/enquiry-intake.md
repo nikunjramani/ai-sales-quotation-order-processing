@@ -1,5 +1,5 @@
 # Enquiry intake, job worker and attachment quarantine (M2)
-**Status and milestone:** implemented in M2 and verified locally against PostgreSQL. Only the API channel exists; email (M5) and Telegram (M7) will produce the same envelope. AI extraction of the enquiry text is M3.
+**Status and milestone:** implemented in M2 and verified locally against PostgreSQL. Only the API channel exists; email and Telegram (M7) will produce the same envelope. AI extraction of the enquiry text is M3.
 
 **Business purpose:** accept customer enquiries reliably. Nothing that was accepted may be lost, a retried request must not create a duplicate, slow work happens in the background, and unsafe files never reach later steps.
 

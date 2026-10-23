@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-23.
+Updated: 2026-10-23 (M5).
 
 ## Current state
 - **M0-M4 are COMPLETE** (local and CI), all on origin/main:
@@ -12,7 +12,12 @@ Updated: 2026-10-23.
   | M4 | 21f0ba5 | [39900219005](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39900219005) (`verify` and `portal` jobs) |
 
   For M3 the user could not install Ollama on the corporate VM, so it ships with the free rules interpreter.
-- **Next milestone: M5 (quotation delivery and email approval).** It needs the email provider/sandbox decision first.
+- **Current milestone: M5 (quotation documents and delivery).** It is implemented and verified locally, but **not yet committed**. Mark it complete only after CI passes on the pushed commit.
+- **User decisions (2026-10-23):**
+  - **Email approval is out of scope for now:** managers approve in the portal.
+  - Email and other providers must stay **easy to add**; see [adding channels](development/adding-channels.md).
+  - PDFs use the existing storage decision (local disk behind `ObjectStorage`, production storage at M8).
+  - This is recorded in [ADR 0015](adr/0015-quotation-documents-and-delivery.md); email approval and delivery move to M7.
 - **User decisions (2026-10-22):**
   - Free models now, with an easy provider swap later (ADR 0012).
   - A provider-independent login: dev sign-in now, OIDC later.
@@ -20,7 +25,7 @@ Updated: 2026-10-23.
   - No paid or live calls.
   - A GitHub Pages demo is an idea only (open decisions).
 - The user's `.vscode/settings.json` stays untracked; `.vscode/launch.json`, `tasks.json` and `stop-dev.ps1` (one-click "Run all" with stop-and-restart) are committed. `portal/node_modules` and `portal/dist` are ignored.
-- **Not built yet:** real ERP or messaging providers, PDF rendering/sending, orders and deployment.
+- **Not built yet:** real ERP or messaging providers (email, Telegram), orders, OIDC and deployment.
 
 ## Implemented
 - **M0-M3:** see [setup](development/setup.md), [quotation pricing](features/quotation-pricing.md), [enquiry intake](features/enquiry-intake.md) and [enquiry extraction](features/enquiry-extraction.md).
@@ -49,6 +54,26 @@ Updated: 2026-10-23.
     - narrow `app.subject` / session RLS policies.
   - **CI:** a new `portal` job (npm ci, typecheck, test, build).
 
+- **M5 (uncommitted):** see [quotation delivery](features/quotation-delivery.md) and [ADR 0015](adr/0015-quotation-documents-and-delivery.md).
+  - **Approved step:** only the approved current version gets a `quotation_deliveries` outbox row plus a `deliver_quotation` job, in one transaction. The recipient is always the enquiry's sender (for the API, the submitting key).
+  - **PDF:**
+    - ReportLab 5.0.1 renders it; it is deterministic, escapes customer text, refuses unsupported characters and leaves out internal evidence.
+    - It is stored once under `tenants/<t>/documents/<id>` (the ID derives from the PDF hash).
+    - It is recorded in the append-only `quotation_documents` table, and its hash is re-checked on every read.
+  - **Delivery statuses:** `pending`, `sending`, `available`, `sent`, `failed` (with reason), `unknown` (never resent automatically). `pending` -> `sending` is a compare-and-set.
+  - **API pull channel:** `GET /api/v1/enquiries/{id}/quotation(.pdf)` with the client's API key. Only delivered approved versions are visible, and the first download is recorded.
+  - **Portal:**
+    - preview PDF (marked "not an offer");
+    - approved PDF download;
+    - delivery status with errors, polled while in progress (`DocumentPanel`, `DeliveryList`, `deliveryService`, `useQuotationDocuments`).
+  - **Migration 0006:** documents and deliveries, forced RLS, column grants (worker: progress columns; API: `first_downloaded_at`). It downgrades cleanly; PDF files stay on disk.
+  - **Extension points** for email and Telegram: the `DeliveryChannel` and `ApprovalNotifier` adapters plus an inbound route. No business code changes ([adding channels](development/adding-channels.md)).
+  - **Dependencies:**
+    - `reportlab>=5.0.1,<5.1`;
+    - a `pillow>=12.3,<13` constraint (13.0.0 was only 7 days old);
+    - dev `types-reportlab` 5.0.0.20261008.
+    - The architecture test allows `reportlab` in adapters only.
+
 ## Decisions recorded
 - **ADR 0013:**
   - Sessions follow the backend-for-frontend pattern, and identity providers stay swappable.
@@ -57,7 +82,37 @@ Updated: 2026-10-23.
   - Graph pauses use interrupts plus resume jobs.
   - Channel enrollment and references work as described in ADR 0013.
   - ADR 0007 is now partly implemented.
-- **Earlier decisions stand:** ADRs 0010-0012, negotiation deferred (0008), every negotiated revision needs manager approval, and direct email approval is confirmed.
+- **ADR 0015 (M5):**
+  - Only approved versions get documents, and the documents are hash-checked.
+  - The delivery outbox reports outcomes honestly: there are no automatic resends after uncertainty.
+  - Delivery goes to the enquiry's sender.
+  - Email approval is deferred to M7 by the user.
+- **Earlier decisions stand:** ADRs 0010-0012, negotiation deferred (0008), every negotiated revision needs manager approval, and direct email approval stays a requirement (now M7).
+
+## Verification (M5, 2026-10-23)
+- **Static checks:** Ruff lint/format and strict mypy (148 files) pass.
+- **Offline pytest:** 296 unit passed, 39 integration skipped.
+- **`check_database.py --cycle`:**
+  - Both databases are at `0006_documents`, and `alembic check` finds no drift.
+  - 335 passed; then downgrade to empty, upgrade, and 335 passed again.
+- **Round trip with M5 data present:**
+  - Going down to 0005 removed both tables and the one `deliver_quotation` job, and kept the other 5 jobs and the approved quotation.
+  - Upgrading again was clean.
+- **Real bug found by the PostgreSQL run and fixed:** the first recipient rule used `sender_external_id`, which for API enquiries is the customer's reference label. `delivery_recipient` now picks the submitting connection for the API, and has a unit test.
+- **Portal:** typecheck passes; 36 tests pass (architecture rules included); the build is 375 kB JS (117 kB gzip).
+- **Live run** (uvicorn serving `/portal/`, `python -m quotation_app.worker --once` processes, httpx, `quotation_dev`):
+  - **Before approval:** the customer got 404, the preview was marked, and the approved PDF gave 404.
+  - **After approval and one worker pass:**
+    - The delivery was `api available`.
+    - The customer JSON showed v1 at 10450.38 INR.
+    - The PDF's SHA-256 matched, it contained the total and reference and no preview mark, and it was identical to the staff download.
+  - **Download tracking:** the first download was recorded once.
+  - **Refusals:** the other tenant's key got 404, and no key got 401.
+  - **Repeat runs:** an extra worker pass created nothing new.
+  - **Logs:** no API keys appeared in the logs, and both temporary keys were revoked.
+- **Not run:**
+  - The portal was not clicked through in a real browser (it was unit-tested and built, and `/portal/` returned 200).
+  - No real push channel exists, so push outcomes are tested with fakes only.
 
 ## Verification (M4, 2026-10-22/23)
 - **Static checks:** Ruff lint/format and strict mypy (134 files) pass.
@@ -84,17 +139,21 @@ Updated: 2026-10-23.
 ## Known gaps (tracked)
 - Dev login only; an OIDC adapter is needed before any non-development deployment.
 - No approval deadlines, escalation, delegation or multi-level policy, and no quote validity date (open decisions).
-- Approved versions are not yet rendered or sent (M5). Only the simulated channel exists (email M5, Telegram M7).
+- **M5 gaps:**
+  - PDFs use built-in fonts (Western European text only; other characters fail visibly).
+  - There is no resend action for `failed`/`unknown` deliveries.
+  - The PDF has no letterhead, terms or validity date.
+  - Only API pull delivery exists.
+- Only the simulated manager channel exists; email (deferred by the user) and Telegram are M7.
 - Enquiry exceptions are listed in the portal but cannot be edited or answered there yet. Clarification questions are still not sent.
 - Carried over: no OCR, no malware scanner, local storage only, no dead-job view.
 
 ## Next task
-1. Optionally open the portal in a browser:
+1. With user authorization, commit M5 and push. Confirm both CI jobs pass, then mark M5 complete in the roadmap, ADR 0015/README, README and this handoff.
+2. Optionally open the portal in a browser (use "Run all" in VS Code):
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
    - Follow [setup](development/setup.md#approvals-and-portal-m4).
-2. M5 (quotation delivery and email approval):
-   - PDF rendering of the approved version, object storage and an outbox dispatcher;
-   - a real email sandbox and verified direct-reply approval through `ChannelActionService`.
-   - **Needs a decision first:** the email provider/sandbox (open decisions).
+3. M6 (orders): customer acceptance of the delivered version, offer expiry/withdrawal rules, price/stock revalidation, ERP order creation with reconciliation.
+   - **Needs decisions first:** customer acceptance verification, quote validity and reservations (open decisions).
 - Update this handoff in every change; never mark milestones complete without evidence.

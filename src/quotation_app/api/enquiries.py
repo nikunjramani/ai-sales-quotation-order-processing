@@ -4,12 +4,18 @@ POST /api/v1/enquiries  accepts an enquiry (202), or returns the original result
                         with the same Idempotency-Key (200). A different payload under a used key
                         is rejected (409). 202 is sent only after the database commit.
 GET  /api/v1/enquiries/{id}  returns status. Other tenants' IDs return 404, like unknown IDs.
+GET  /api/v1/enquiries/{id}/quotation      the approved quotation issued for it (404 until then)
+GET  /api/v1/enquiries/{id}/quotation.pdf  its PDF; the first download is recorded
+
+Only quotations that a manager approved and the delivery job made available are visible here;
+drafts, pending and rejected versions never are.
 
 The tenant always comes from the API key, never from the request body.
 """
 
 import base64
 import binascii
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated
@@ -20,22 +26,28 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 
+from quotation_app.api.pdf import integrity_failure, pdf_response
 from quotation_app.application.api_keys import ApiKeyAuthenticator, AuthenticationFailed
+from quotation_app.application.documents import OfferedQuotation, QuotationDocumentService
 from quotation_app.application.intake import EnquiryIntakeService
+from quotation_app.domain.documents import DocumentIntegrityError, DocumentNotAvailable
 from quotation_app.domain.intake import (
     MAX_ATTACHMENT_BYTES,
     MAX_ATTACHMENTS,
     MAX_TEXT_CHARACTERS,
     MAX_TOTAL_ATTACHMENT_BYTES,
     AttachmentUpload,
+    Channel,
     EnquirySubmission,
 )
 from quotation_app.domain.tenancy import PermissionDenied, TenantContext
 from quotation_app.ports.intake import EnquiryView, IdempotencyConflict
+from quotation_app.ports.storage import ObjectNotFound
 
 # Base64 is about 4/3 of the binary size; allow headroom for JSON and text.
 MAX_REQUEST_BYTES = MAX_TOTAL_ATTACHMENT_BYTES * 4 // 3 + MAX_TEXT_CHARACTERS * 4 + 64 * 1024
 _UNAVAILABLE = "Temporarily unavailable; retry with the same Idempotency-Key"
+logger = logging.getLogger(__name__)
 
 
 class AttachmentIn(BaseModel):
@@ -93,6 +105,68 @@ class EnquiryOut(BaseModel):
     extraction: ExtractionOut | None = None
 
 
+class QuotedLineOut(BaseModel):
+    sku: str
+    description: str
+    quantity: str
+    unit: str
+    unit_price: str
+    line_total: str
+
+
+class QuotationDocumentOut(BaseModel):
+    filename: str
+    sha256: str
+    size_bytes: int
+    download_path: str
+
+
+class IssuedQuotationOut(BaseModel):
+    """Customer view of an approved quotation: amounts exactly as approved, no internal data."""
+
+    quotation_number: str
+    version: int
+    currency: str
+    lines: list[QuotedLineOut]
+    subtotal: str
+    tax: str
+    total: str
+    issued_at: datetime | None
+    document: QuotationDocumentOut
+
+
+def _issued(enquiry_id: UUID, offer: OfferedQuotation) -> IssuedQuotationOut:
+    content = offer.content
+    lines = content["lines"]
+    assert isinstance(lines, list)
+    return IssuedQuotationOut(
+        quotation_number=offer.number,
+        version=offer.document.version,
+        currency=str(content["currency"]),
+        lines=[
+            QuotedLineOut(
+                sku=str(line["sku"]),
+                description=str(line["description"]),
+                quantity=str(line["quantity"]),
+                unit=str(line["unit"]),
+                unit_price=str(line["unit_price"]),
+                line_total=str(line["line_total"]),
+            )
+            for line in lines
+        ],
+        subtotal=str(content["subtotal"]),
+        tax=str(content["tax"]),
+        total=str(content["total"]),
+        issued_at=offer.delivery.delivered_at,
+        document=QuotationDocumentOut(
+            filename=offer.filename,
+            sha256=offer.document.sha256,
+            size_bytes=offer.document.size_bytes,
+            download_path=f"/api/v1/enquiries/{enquiry_id}/quotation.pdf",
+        ),
+    )
+
+
 def _to_submission(body: EnquiryIn) -> EnquirySubmission:
     uploads = []
     for item in body.attachments:
@@ -138,7 +212,9 @@ def _view(enquiry: EnquiryView) -> EnquiryOut:
 
 
 def build_enquiry_router(
-    authenticator: ApiKeyAuthenticator, intake: EnquiryIntakeService
+    authenticator: ApiKeyAuthenticator,
+    intake: EnquiryIntakeService,
+    documents: QuotationDocumentService,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/enquiries", tags=["enquiries"])
     bearer = HTTPBearer(auto_error=False, description="API key: qk_<id>_<secret>")
@@ -171,6 +247,11 @@ def build_enquiry_router(
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted") from None
         except IdempotencyConflict as error:
             raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from None
+        except DocumentNotAvailable as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from None
+        except (DocumentIntegrityError, ObjectNotFound):
+            logger.exception("Stored quotation document failed its integrity check")
+            raise integrity_failure() from None
         except ValueError as error:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
         except (SQLAlchemyError, OSError):
@@ -217,5 +298,24 @@ def build_enquiry_router(
         if enquiry is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Enquiry not found")
         return _view(enquiry)
+
+    @router.get("/{enquiry_id}/quotation", response_model=IssuedQuotationOut, responses={404: {}})
+    def issued_quotation(
+        enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
+    ) -> IssuedQuotationOut:
+        offer = guarded(lambda: documents.offered(context, enquiry_id, Channel.API.value))
+        return _issued(enquiry_id, offer)
+
+    @router.get(
+        "/{enquiry_id}/quotation.pdf",
+        response_class=Response,
+        responses={200: {"content": {"application/pdf": {}}}, 404: {}},
+    )
+    def issued_quotation_pdf(
+        enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
+    ) -> Response:
+        return pdf_response(
+            guarded(lambda: documents.download(context, enquiry_id, Channel.API.value))
+        )
 
     return router

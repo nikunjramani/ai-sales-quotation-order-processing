@@ -5,7 +5,7 @@ These are implementation gates, not reasons to block documentation.
 |---|---|---|
 | First business and goods category | Synthetic B2B industrial products | Before real ERP mapping in M7 |
 | First real ERP | Choose from pilot business's existing system | M7; inspect API, sandbox, idempotency, stock semantics |
-| Email provider | One sandbox integration first | M5 |
+| Email provider | Deferred by the user (2026-10-23): managers approve in the portal for now; email is added as adapters ([adding channels](../development/adding-channels.md)). One sandbox integration first | M7 |
 | Model provider/model | Decided for now (user, 2026-10-22): free first. Default `rules` (offline, no AI); `ollama` local model adapter ready once installed (this VM: 16 GB RAM, no GPU, so small models only; installation may need IT approval). Paid providers (e.g. Claude) can be added through the factory later and compared with the evaluation dataset | Before pilot; re-evaluate with real enquiry samples |
 | Public demo portal | User idea (2026-10-22), not planned yet: GitHub Pages hosts static files only, so either a static demo with recorded sample data, or Pages plus a separately hosted API/database/worker; never put keys in a public page | The React portal exists (M4); decide before publishing anything |
 | Identity provider | Decided for now (user, 2026-10-22): provider-independent login; free dev sign-in (synthetic members, refused in production) implemented in M4; an OIDC adapter (Keycloak, Entra, Google, Auth0...) plugs in later (ADR 0013) | Before any non-development deployment |
@@ -17,13 +17,16 @@ These are implementation gates, not reasons to block documentation.
 | Channel order | Email + Telegram first, Meta channels later | Revisit if business priority differs |
 | Approval thresholds/delegation | M4: every quote needs one approver who did not create the version; no deadlines, escalation, delegation or multi-level policy yet. Never auto-approve on timeout | Before pilot |
 | Quote validity | M4 versions have no expiry/valid-until date; approval channel references expire after 24 h | M6 offer lifecycle |
-| Direct email approval verification | User selected direct reply; define trusted inbound evidence and task/version correlation | Before email decision implementation |
+| Direct email approval verification | User selected direct reply (still required); define trusted inbound evidence and task/version correlation | Before email approval implementation (M7) |
 | Manager commercial-command scope | Stock enquiries, price changes and discounts requested; quotation vs price-list/catalogue scope needs explicit resolution | M11; never assume global ERP write authority |
 | Approval enrollment/context | Define proof-of-control, allowed private/shared contexts, revocation and additional verification | M4 contract; before each real approval connector |
 | Negotiation commercial policy | No assumed discounts, rounds or old-offer validity rules | M11; see negotiation plan |
 | Attachment/OCR support | M2 accepts PDF, plain text, PNG and JPEG up to 5 MiB, with magic-byte, encrypted and active-PDF checks. OCR engine, languages and scanned-PDF handling are still open | M3 before claiming extraction support |
 | Malware scanning | Not implemented; M2 inspection is not antivirus. Choose a scanner/sandbox (e.g. ClamAV or a cloud service) | Before accepting real customer files (M8 gate) |
-| Production object storage | Local disk behind the ObjectStorage port; choose S3-compatible/cloud storage with encryption and retention | Deployment (M8) |
+| Production object storage | Local disk behind the ObjectStorage port (attachments and, since M5, quotation PDFs); choose S3-compatible/cloud storage with encryption and retention | Deployment (M8) |
+| PDF fonts and languages | M5 uses built-in PDF fonts (Western European text only); other characters fail delivery visibly. Embed a Unicode font (e.g. Noto) for the pilot's languages | Before real customer data |
+| Resending failed/unknown deliveries | M5 records `failed`/`unknown` with the reason but has no resend or "mark delivered" action; define who may resend and how duplicates are checked | Before pilot (with the first push channel) |
+| Quotation PDF content | Synthetic layout: business name, lines, totals, reference. Pilot needs letterhead, addresses, tax IDs, terms and validity date | M6 / pilot business |
 | Offer lifecycle | Define expiry, withdrawal/replacement, policy-change revalidation and partial acceptance handling; never silently accept different terms | M6; pilot business validates policy |
 | Human handoff | Define pause owner, authorized resume and post-order change/cancellation escalation | M4/M6 |
 

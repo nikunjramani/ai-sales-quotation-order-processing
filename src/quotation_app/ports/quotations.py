@@ -125,6 +125,13 @@ class QuotationWorkflowStore(Protocol):
 
     def decision(self, tenant_id: UUID, decision_id: UUID) -> RecordedDecision | None: ...
 
+    def queue_delivery(self, tenant_id: UUID, quotation_id: UUID, version: int) -> bool:
+        """Queue delivery of the approved version to the customer (outbox row + job), once.
+
+        Returns False if this version is not the quotation's approved current version.
+        """
+        ...
+
     def finish(self, tenant_id: UUID, run_id: UUID, status: str) -> None: ...
 
     def lock_run(self, run_id: UUID) -> "RunLock": ...

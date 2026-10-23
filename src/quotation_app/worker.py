@@ -10,10 +10,13 @@ import logging
 import time
 
 from quotation_app.adapters.channels.simulated import SimulatedChannelNotifier
+from quotation_app.adapters.delivery.api import ApiPullDelivery
+from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.documents.text import PdfAndTextReader
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.factory import build_interpreter
 from quotation_app.adapters.storage.local import LocalObjectStorage
+from quotation_app.application.delivery import QuotationDeliveryHandler
 from quotation_app.application.jobs import JobRunner
 from quotation_app.application.notifications import ApprovalNotificationHandler
 from quotation_app.application.preparation import EnquiryPreparationHandler
@@ -22,6 +25,7 @@ from quotation_app.config import Settings
 from quotation_app.domain.jobs import JobKind
 from quotation_app.persistence.channels import SqlNotificationStore
 from quotation_app.persistence.database import build_engine
+from quotation_app.persistence.documents import SqlDeliveryStore
 from quotation_app.persistence.intake import SqlPreparationStore
 from quotation_app.persistence.jobs import SqlJobQueue
 from quotation_app.persistence.quotations import SqlQuotationWorkflowStore
@@ -67,6 +71,14 @@ def main() -> None:
         if settings.simulated_channel_secret is not None
         else {}
     )
+    # Customer delivery channels, by the channel the enquiry arrived on. Email, Telegram and
+    # others are added here as adapters (see .docs/development/adding-channels.md).
+    deliveries = QuotationDeliveryHandler(
+        SqlDeliveryStore(engine),
+        storage,
+        ReportLabQuotationRenderer(),
+        {channel.channel: channel for channel in (ApiPullDelivery(),)},
+    )
     logging.info("Enquiry interpreter: %s", settings.model_provider)
     try:
         with open_checkpointer(settings.worker_url()) as checkpointer:
@@ -92,6 +104,7 @@ def main() -> None:
                     JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(
                         SqlNotificationStore(engine), notifiers
                     ),
+                    JobKind.DELIVER_QUOTATION: deliveries,
                 },
             )
             while True:

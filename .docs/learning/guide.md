@@ -49,10 +49,15 @@ Learning must explain the real architecture; it must not weaken release requirem
 | Row lock | The database lets one transaction at a time change a row | Two managers clicking at once produce one decision |
 | Channel binding | Proof that a messaging account belongs to a manager | A forwarded approval message does not work for someone else |
 | Webhook signature | The provider signs each callback with a shared secret | A faked or altered event is rejected before reading it |
+| Deterministic rendering | The same input always produces byte-identical output | A retried PDF job stores exactly the same file, with the same fingerprint |
+| Compare-and-set | Change a value only if it still has the expected old value | Only one worker can move a delivery from pending to sending |
+| Pull vs push delivery | The customer fetches the document, or we send it to them | API clients download their PDF; email (later) sends it |
+| Unknown outcome | The provider may or may not have received it (e.g. a timeout) | Recorded as unknown and not resent, so the customer never gets duplicates |
 
 M1 trace: run `uv run python scripts/demo_quotation.py`. Every price, unit and stock number comes from the ERP; the calculator only does arithmetic and checks rules. No AI is involved yet.
 M3 trace: run `uv run python scripts/evaluate_extraction.py`, then submit "Please quote 50 exhaust fans" and "Please quote 2 x IND-FAN-450" through the API and run the worker - one asks which fan size, the other is ready for pricing.
 M4 trace: follow [approvals and portal](../development/setup.md#approvals-and-portal-m4). Prices come from the calculator and the ERP; the person decides; the workflow only waits and continues.
+M5 trace: follow [quotation PDFs and delivery](../development/setup.md#quotation-pdfs-and-delivery-m5). Approve in the portal, run the worker, then fetch the PDF as the customer's system and compare its total and fingerprint with the portal.
 M2 trace: follow [enquiry intake in the setup guide](../development/setup.md#enquiry-intake-m2) - submit twice with the same Idempotency-Key, run the worker, and watch the status and the files move from quarantine to clean.
 
 Teaching sequence: business scenario -> term -> minimal example -> production implementation -> trace inputs/outputs -> test failure -> explain tradeoffs.

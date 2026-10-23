@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     database_url: SecretStr
     migration_database_url: SecretStr | None = None
     worker_database_url: SecretStr | None = None
-    # Private attachment storage root; tenant folders and quarantine live underneath it.
+    # Private storage root: tenant folders with quarantined/clean attachments and quotation PDFs.
     storage_dir: Path = Path("var/storage")
     # Enquiry interpretation. "rules" is free and offline (no AI); "ollama" uses a free local
     # model. Adding a provider: see adapters/interpreters/factory.py.

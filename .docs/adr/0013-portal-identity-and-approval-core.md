@@ -41,7 +41,7 @@ M4 needs people (managers, sales operators) to sign in, review exact quotation c
 - Enrollment: a signed-in approver gets a one-time 10-minute code and sends it from the account, as proof of control. That creates a revocable binding of tenant, person, connection and external user.
 - Review packets go only to active bindings of current approvers. Each carries an opaque, single-use, 24-hour reference bound to one task and one binding.
 - Before any processing, inbound events must have a valid provider signature (HMAC-SHA256 for the simulated provider). The reference must belong to the same account and connection, so forwarded messages fail.
-- Only a simulated provider exists (outbox files plus signed webhook). Real providers are M5/M7 adapters behind the same `ApprovalNotifier` port and `ChannelActionService`.
+- Only a simulated provider exists (outbox files plus signed webhook). Real providers are M7 adapters behind the same `ApprovalNotifier` port and `ChannelActionService` (email approval was moved out of M5 by the user; [ADR 0015](0015-quotation-documents-and-delivery.md)).
 
 ## Alternatives
 - Tokens in browser storage: readable by injected scripts. Rejected.

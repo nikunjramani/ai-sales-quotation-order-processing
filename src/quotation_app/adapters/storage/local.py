@@ -1,8 +1,8 @@
-"""Private attachment storage on local disk (development and tests).
+"""Private object storage on local disk (development and tests): attachments and quotation PDFs.
 
-Only keys of the exact form tenants/<uuid>/<quarantine|clean>/<uuid> are accepted, so no key can
-point outside the storage root. Writes go to a temporary file first and are then renamed, so a
-crash never leaves a half-written attachment under its real name.
+Only keys of the exact form tenants/<uuid>/<quarantine|clean|documents>/<uuid> are accepted, so
+no key can point outside the storage root. Writes go to a temporary file first and are then
+renamed, so a crash never leaves a half-written file under its real name.
 """
 
 import os
@@ -13,7 +13,7 @@ from pathlib import Path
 from quotation_app.ports.storage import ObjectNotFound
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-_KEY = re.compile(rf"tenants/{_UUID}/(quarantine|clean)/{_UUID}")
+_KEY = re.compile(rf"tenants/{_UUID}/(quarantine|clean|documents)/{_UUID}")
 
 
 class LocalObjectStorage:

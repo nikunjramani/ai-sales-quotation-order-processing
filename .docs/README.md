@@ -1,5 +1,5 @@
 # Documentation index
-Status 2026-10-22: M0-M2 are complete (local and CI). M3 (requirement extraction) is implemented and verified locally; CI pending until pushed. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
+Status 2026-10-23: M0-M4 are complete (local and CI). M5 (approved quotation PDFs and delivery) is implemented and verified locally; CI pending until pushed. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)
@@ -29,6 +29,8 @@ Status 2026-10-22: M0-M2 are complete (local and CI). M3 (requirement extraction
 - [Enquiry intake, job worker and attachment quarantine (M2)](features/enquiry-intake.md)
 - [Enquiry extraction workflow with swappable models (M3)](features/enquiry-extraction.md)
 - [Quotation drafting, approval and the portal (M4)](features/quotation-approval.md)
+- [Quotation PDFs and delivery (M5)](features/quotation-delivery.md)
+- [Adding a channel (email, Telegram...)](development/adding-channels.md)
 - [Documentation policy and templates](development/documentation-policy.md)
 - [Testing and evaluation](development/testing.md)
 - [Security and privacy](operations/security.md)
