@@ -16,6 +16,7 @@
 - Do not commit secrets or real customer information. Use synthetic fixtures.
 - Never silently replace failed integrations with fabricated successful results.
 - Use existing authorization; do not publish, send real messages, or deploy merely because a plan describes doing so.
+- Never commit or push to `main` (user instruction, 2026-10-23). Work on a new branch created from the latest `main`, push that branch, and open a pull request to `main`; merging is the user's decision. This includes documentation-only follow-ups such as recording CI evidence.
 - Do not spawn additional agents unless the user or applicable instructions explicitly authorize delegation.
 - Preserve unrelated user changes. Review diffs and run checks appropriate to the actual change.
 - No required safeguard may be omitted because this is a learning project. Record deferrals, dependencies, and release gates.
