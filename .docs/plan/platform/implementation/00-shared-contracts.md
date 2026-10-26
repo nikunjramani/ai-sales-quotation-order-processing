@@ -80,31 +80,44 @@ This follows the existing layers enforced by `tests/unit/test_architecture.py`: 
 
 ## 3. The Provider contract
 ```python
-ProviderFactory = Callable[[ProviderEnvironment], Provider]   # entry point target; the environment
+ProviderFactory = Callable[[ProviderEnvironment], Provider]  # entry point target; the environment
 # carries generic dependencies (storage folder, engines/stores, clock), never provider-named settings
 
+
 class Provider(Protocol):
-    key: str                       # unique: "telegram", "web_chat", "api", "local_catalogue" …
+    key: str  # unique: "telegram", "web_chat", "api", "local_catalogue" …
     display_name: str
     purposes: frozenset[Purpose]
     capabilities: Capabilities
-    config_model: type             # Pydantic; the portal renders the business form from its JSON schema
-    platform_config_model: type | None  # company-level settings (our Twilio master account, Meta app …)
-    dev_only: bool                 # the registry skips dev-only providers in production (e.g. simulated)
+    config_model: type  # Pydantic; the portal renders the business form from its JSON schema
+    platform_config_model: (
+        type | None
+    )  # company-level settings (our Twilio master account, Meta app …)
+    dev_only: bool  # the registry skips dev-only providers in production (e.g. simulated)
 
     # lifecycle
     def provision(self, conn, secrets) -> ProvisionResult: ...
-    def resume(self, conn, secrets, action_id: str, submission: Mapping[str, object]) -> ProvisionResult: ...
+    def resume(
+        self, conn, secrets, action_id: str, submission: Mapping[str, object]
+    ) -> ProvisionResult: ...
     def deprovision(self, conn, secrets) -> None: ...
     def test(self, conn, secrets) -> TestResult: ...
     # inbound
-    def handshake(self, conn, secrets, request: InboundRequest) -> HandshakeResponse | None: ...  # e.g. GET challenge
-    def verify_inbound(self, conn, secrets, request: InboundRequest) -> None: ...     # raises InboundRejected
-    def verify_platform_inbound(self, secrets, request: InboundRequest) -> None: ...  # platform route (one webhook per app)
-    def routing_keys(self, request: InboundRequest) -> list[str]: ...                 # after platform verification
+    def handshake(
+        self, conn, secrets, request: InboundRequest
+    ) -> HandshakeResponse | None: ...  # e.g. GET challenge
+    def verify_inbound(
+        self, conn, secrets, request: InboundRequest
+    ) -> None: ...  # raises InboundRejected
+    def verify_platform_inbound(
+        self, secrets, request: InboundRequest
+    ) -> None: ...  # platform route (one webhook per app)
+    def routing_keys(self, request: InboundRequest) -> list[str]: ...  # after platform verification
     def parse_inbound(self, conn, request: InboundRequest) -> list[InboundEvent]: ...
     # outbound
-    def send(self, conn, secrets, message: RenderedMessage) -> SendReceipt: ...     # raises SendRejected / SendUncertain
+    def send(
+        self, conn, secrets, message: RenderedMessage
+    ) -> SendReceipt: ...  # raises SendRejected / SendUncertain
     # data purposes (optional)
     def catalogue_reader(self, conn, secrets) -> ErpReader: ...
     def order_writer(self, conn, secrets) -> ErpWriter: ...

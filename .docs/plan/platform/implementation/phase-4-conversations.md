@@ -138,12 +138,14 @@ Hook providers (phase 5) call the same `route` from the `process_inbound` job; t
 ```python
 FOLLOW_UP_WINDOW = timedelta(days=7)
 
+
 @dataclass(frozen=True)
 class OpenEnquiry:
     enquiry_id: UUID
     status: EnquiryStatus
-    last_question_at: datetime | None   # updated_at of the latest extraction round that asked
+    last_question_at: datetime | None  # updated_at of the latest extraction round that asked
     has_quotation: bool
+
 
 def follow_up_target(candidates: Sequence[OpenEnquiry], now: datetime) -> UUID | None:
     """Agreed rules: only needs_clarification, no quotation, last question < 7 days, newest wins."""
@@ -163,24 +165,29 @@ def follow_up_target(candidates: Sequence[OpenEnquiry], now: datetime) -> UUID |
 ```python
 @dataclass(frozen=True)
 class CustomerText:
-    index: int            # 1-based order in the enquiry
+    index: int  # 1-based order in the enquiry
     text: str
     received_at: datetime
 
+
 @dataclass(frozen=True)
-class OpenItem:           # from the previous round: verified item still missing quantity/unit
+class OpenItem:  # from the previous round: verified item still missing quantity/unit
     source_quote: str
     product_text: str
     sku: str
-    asked: str            # our fixed question text (trusted, ours)
+    asked: str  # our fixed question text (trusted, ours)
+
 
 @dataclass(frozen=True)
 class EnquiryTranscript:
     messages: tuple[CustomerText, ...]
     open_items: tuple[OpenItem, ...] = ()
 
+
 class EnquiryInterpreter(Protocol):
-    def extract(self, transcript: EnquiryTranscript, documents: Sequence[DocumentText]) -> ExtractedRequirements: ...
+    def extract(
+        self, transcript: EnquiryTranscript, documents: Sequence[DocumentText]
+    ) -> ExtractedRequirements: ...
     def choose_product(self, item: RequestedItem, candidates: Sequence[Product]) -> str | None: ...
 ```
 **Domain change** (`domain/requirements.py`):
@@ -273,18 +280,28 @@ Tests: `tests/unit/domain/test_conversations.py` (every agreed rule: no referenc
 - `ports/contacts.py`: `ContactReader` (portal lists), `ContactMerger` (only after D13).
 - `ports/conversations.py`:
 ```python
-class ConversationUnit(Protocol):            # one locked transaction
-    conversation_id: UUID; contact_id: UUID; identity: ContactIdentity
+class ConversationUnit(Protocol):  # one locked transaction
+    conversation_id: UUID
+    contact_id: UUID
+    identity: ContactIdentity
+
     def open_enquiries(self) -> list[OpenEnquiry]: ...
     def append_inbound(self, event: StoredEvent, enquiry_id: UUID | None) -> MessageRef: ...
     def reopen_enquiry(self, enquiry_id: UUID, attachments: Sequence[AttachmentRecord]) -> bool: ...
     def create_enquiry(self, event: StoredEvent, enquiry_id: UUID) -> None: ...
-    def queue_message(self, template: TemplateKey, params: Mapping[str, object], key: str, enquiry_id: UUID | None) -> None: ...
+    def queue_message(
+        self, template: TemplateKey, params: Mapping[str, object], key: str, enquiry_id: UUID | None
+    ) -> None: ...
+
 
 class ConversationStore(Protocol):
-    def receive(self, event: StoredEvent) -> AbstractContextManager[ReceiveResult]: ...
+    def receive(self, event: StoredEvent) -> AbstractContextManager[ReceiveResult]:
+        ...
         # inserts the inbox event; yields Duplicate(receipt) or a ConversationUnit (locked)
-    def find_receipt(self, tenant_id: UUID, connection_id: UUID, provider_event_id: str) -> Receipt | None: ...
+
+    def find_receipt(
+        self, tenant_id: UUID, connection_id: UUID, provider_event_id: str
+    ) -> Receipt | None: ...
 ```
 - `ports/interpretation.py`: transcript types (6.4). `ports/workflow.py`: `EnquiryContent` gains `messages`, `open_items`; `start_run(..., round: int = 1)`.
 - `ports/customer_actions.py` (C5): `CustomerActionStore.create_refs(...)`, `find(token_sha256)`, `consume(ref_id, response_id)`.
@@ -353,8 +370,14 @@ Tests: unit per trigger; "opted out → failed with reason, nothing sent"; idemp
 ### WI-10 Customer actions: `application/customer_actions.py` (C5)
 ```python
 class CustomerActionService:
-    def act(self, tenant_id: UUID, token: str, action: ResponseAction, reason: str | None,
-            sender: ContactIdentityRef | None) -> tuple[RecordedResponse, bool]:
+    def act(
+        self,
+        tenant_id: UUID,
+        token: str,
+        action: ResponseAction,
+        reason: str | None,
+        sender: ContactIdentityRef | None,
+    ) -> tuple[RecordedResponse, bool]:
         """sender is None only for the secure-link page (Q1). Raises CustomerActionRejected."""
 ```
 - `QuotationResponseService` gains `respond_by_reference(tenant_id, ref: CustomerActionRef, action, reason)`; it shares the private core with `respond` (offer, open check, `_acceptance`, record). The API path is unchanged.
@@ -363,9 +386,20 @@ Tests: `tests/unit/application/test_customer_actions.py` (wrong identity, expire
 ### WI-11 Customer sessions + rate limits: `application/customer_sessions.py` (C5)
 ```python
 class CustomerSessionService:
-    def start(self, handle: str, name: str, email: str | None, phone: str | None,
-              origin: str | None, client_ip: str, honeypot: str, form_ms: int) -> NewSession: ...
-    def authenticate(self, token: str, handle: str) -> CustomerSession: ...   # raises SessionRejected
+    def start(
+        self,
+        handle: str,
+        name: str,
+        email: str | None,
+        phone: str | None,
+        origin: str | None,
+        client_ip: str,
+        honeypot: str,
+        form_ms: int,
+    ) -> NewSession: ...
+    def authenticate(
+        self, token: str, handle: str
+    ) -> CustomerSession: ...  # raises SessionRejected
     def end(self, session: CustomerSession) -> None: ...
 ```
 - `start` creates contact (name, claimed email/phone, not verified), identity (`external_id = v_<uuid>`, verified = true for the visitor ID only, consent `implied`), conversation and session row in one transaction.

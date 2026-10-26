@@ -297,16 +297,23 @@ Same structure as Messenger, with these differences ([Instagram messaging API](h
 ```python
 # ports/reply_classification.py (standard library only)
 class ReplyIntent(StrEnum):
-    APPROVE = "approve"; REJECT = "reject"; REVISE = "revise"; UNCLEAR = "unclear"
+    APPROVE = "approve"
+    REJECT = "reject"
+    REVISE = "revise"
+    UNCLEAR = "unclear"
+
 
 @dataclass(frozen=True)
 class ReplyClassification:
     intent: ReplyIntent
-    reason_quote: str | None   # verbatim words from the reply, for reject/revise
-    model: str                  # "<provider>:<model>" or "rules"
+    reason_quote: str | None  # verbatim words from the reply, for reject/revise
+    model: str  # "<provider>:<model>" or "rules"
+
 
 class ReplyClassifier(Protocol):
-    def classify(self, quotation_number: str, version: int, reply_text: str) -> ReplyClassification: ...
+    def classify(
+        self, quotation_number: str, version: int, reply_text: str
+    ) -> ReplyClassification: ...
 ```
 
 **Order of checks in `ManagerReplyService.handle(reply)`** — each line is a safety rule:

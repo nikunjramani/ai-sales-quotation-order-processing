@@ -98,36 +98,63 @@ Today's API intake + pull delivery become provider `api`; the simulated manager 
 ### 5.1 Main types (new modules follow 00 §2)
 ```python
 # domain/connections.py (stdlib only)
-class Purpose(StrEnum): CUSTOMER_MESSAGES = "customer_messages"; MANAGER_APPROVALS = "manager_approvals"; CATALOGUE = "catalogue"
-class ConnectionStatus(StrEnum): SETTING_UP = "setting_up"; ACTIVE = "active"; ERROR = "error"; DISABLED = "disabled"
-class DeliveryMode(StrEnum): PUSH = "push"; PULL = "pull"
+class Purpose(StrEnum):
+    CUSTOMER_MESSAGES = "customer_messages"
+    MANAGER_APPROVALS = "manager_approvals"
+    CATALOGUE = "catalogue"
+
+
+class ConnectionStatus(StrEnum):
+    SETTING_UP = "setting_up"
+    ACTIVE = "active"
+    ERROR = "error"
+    DISABLED = "disabled"
+
+
+class DeliveryMode(StrEnum):
+    PUSH = "push"
+    PULL = "pull"
+
 
 @dataclass(frozen=True)
 class Capabilities:
     delivery_mode: DeliveryMode = DeliveryMode.PUSH
-    webhooks: bool = False                 # receives callbacks on the generic route
+    webhooks: bool = False  # receives callbacks on the generic route
     text: bool = True
     attachments: bool = False
     max_attachment_bytes: int | None = None
     buttons: bool = False
     threads: bool = False
-    outbound_initiation: bool = True       # may message someone first
+    outbound_initiation: bool = True  # may message someone first
     reply_window: timedelta | None = None
     templates_required: bool = False
     delivery_receipts: bool = False
-    manager_enrollment: str = "code_message"   # "code_message" | "oauth" | "email_link" | "none"
+    manager_enrollment: str = "code_message"  # "code_message" | "oauth" | "email_link" | "none"
     max_inbound_bytes: int = 64 * 1024
+
 
 @dataclass(frozen=True)
 class Connection:
-    connection_id: UUID; tenant_id: UUID; provider_key: str; display_name: str
-    purposes: frozenset[Purpose]; config: Mapping[str, object]; secret_refs: Mapping[str, str]
-    account_ref: str | None; status: ConnectionStatus; last_error: str | None
-    created_by: str; created_at: datetime; updated_at: datetime
-    @property
-    def legacy_key(self) -> str: return self.account_ref or str(self.connection_id)
+    connection_id: UUID
+    tenant_id: UUID
+    provider_key: str
+    display_name: str
+    purposes: frozenset[Purpose]
+    config: Mapping[str, object]
+    secret_refs: Mapping[str, str]
+    account_ref: str | None
+    status: ConnectionStatus
+    last_error: str | None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
 
-def validate_display_name(name: str) -> str: ...      # 1-100 printable chars
+    @property
+    def legacy_key(self) -> str:
+        return self.account_ref or str(self.connection_id)
+
+
+def validate_display_name(name: str) -> str: ...  # 1-100 printable chars
 def validate_purposes(requested, offered) -> frozenset[Purpose]: ...  # non-empty subset
 ```
 ```python
@@ -322,8 +349,10 @@ Tests: `tests/unit/adapters/secrets/test_local.py` (round trip; wrong tenant →
 ```python
 class ProviderRegistry:
     @classmethod
-    def load(cls, environment: ProviderEnvironment, entry_points: Iterable[EntryPointLike] | None = None) -> "ProviderRegistry": ...
-    def get(self, key: str) -> Provider: ...            # UnknownProvider
+    def load(
+        cls, environment: ProviderEnvironment, entry_points: Iterable[EntryPointLike] | None = None
+    ) -> "ProviderRegistry": ...
+    def get(self, key: str) -> Provider: ...  # UnknownProvider
     def all(self) -> list[Provider]: ...
     def for_purpose(self, purpose: Purpose) -> list[Provider]: ...
 ```
@@ -421,11 +450,32 @@ Tests: `tests/integration/persistence/test_messages.py` (idempotent enqueue; com
 `application/messaging.py`:
 ```python
 class OutboundService:
-    def __init__(self, outbox: MessageOutbox, connections: ConnectionStore, registry: ProviderRegistry): ...
-    def queue(self, connection: Connection, *, template: TemplateKey, params: Mapping[str, object], recipient: str,
-              idempotency_key: str, links: MessageLinks, correlation_id: UUID) -> UUID: ...
-class SendMessageHandler:   # job "send_message", payload {"message_id": "..."}
-    def __init__(self, outbox, connections, registry, secrets, hooks: Mapping[TemplateKey, SendHook], clock=utc_now): ...
+    def __init__(
+        self, outbox: MessageOutbox, connections: ConnectionStore, registry: ProviderRegistry
+    ): ...
+    def queue(
+        self,
+        connection: Connection,
+        *,
+        template: TemplateKey,
+        params: Mapping[str, object],
+        recipient: str,
+        idempotency_key: str,
+        links: MessageLinks,
+        correlation_id: UUID,
+    ) -> UUID: ...
+
+
+class SendMessageHandler:  # job "send_message", payload {"message_id": "..."}
+    def __init__(
+        self,
+        outbox,
+        connections,
+        registry,
+        secrets,
+        hooks: Mapping[TemplateKey, SendHook],
+        clock=utc_now,
+    ): ...
 ```
 Handler flow (same honesty rules as `application/delivery.py:82-179`):
 1. Final status → return. `sending` → `unknown` ("The worker stopped while handing the message over; check with the provider").
@@ -455,13 +505,23 @@ External behaviour: same requests, status codes and JSON.
 ### WI-10. Per-business catalogue source — M
 - `application/catalogue_sources.py`:
 ```python
-class CatalogueSourceMissing(ErpError):   # code UNSUPPORTED, retryable False
+class CatalogueSourceMissing(ErpError):  # code UNSUPPORTED, retryable False
     """No active catalogue connection, or its provider is not installed."""
+
+
 class CatalogueSourceResolver:
-    def __init__(self, connections: ConnectionStore, registry: ProviderRegistry, secrets: SecretStore,
-                 ttl: timedelta = timedelta(seconds=30), clock=utc_now): ...
+    def __init__(
+        self,
+        connections: ConnectionStore,
+        registry: ProviderRegistry,
+        secrets: SecretStore,
+        ttl: timedelta = timedelta(seconds=30),
+        clock=utc_now,
+    ): ...
     def reader_for(self, tenant_id: UUID) -> ErpReader: ...
-class TenantCatalogue:   # implements ErpReader; each call goes to reader_for(context.tenant_id)
+
+
+class TenantCatalogue:  # implements ErpReader; each call goes to reader_for(context.tenant_id)
     def __init__(self, resolver: CatalogueSourceResolver): ...
 ```
   Exactly one active connection with purpose `catalogue` (P1-Q7); readers cached per tenant for `ttl`, keyed by connection ID and `updated_at` so a changed connection is picked up within 30 s.
