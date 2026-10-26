@@ -30,11 +30,12 @@ The core keeps calling only this. Each business **chooses its source** in the po
   - The existing simulated ERP stays for tests and demos.
 
 ## Our catalogue tables (for A, B, D and later E)
-All under tenant row-level security:
+All under tenant row-level security (names as in [implementation/00-shared-contracts.md](implementation/00-shared-contracts.md)):
 - `catalogue_products`: internal ID, SKU (unique per business), name, description, category, unit, minimum quantity, quantity step, attributes (JSON), active.
-- `price_lists` and `price_list_items`: currency, unit price, effective from/to, version. History is kept, because quotations already record the price list ID and version.
-- `stock_levels`: product, warehouse, available quantity (or unknown), as of, source.
-- `catalogue_imports`: file, column mapping, row errors, status, who, when. The active version is switched atomically.
+- `catalogue_prices`: currency, unit price, price list name and revision, effective from/to. History is kept, because quotations already record the price list ID and version.
+- `catalogue_stock`: product, warehouse, available quantity (or unknown), as of, source.
+- `catalogue_categories` and `catalogue_changes` (audit of edits).
+- Later, with spreadsheet import: `catalogue_imports` (file, column mapping, row errors, status, who, when; the active version is switched atomically).
 
 The "local catalogue" source implements the same contract and passes the same contract tests as the simulated ERP.
 

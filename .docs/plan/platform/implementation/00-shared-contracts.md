@@ -1,109 +1,213 @@
 # Implementation plan, part 0: shared contracts
-**Status:** planning document (2026-10-23). It fixes the names, interfaces, tables and numbering that every phase plan ([phase 1](phase-1-foundations.md) … [phase 7](phase-6-7-pilot-source-and-orders.md)) must use, so the phases fit together. If a phase plan needs to change something here, it must change it **here** and say so.
-
-Decisions referenced (D1…D24) are in [../07-decisions-needed.md](../07-decisions-needed.md).
+**Status:** planning document. Revision 2 (2026-10-26) merges the technical proposals from all phase plans; the [change log](#9-change-log) lists them. This file fixes the names, interfaces, tables and numbering every phase plan must use. The phase plans are [phase 1](phase-1-foundations.md), [2](phase-2-accounts.md), [3](phase-3-catalogue.md), [4](phase-4-conversations.md), [5](phase-5-one-click-providers.md) and [6-7](phase-6-7-pilot-source-and-orders.md).
+- **Where it wins:** if a phase plan and this file disagree, **this file wins**.
+- **Changing it:** a phase that needs a change makes it here and adds a change-log row.
+- **Business rules:** this file contains technical contracts only. Points that need the user's decision are in §8 and in [../07-decisions-needed.md](../07-decisions-needed.md) (D1…D24).
 
 ## 1. Vocabulary in code
 | Concept | Python name | Table | Replaces / notes |
 |---|---|---|---|
 | A kind of tool (adapter package) | `Provider` (protocol), `ProviderKey` (str) | — (registry in memory) | Today's `Channel` / `ApprovalChannel` enums |
 | A business's configured tool | `Connection` | `connections` | Today's free-text `connection_id` strings |
-| What a connection is used for | `Purpose` (`StrEnum`: `customer_messages`, `manager_approvals`, `catalogue`; later `payments`, `orders`) | `connections.purposes` (text[]) | — |
-| Provider capability flags | `Capabilities` (frozen dataclass) | — | — |
-| Normalised inbound event | `InboundEvent` (union of `CustomerMessage`, `ManagerAction`, `DeliveryStatus`, `ConsentChange`) | `inbox_events` (extended) | `InboundEnvelope` becomes the payload of `CustomerMessage` |
+| What a connection is used for | `Purpose` (`StrEnum`: `customer_messages`, `manager_approvals`, `catalogue`; later `orders`, `payments`, `shipments`) | `connections.purposes` (text[]) | — |
+| Provider capability flags | `Capabilities` (frozen dataclass). It has messaging flags and optional sub-dataclasses: `CatalogueCapabilities` (`editable`, `live_prices`, `live_stock`, `stock_semantics`, `warehouses`, `webhooks`) and `OrderCapabilities` (`create_order`, `reference_lookup`, `idempotency_key`, `reserve_stock`) | — | The core decides by capability, never by provider name |
+| Normalised inbound event | `InboundEvent`, a union of: `CustomerMessage`, `CustomerAction` (button press: sender, reference, action, reason), `ManagerAction` (enroll or decide), `ManagerReply` (free text to be classified, D10), `DeliveryStatusUpdate`, `ConsentChange`; later `OrderStatusChanged`, `PaymentEvent` | `inbox_events` (extended) | `InboundEnvelope` becomes the payload of `CustomerMessage`. `DeliveryStatusUpdate` avoids the clash with `domain/documents.py:DeliveryStatus` |
 | Outgoing message | `OutboundMessage`, outbox row | `outbound_messages` | `DeliveryChannel.deliver` and `ApprovalNotifier.send_*` become uses of it |
-| Message wording | `TemplateKey` (`StrEnum`) + `render_template()` | — (code, fixed wording) | `render_review_text`, `notice_text` |
+| Message wording | `TemplateKey` (`StrEnum`) + `render_template()` | — (code, fixed wording) | `render_review_text`, `notice_text`; includes the `account_*` keys (phase 2) |
 | Customer | `Contact`, `ContactIdentity` | `contacts`, `contact_identities` | `enquiries.customer_reference` (kept, mapped) |
+| Customer browser session (website chat) | `CustomerSession` | `customer_sessions` | — |
 | Thread | `Conversation`, `ConversationMessage` | `conversations`, `conversation_messages` | — |
-| Product data source | keep `ErpReader` (port name), docs say "catalogue source" | — | Hardcoded `SimulatedErp` |
-| Our product tables | `LocalCatalogue` (adapter implementing `ErpReader`) | `catalogue_products`, `catalogue_prices`, `catalogue_stock` | — |
-| Person who signs in | `User` | `users` | Bare `subject` strings |
-| Secret store | `SecretStore` (port) | `connections.secret_refs` (JSON of references only) | Global `QUOTATION_*` provider settings |
+| Interpreter input | `EnquiryTranscript` (ordered messages + open items) | — | `EnquiryInterpreter.extract(text, documents)` changes to take a transcript (phase 4, ADR 0012 update) |
+| Product data source (read) | `ErpReader` (port name kept; docs say "catalogue source") | — | Hardcoded `SimulatedErp` |
+| Order write port (optional) | `ErpWriter`: `reserve_stock`, `release_reservation`, `create_sales_order`, `get_order_by_external_reference`, `get_order_status` | — | Names from `.docs/architecture/integrations.md` |
+| Our product tables | `LocalCatalogue` (adapter implementing `ErpReader`, provider key `local_catalogue`) | `catalogue_categories`, `catalogue_products`, `catalogue_prices`, `catalogue_stock`, `catalogue_changes` | — |
+| Person who signs in | `User` (`subject` = `user:<uuid>` for sign-ups; legacy demo subjects kept) | `users` | Bare `subject` strings |
+| Secret store | `SecretStore` (port), with a tenant namespace and a `platform(provider_key)` namespace for company-level secrets | `connections.secret_refs` (JSON of references only) | Global `QUOTATION_*` provider settings |
 
-"Channel" is no longer used for new code. Existing columns named `channel` keep their name but hold a `ProviderKey` (e.g. `api`, `simulated`, `telegram`).
+"Channel" is not used for new code. Existing columns named `channel` keep their name, but they now hold a `ProviderKey` (e.g. `api`, `simulated`, `telegram`).
 
 ## 2. Module layout (backend, `src/quotation_app/`)
-Follows the existing layers enforced by `tests/unit/test_architecture.py`. Domain, ports and application use the standard library only.
-| Layer | New modules |
-|---|---|
-| `domain/` | `connections.py` (Purpose, Capabilities, ConnectionStatus, validation), `messages.py` (OutboundMessage, MessageStatus, TemplateKey, render_template), `contacts.py` (Contact, ContactIdentity, Consent), `conversations.py` (Conversation, ConversationMessage, intent result), `accounts.py` (User, Invitation, password policy), `catalogue_admin.py` (product editing rules) |
-| `ports/` | `providers.py` (Provider protocol, ProvisionResult, PendingAction, InboundRequest), `connections.py` (ConnectionStore), `secrets.py` (SecretStore), `messages.py` (MessageOutbox, MessageSender), `contacts.py`, `conversations.py`, `accounts.py` (UserStore, PasswordHasher, InvitationStore, Mailer), `catalogue_admin.py` (CatalogueStore) |
-| `application/` | `providers.py` (ProviderRegistry), `connections.py` (ConnectionService: enable/disable/test), `inbound.py` (InboundService: verify, dedupe, route), `messaging.py` (OutboundService + SendMessageHandler job), `conversations.py` (ConversationService, IntentRouter), `accounts.py` (SignupService, LoginService, InvitationService, BusinessService), `catalogue_admin.py` (ProductService), `catalogue_sources.py` (per-tenant ErpReader resolution) |
-| `adapters/providers/` | One sub-package per provider: `api/`, `simulated/`, `web_chat/`, later `twilio_whatsapp/`, `twilio_sms/`, `sendgrid_email/`, `telegram/`, `meta_instagram/`, `meta_messenger/` |
-| `adapters/secrets/` | `local.py` (dev: encrypted file/DB with a key from `.env`), `cloud.py` (cloud secret manager, chosen by setting; D8) |
-| `adapters/accounts/` | `password.py` (Argon2id hasher), `mail/` (Mailer adapters for sign-up/invite emails: `console` dev, `sendgrid` later) |
-| `adapters/catalogue/` | `local.py` (LocalCatalogue, an `ErpReader` over our tables) |
-| `persistence/` | `connections.py`, `messages.py`, `contacts.py`, `conversations.py`, `accounts.py`, `catalogue.py` |
-| `api/` | `hooks.py` (generic inbound route), `connections.py`, `accounts.py` (sign-up/login/invites), `business.py` (business settings), `catalogue.py`, `conversations.py`, `public_chat.py` (website chat public API) |
+This follows the existing layers enforced by `tests/unit/test_architecture.py`: domain, ports and application use the standard library only.
 
-**New third-party packages** (adapters only, added to the architecture allow-list when introduced, versions ≥ 14 days old): `argon2-cffi` (passwords, phase 2), `cryptography` (already a transitive dependency; local secret encryption, phase 1), provider SDKs only inside their provider package (e.g. `twilio`, phase 5), `python-multipart` only if file uploads need it.
+**`domain/`**
+- `connections.py`: Purpose, Capabilities, ConnectionStatus.
+- `messages.py`: OutboundMessage, MessageStatus, TemplateKey, `render_template`.
+- `contacts.py`, `conversations.py`, `accounts.py`, `catalogue_admin.py`.
+- `catalogue_search.py`: the shared tokeniser.
+- `intake.py` gains the inbound event types.
 
-## 3. The Provider contract (phase 1 defines it; every tool implements it)
+**`ports/`**
+- `providers.py`: Provider, ProviderFactory, ProviderEnvironment, ProvisionResult, PendingAction, InboundRequest.
+- `connections.py`, `secrets.py`.
+- `messages.py`: MessageOutbox, MessageSender, SendHook.
+- `contacts.py`, `conversations.py`, `customer_sessions.py`, `customer_actions.py`.
+- `accounts.py`: UserStore, PasswordHasher, InvitationStore, Mailer, MemberStore, BusinessStore, ApiKeyAdminStore, AccountEmailStore, RateLimiter.
+- `catalogue_admin.py`: CatalogueStore, CatalogueReadStore.
+- `erp.py` gains `ErpWriter`.
+
+**`application/`**
+- `providers.py`: ProviderRegistry.
+- `connections.py`: enable, disable, test, resume.
+- `inbound.py`: verify, dedupe, route.
+- `messaging.py`: OutboundService and the `send_message` handler.
+- `conversations.py`: ConversationService, IntentRouter.
+- `customer_actions.py`, `customer_sessions.py`.
+- `accounts.py`: SignupService, LoginService, InvitationService, BusinessService, MemberService, ApiKeyAdminService, AccountEmailHandler.
+- `catalogue_admin.py`, `catalogue_sources.py`.
+- `manager_replies.py`: AI classification (D10).
+
+**`adapters/`**
+- **`providers/`:** one sub-package per provider: `api/`, `simulated/`, `local_catalogue/`, `web_chat/`, later `sendgrid_email/`, `twilio_whatsapp/`, `twilio_sms/`, `telegram/`, `meta_instagram/`, `meta_messenger/`, ERP/shop packages.
+- **`secrets/`:** loaded by entry points (group `quotation_app.secret_stores`): `local` (dev, encrypted with a key from `.env`) and `none`. The cloud store is written only after D24.
+- **`accounts/`:** `password.py` (Argon2id), `rate_limit.py`, and mailers by entry points (group `quotation_app.mailers`): `console` (dev), later `sendgrid`.
+- **`catalogue/`:** `local.py`, over `CatalogueReadStore`; no SQLAlchemy in adapters.
+- **`documents/`:** gains `logo.py`.
+
+**`persistence/`**
+- `connections.py`, `messages.py`, `contacts.py`, `conversations.py`, `customer_sessions.py`, `customer_actions.py`, `accounts.py`, `catalogue.py`.
+
+**`api/`**
+- `hooks.py`: the generic inbound routes.
+- `connections.py`, `accounts.py`, `business.py`, `catalogue.py`, `conversations.py`.
+- `public_chat.py`: the website chat public API.
+- `media.py`: short-lived public PDF links.
+
+**New third-party packages** go in adapters only. Each is added to the architecture allow-list when introduced, and every version must be at least 14 days old:
+- `argon2-cffi` (phase 2);
+- Pillow as a direct dependency (phase 2, logos; already installed through ReportLab);
+- `cryptography` (phase 1, already transitive);
+- provider SDKs only inside their provider package (phase 5).
+
+## 3. The Provider contract
 ```python
+ProviderFactory = Callable[[ProviderEnvironment], Provider]   # entry point target; the environment
+# carries generic dependencies (storage folder, engines/stores, clock), never provider-named settings
+
 class Provider(Protocol):
-    key: str                      # "telegram", "web_chat", "api" … unique
+    key: str                       # unique: "telegram", "web_chat", "api", "local_catalogue" …
     display_name: str
-    purposes: frozenset[Purpose]  # what it can serve
+    purposes: frozenset[Purpose]
     capabilities: Capabilities
-    config_model: type            # Pydantic model; the portal renders forms from its JSON schema
+    config_model: type             # Pydantic; the portal renders the business form from its JSON schema
+    platform_config_model: type | None  # company-level settings (our Twilio master account, Meta app …)
+    dev_only: bool                 # the registry skips dev-only providers in production (e.g. simulated)
 
-    def provision(self, conn: Connection, secrets: SecretStore) -> ProvisionResult: ...
-    def deprovision(self, conn: Connection, secrets: SecretStore) -> None: ...
-    def test(self, conn: Connection, secrets: SecretStore) -> TestResult: ...
-    def verify_inbound(self, conn: Connection, secrets: SecretStore, request: InboundRequest) -> None: ...  # raises InboundRejected
-    def parse_inbound(self, conn: Connection, request: InboundRequest) -> list[InboundEvent]: ...
-    def send(self, conn: Connection, secrets: SecretStore, message: RenderedMessage) -> SendReceipt: ...  # raises SendRejected / SendUncertain
+    # lifecycle
+    def provision(self, conn, secrets) -> ProvisionResult: ...
+    def resume(self, conn, secrets, action_id: str, submission: Mapping[str, object]) -> ProvisionResult: ...
+    def deprovision(self, conn, secrets) -> None: ...
+    def test(self, conn, secrets) -> TestResult: ...
+    # inbound
+    def handshake(self, conn, secrets, request: InboundRequest) -> HandshakeResponse | None: ...  # e.g. GET challenge
+    def verify_inbound(self, conn, secrets, request: InboundRequest) -> None: ...     # raises InboundRejected
+    def verify_platform_inbound(self, secrets, request: InboundRequest) -> None: ...  # platform route (one webhook per app)
+    def routing_keys(self, request: InboundRequest) -> list[str]: ...                 # after platform verification
+    def parse_inbound(self, conn, request: InboundRequest) -> list[InboundEvent]: ...
+    # outbound
+    def send(self, conn, secrets, message: RenderedMessage) -> SendReceipt: ...     # raises SendRejected / SendUncertain
+    # data purposes (optional)
+    def catalogue_reader(self, conn, secrets) -> ErpReader: ...
+    def order_writer(self, conn, secrets) -> ErpWriter: ...
 ```
-- Unsupported operations raise `OperationUnsupported` (explicit, tested).
-- `ProvisionResult` = `ready` (with public details like a phone number or chat link) **or** `needs_action` with a `PendingAction` the portal can show without provider code: `open_url` (pop-up, e.g. Meta Embedded Signup), `show_steps` (text steps, e.g. Telegram), `fill_form` (JSON schema, e.g. SMS registration).
-- **Discovery:** Python entry points, group `quotation_app.providers`. `ProviderRegistry.load()` reads them at start-up (API and worker). The `api`, `simulated` and `web_chat` providers live in this repository and register through the same entry points (`pyproject.toml [project.entry-points."quotation_app.providers"]`).
-- **Contract tests:** `tests/unit/providers/test_provider_contract.py` runs every registered provider through the same checks (forged signature refused, duplicate event, send outcome mapping, unsupported operations explicit, tenant isolation of parsing).
+- **Unsupported operations** raise `OperationUnsupported`; this is explicit and tested.
+- **`ProvisionResult`** is either `ready` (with public details such as a phone number or chat link) or `needs_action` with a `PendingAction`.
+  - A `PendingAction` has `action_id`, `expires_at` and a kind: `open_url`, `provider_page` (HTML from the provider package, e.g. Meta's pop-up, served by our API), `show_steps` or `fill_form` (JSON schema).
+  - `resume` receives the result.
+- **`InboundRequest`:** raw body, headers, query and URL. For first-party providers (`web_chat`, `api`) it also carries an optional `session` filled in by our own routes.
+- **Discovery:** Python entry points, group `quotation_app.providers`. `ProviderRegistry.load(environment)` runs at start-up in the API and the worker. The in-repo providers register the same way, in `pyproject.toml`.
+- **Contract tests:** `tests/unit/providers/test_provider_contract.py` runs every registered provider through the same checks:
+  - a forged signature is refused;
+  - duplicate events are handled;
+  - send outcomes map correctly;
+  - unsupported operations are explicit;
+  - parsing keeps tenants isolated.
+  - Data providers also run the ERP contract tests.
 
-## 4. Tables and migration numbers
-One Alembic migration per phase step, continuing from `0007_acceptance`. Every business table: `tenant_id` + forced row-level security using the existing `_TENANT_FILTER`, explicit grants per role (`quotation_app`, `quotation_worker`), column-level UPDATE grants, append-only tables protected by the existing `reject_change()` trigger.
+## 4. Routes (generic, provider-independent)
+| Route | Purpose |
+|---|---|
+| `POST\|GET /api/v1/hooks/{connection_id}/{webhook_token}` | Per-connection webhooks. The business comes from the connection |
+| `POST\|GET /api/v1/hooks/p/{provider_key}` | Platform webhooks for providers that allow one URL per app or bot (Telegram, Meta, email inbound). Steps: `verify_platform_inbound`, then `routing_keys`, then the `connection_routes` lookup (security-definer function), then the connection |
+| `POST /api/v1/tenants/{t}/connections/{id}/actions/{action_id}` | Return data from a pending action (`resume`) |
+| `GET /api/v1/connections/{id}/actions/{action_id}/page` | Provider-hosted setup page |
+| `GET /api/v1/media/{token}` | Short-lived, single-file public PDF links. Twilio and Meta fetch attachments by URL |
+| `/api/v1/chat/...` and `/chat/{handle}` | Website chat public API and hosted chat page (phase 4). `/chat/widget.js` serves the widget |
+| The old `/api/v1/channels/simulated/events` | Kept as a deprecated alias in phase 1, routed through the generic inbound service |
+
+## 5. Tables and migration numbers
+- **One Alembic migration per phase step,** continuing from `0007_acceptance`.
+- **Every business table** has `tenant_id` with forced row-level security (`_TENANT_FILTER`).
+- **Grants** are explicit per role, with column-level UPDATE grants.
+- **Append-only tables** use the `reject_change()` trigger.
+- **Cross-tenant lookups** (an API key, a public chat handle, a webhook route) use narrow lookup policies or `SECURITY DEFINER` functions, following the existing `api_key_lookup` pattern.
+
 | Migration | Phase | Tables / changes |
 |---|---|---|
-| `0008_connections` | 1 | `connections`; `connection_events` (audit of enable/disable/test, append-only); `inbox_events` gains `event_type`, `connection_ref` (FK to connections) and the dedupe key becomes (tenant, connection_ref, provider_event_id, event_type); `channel_bindings` gains `connection_ref`; backfill: one `api` connection per existing API key subject and one `simulated` connection per tenant with bindings |
-| `0009_outbound_messages` | 1 | `outbound_messages` (outbox: pending/sending/sent/delivered/failed/unknown; idempotency key; template key; recipient; connection; links to quotation/task/enquiry); existing `quotation_deliveries` stays and is linked (`outbound_message_id`), no data loss |
-| `0010_accounts` | 2 | `users`; `user_credentials` (password hash); `email_verifications`; `password_resets`; `invitations`; `tenants` gains `status`, `country`, `time_zone`, `created_by`; `tenant_profiles` (PDF details); function `create_business(...)` (SECURITY DEFINER, owner) |
-| `0011_catalogue` | 3 | `catalogue_categories`, `catalogue_products`, `catalogue_prices` (history, effective dates), `catalogue_stock`; `pg_trgm` extension and indexes |
-| `0012_conversations` | 4 | `contacts`, `contact_identities`, `conversations`, `conversation_messages`; `enquiries` gains `conversation_id`, `contact_id`; `workflow_runs` gains `round`; customer action references (`customer_action_refs`) |
-| `0013_provider_state` | 5 | Only if a provider needs its own state (e.g. Twilio subaccount ID, Meta asset IDs) beyond `connections.config`; otherwise none |
-| `0014_orders` | 7 | Decided in the orders phase (questions first) |
+| `0008_connections` | 1 | **New tables:** `connections` (`account_ref` unique per tenant and provider, nullable `webhook_token_sha256`, `public_handle` unique and nullable, `secret_refs`, `config`, `purposes`, `status`, `last_error`); `connection_events` (append-only audit).<br>**`inbox_events` gains:** `event_type`, `connection_ref` (composite FK), `processed_at`, `outcome`; the dedupe key becomes (tenant, connection_ref, provider_event_id, event_type).<br>**`channel_bindings` and `channel_enrollments` gain** `connection_ref`.<br>**Backfill:** one `api` connection per API-key subject; one `simulated` connection per distinct (tenant, connection_id) in bindings; the demo tenants get an enabled `catalogue` connection to the simulated ERP |
+| `0009_outbound_messages` | 1 | `outbound_messages`:<br>• statuses pending, sending, available, sent, delivered, failed, unknown;<br>• idempotency key, template key, recipient, `connection_ref`;<br>• `provider_message_id` (indexed per connection), `action_ref_id`;<br>• links to quotation, task and enquiry.<br>`quotation_deliveries` stays, linked through `outbound_message_id` |
+| `0010_accounts` | 2 | **Account tables:** `users`, `user_credentials`, `email_verifications`, `password_resets`, `invitations`, `admin_events` (append-only).<br>**`tenants` gains:** `status`, `country`, `time_zone`, `created_by`, `went_live_at`, `updated_at`, plus a status-transition trigger.<br>**Other changes:**<br>• new `tenant_profiles` table;<br>• nullable commercial columns plus a completeness check on `tenant_pricing_policies` ("set later");<br>• `api_keys.created_by`, `revoked_by` and runtime grants;<br>• per-subject `user_sessions` policies;<br>• FK `memberships.subject → users.subject`;<br>• `jobs.tenant_id` may be NULL only for `send_account_email`.<br>**Functions** (`SECURITY DEFINER`, owner): `create_business(...)` (checks `app.subject`, creates the default catalogue connection), `accept_invitation`, `change_member_roles`, `remove_member` |
+| `0011_catalogue` | 3 | `catalogue_categories`, `catalogue_products` (with `source`, `external_id`, `synced_at` for later sync), `catalogue_prices` (history; `price_list`, `revision`, effective dates), `catalogue_stock` (as-of, source, unknown allowed), `catalogue_changes` (append-only audit).<br>Also: `pg_trgm` and full-text indexes; `create_business` updated; a `local_catalogue` connection backfilled for tenants without a catalogue connection |
+| `0012_conversations` | 4 | **New tables:** `contacts`, `contact_identities` (verified flag, consent), `conversations`, `conversation_messages` (append-only), `customer_sessions`, `customer_action_refs`.<br>**`enquiries` gains:** `conversation_id`, `contact_id`, and a narrow `UPDATE (status, updated_at)` for `quotation_app` with the `guard_enquiry_reopen` trigger.<br>**Other changes:** `workflow_runs.round`; `acknowledge_enquiries` setting if D14 makes it per business |
+| `0013_provider_state` | 5 | `connection_routes` (global unique (provider_key, routing_key), lookup function `resolve_connection_route`); `manager_reply_classifications` (append-only audit); `approval_reason_prompts`; worker grants on decision tables (AI-classified decisions recorded from the worker) |
+| `0014_orders` | 7 | Provisional; decided in the orders phase (questions first). A sync-run table for phase 6, if needed, goes in its own migration before it |
 
-## 5. Job kinds (added to `domain/jobs.py` `JobKind`)
+## 6. Job kinds (added to `domain/jobs.py` `JobKind`)
 | Kind | Phase | Purpose |
 |---|---|---|
 | `send_message` | 1 | Send one `outbound_messages` row through its provider |
-| `provision_connection` | 1 (used from 5) | Run a provider's `provision` in the background |
-| `process_inbound` | 1 | Route one stored inbound event (customer message, manager action, status) |
-| `send_account_email` | 2 | Verification, invitation and password-reset emails |
-| `poll_connection` | 5 | Providers that poll instead of webhooks |
-Existing kinds stay; `deliver_quotation` and `notify_approvers`/`notify_response` are re-implemented on top of `send_message` in phase 1 without changing their external behaviour.
+| `provision_connection` | 1 (used from 5) | Run `provision` or `resume` in the background |
+| `process_inbound` | 1 | Route one stored inbound event from a webhook provider. The `api` and `web_chat` routes call the same `ConversationService.route` synchronously, because the API must return `enquiry_id` and `continued` |
+| `send_account_email` | 2 | Verification, invitation and password-reset emails (no tenant) |
+| `poll_connection` | 5 | Providers that poll instead of using webhooks |
+| `classify_manager_reply` | 5 | AI classification of a manager's free-text reply (D10), outside the webhook request |
+| `sync_catalogue` | 6 | ERP/shop sync into our catalogue tables (if sync mode is chosen) |
+| `create_order`, `reconcile_order_operation` | 7 | Provisional |
 
-## 6. Permissions (added to `domain/tenancy.py`)
+The existing kinds stay. `deliver_quotation`, `notify_approvers` and `notify_response` are re-implemented on top of `send_message` in phase 1, without changing their external behaviour.
+
+## 7. Permissions and portal features
 | Permission | Roles | Phase |
 |---|---|---|
 | `integrations:manage` | administrator | 1 (used in 5) |
 | `members:manage` | administrator | 2 |
-| `catalogue:manage` | administrator, sales_operator | 3 |
-| `conversations:view` | administrator, sales_operator, approver, viewer | 4 |
-Existing `tenant:manage` covers business settings.
+| `catalogue:view` | administrator, sales_operator, approver, viewer | 3 |
+| `catalogue:manage` | administrator, sales_operator (**to confirm, §8**) | 3 |
+| `conversations:view` | administrator, sales_operator, approver, viewer (viewer sees masked contact details, **to confirm, §8**) | 4 |
+| `orders:view`, `orders:manage` | Decided in phase 7 | 7 |
 
-## 7. Portal features (`portal/src/features/`)
-Each new feature follows `.docs/development/portal-architecture.md` (model / api / services / store / hooks / ui / routes / index) and the architecture test.
-| Feature | Phase | Screens |
+The existing `tenant:manage` covers business settings.
+
+| Portal feature | Phase | Screens |
 |---|---|---|
-| `connections` (replaces `channels`) | 1 (list) / 5 (Enable cards) | Connections list, Enable switch per provider, pending-action panel, my linked accounts |
-| `account` | 2 | Sign up, verify email, log in, forgot/reset password, profile |
-| `business` | 2 | Create business, settings (business, pricing, validity, PDF details), members & invitations, API keys, setup checklist, Go live |
+| `connections` (replaces `channels`) | 1 / 5 | Connections list, my linked accounts; later Enable cards and pending-action panel |
+| `account` | 2 | Sign up, verify email, log in, forgot/reset password, profile, accept invitation (the existing `auth` feature keeps session state and the route guard) |
+| `business` | 2 | Create business, settings (business, pricing, validity, PDF details), members and invitations, API keys, setup checklist, Go live |
 | `catalogue` | 3 | Product list with search, add/edit product, categories, prices, stock |
 | `conversations` | 4 | Inbox, conversation detail, contacts |
-Public website chat widget: a separate small bundle `portal/src/widget/` (phase 4) built to `widget.js`; it must not import portal features.
+| `orders` | 7 | Provisional |
+| Widget `portal/src/widget/` | 4 | Built by `portal/vite.widget.config.ts` to `dist/widget/widget.js`, served at `/chat/widget.js`; must not import portal features |
 
-## 8. Rules every phase follows
-- Generic integrations: no `if provider == …` outside a provider package; no provider-named settings.
-- Ask, don't assume: anything not decided in [../07-decisions-needed.md](../07-decisions-needed.md) is listed as an open question in the phase plan, not decided in code.
-- Tests in the mirrored `tests/` tree; PostgreSQL integration tests for every migration (upgrade, downgrade, upgrade with data).
-- Honest outcomes: unknown send/provider outcomes become `unknown`, never retried automatically.
-- Each phase ends with: all tests green, evaluation green, a live run, docs (feature doc, ADR if architecture changes, configuration, handoff).
+**Settings changes** (generic, never provider-named):
+- `QUOTATION_DEV_LOGIN` replaces `QUOTATION_AUTH_PROVIDER`.
+- `QUOTATION_MAILER` (an entry point name), `QUOTATION_MAIL_FROM`, `QUOTATION_PUBLIC_PORTAL_URL`, `QUOTATION_TRUSTED_PROXY_COUNT`.
+- `QUOTATION_SECRET_STORE` (an entry point name).
+- `QUOTATION_DEFAULT_CATALOGUE_PROVIDER` (default `local_catalogue`).
+
+## 8. Points for the user (raised by the phase plans, not decided here)
+| # | Question | Proposal | Where |
+|---|---|---|---|
+| U1 | Who may edit products: administrators only (02 doc) or also sales operators (this file)? | Administrators and sales operators | Phase 3 Q14 |
+| U2 | Should viewers see customer names, emails and phone numbers in conversations? | Masked for viewers | Phase 4 Q12 |
+| U3 | Phase 1 replaces two internal classes, so their unit tests change. Is "all behaviour tests (API, PostgreSQL, evaluation, demo) unchanged" the right promise instead of "all tests unchanged"? | Yes | Phase 1 Q1 |
+
+## 9. Change log
+| Rev | Date | Change | From |
+|---|---|---|---|
+| 1 | 2026-10-23 | First version | — |
+| 2 | 2026-10-26 | **Provider contract:** factory and environment, `dev_only`, `resume`, `handshake`, platform webhooks (`verify_platform_inbound`, `routing_keys`, `connection_routes`), `platform_config_model`, data-purpose methods `catalogue_reader` / `order_writer`, catalogue and order capabilities | Phase 1 C1-C3, C13; phase 3 C4-C5; phase 5 C1, C2, C5, C7; phase 6-7 P1-P2 |
+| 2 | 2026-10-26 | **Events:** `CustomerAction`, `ManagerReply`, `DeliveryStatusUpdate` (renamed), later `OrderStatusChanged` / `PaymentEvent`; `InboundRequest.session` | Phase 1 C9; phase 4 C3-C4; phase 5 C4; phase 6-7 P7 |
+| 2 | 2026-10-26 | **Outbox:** `available` status, `connection_ref`, `provider_message_id`, `action_ref_id`, `SendHook` | Phase 1 C4, C8, C11; phase 5 C3 |
+| 2 | 2026-10-26 | **Migrations:** 0008 extra columns and backfill details; 0010 accounts additions and functions; 0011 `catalogue_changes`, sync columns, default catalogue connection; 0012 `customer_sessions`, `public_handle`, enquiry reopen grant; 0013 contents | Phase 1 C5-C7; phase 2 C1-C3; phase 3 C1, C6-C7; phase 4 C1-C2, C6-C7; phase 5 §5; phase 6-7 P3 |
+| 2 | 2026-10-26 | **Modules, jobs, routes, settings:** account ports and services, catalogue read port and tokeniser, customer sessions and actions, media route, provider page route, `classify_manager_reply`, `sync_catalogue`, order jobs, generic settings list, secret stores and mailers by entry points | Phase 1 C10; phase 2 C4-C5, C8-C9; phase 3 C3; phase 4 C5, C8, C10-C11; phase 5 C6, C8-C9; phase 6-7 P4 |
+| 2 | 2026-10-26 | **Permissions:** `catalogue:view`, order permissions (phase 7); U1/U2 raised for the user | Phase 3 C2; phase 4 C9; phase 6-7 P5 |
+| 2 | 2026-10-26 | **ERP write names** aligned with `integrations.md`; `06-future-commerce.md` and `05-product-data.md` table names aligned with this file | Phase 6-7 P8; phase 3 contradictions |

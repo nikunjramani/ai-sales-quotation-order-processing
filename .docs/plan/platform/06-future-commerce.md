@@ -16,8 +16,9 @@
 - **Status model:** `placed → confirmed → in_progress → ready → shipped → delivered`, plus `cancelled` and `on_hold`. Each change is an event with its source (ERP sync, staff in portal, our inventory, a carrier) and time.
 - **ERP write (when the source supports it):** a new optional port next to the reader, `ErpWriter`:
   - `reserve_stock`
+  - `release_reservation`
   - `create_sales_order`
-  - `get_order_by_reference`
+  - `get_order_by_external_reference`
   - `get_order_status`
 
   These use a stable external reference so an unknown outcome can be **reconciled, never repeated blindly**. The design is already in `.docs/architecture/integrations.md`. Without an ERP, the order lives in our tables and staff update its status in the portal.
