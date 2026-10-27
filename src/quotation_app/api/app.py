@@ -30,7 +30,7 @@ from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.sessions import SessionService
 from quotation_app.application.tenancy import TenantContextResolver
-from quotation_app.composition import build_provider_registry, lazy_secret_store
+from quotation_app.composition import build_runtime
 from quotation_app.config import Settings
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.api_keys import SqlApiKeyReader
@@ -139,12 +139,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     # Provider callbacks (ADR 0018): one generic route for every provider with webhooks.
-    registry = build_provider_registry(configuration)
+    runtime = build_runtime(configuration)
     connections = SqlConnectionStore(engine)
     inbox = SqlInboundStore(engine)
     app.include_router(
         build_hook_router(
-            InboundService(SqlHookLookup(engine), registry, lazy_secret_store(configuration), inbox)
+            InboundService(SqlHookLookup(engine), runtime.registry, runtime.secrets, inbox)
         )
     )
     # Deprecated alias for the demo page and scripts (removed in phase 4/5).

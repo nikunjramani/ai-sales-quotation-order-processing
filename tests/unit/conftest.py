@@ -13,14 +13,14 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
-from quotation_app.adapters.delivery.api import ApiPullDelivery
 from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.erp.simulated import SimulatedErp
+from quotation_app.adapters.providers.api import ApiProvider
 from quotation_app.application.acceptance import (
     QuotationExpiryHandler,
     QuotationResponseService,
@@ -28,11 +28,19 @@ from quotation_app.application.acceptance import (
 )
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
-from quotation_app.application.delivery import QuotationDeliveryHandler
+from quotation_app.application.delivery import (
+    QuotationDeliveryHandler,
+    QuotationDocumentHook,
+)
 from quotation_app.application.documents import QuotationDocumentService
 from quotation_app.application.inbound import ProcessInboundHandler, routes_for
-from quotation_app.application.notifications import ApprovalNotificationHandler
+from quotation_app.application.messaging import OutboundService, SendMessageHandler
+from quotation_app.application.notifications import (
+    ApprovalNotificationHandler,
+    ApprovalRequestHook,
+)
 from quotation_app.application.pricing import QuotationPricingService
+from quotation_app.application.providers import ProviderRegistry
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.domain.acceptance import (
@@ -45,7 +53,12 @@ from quotation_app.domain.acceptance import (
     ResponseOutcome,
     customer_status,
 )
-from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
+from quotation_app.domain.connections import (
+    Capabilities,
+    Connection,
+    ConnectionStatus,
+    Purpose,
+)
 from quotation_app.domain.documents import (
     OFFERED_STATUSES,
     DeliveryRecord,
@@ -55,6 +68,7 @@ from quotation_app.domain.documents import (
 )
 from quotation_app.domain.intake import InboundEvent, InboundEventType, event_type
 from quotation_app.domain.jobs import JobKind
+from quotation_app.domain.messages import MessageStatus, OutboundMessage, TemplateKey
 from quotation_app.domain.pricing import RequestedLine
 from quotation_app.domain.quotations import (
     QUOTATION_STATUS_AFTER,
@@ -73,16 +87,12 @@ from quotation_app.domain.tenancy import Role, TenantContext
 from quotation_app.ports.acceptance import NewResponse
 from quotation_app.ports.approvals import TaskState
 from quotation_app.ports.channels import ActionReference, ChannelBinding
-from quotation_app.ports.documents import (
-    DeliveryChannel,
-    DeliveryReceipt,
-    DeliveryRequest,
-    DeliveryWork,
-    ReceiptKind,
-)
+from quotation_app.ports.documents import DeliveryWork
 from quotation_app.ports.identity import SessionRecord, VerifiedIdentity
 from quotation_app.ports.inbound import RecordedEvent, StoredEvent
 from quotation_app.ports.jobs import ClaimedJob
+from quotation_app.ports.messages import NewMessage
+from quotation_app.ports.providers import ReceiptKind, RenderedMessage, SendReceipt
 from quotation_app.ports.quotations import (
     QuotationDetail,
     QuotationSummary,
@@ -208,6 +218,16 @@ class _DecisionUnit:
         )
 
 
+def memory_connection_id(tenant_id: UUID, provider_key: str, account_ref: str) -> UUID:
+    """Deterministic connection IDs, so the memory stores and MemoryConnections agree."""
+    return uuid5(NAMESPACE_URL, f"memory-connection:{tenant_id}:{provider_key}:{account_ref}")
+
+
+def sender_account(channel: str, recipient: str) -> str:
+    """The connection a memory enquiry arrived on: an API key, or the business's shop account."""
+    return recipient if channel == "api" else f"shop-{channel}"
+
+
 @dataclass
 class MemoryQuotations:
     clock: Callable[[], datetime]
@@ -233,6 +253,7 @@ class MemoryQuotations:
     delivery_rows: dict[UUID, tuple[UUID, DeliveryRecord]] = field(default_factory=dict)
     documents: dict[UUID, tuple[UUID, StoredDocument]] = field(default_factory=dict)
     validity_days: dict[UUID, int] = field(default_factory=dict)  # tenant -> days (default 7)
+    delivery_messages: dict[UUID, UUID] = field(default_factory=dict)  # delivery -> message
     # response ID -> (tenant, response, idempotency key, fingerprint)
     response_rows: dict[UUID, tuple[UUID, RecordedResponse, str, str]] = field(default_factory=dict)
     # Name of a method -> exception raised on its next call (failure injection).
@@ -586,8 +607,9 @@ class MemoryQuotations:
         ):
             return None
         binding = ChannelBinding(
-            uuid4(), tenant_id, row.subject, channel, connection_id, external_user_id, now, None
-        )
+            uuid4(), tenant_id, row.subject, channel, connection_id, external_user_id, now, None,
+            memory_connection_id(tenant_id, channel, connection_id),
+        )  # fmt: skip
         self.bindings[binding.binding_id] = binding
         self.binding_enrollment[binding.binding_id] = row.enrollment_id
         row.consumed_at = now
@@ -717,7 +739,17 @@ class MemoryQuotations:
             self.customer_refs.get(quotation.enquiry_id),
             self._document_for(tenant_id, record.quotation_id, record.version),
             self.validity_days.get(tenant_id, DEFAULT_QUOTE_VALIDITY_DAYS),
+            memory_connection_id(
+                tenant_id, record.channel, sender_account(record.channel, record.recipient)
+            ),
+            quotation.enquiry_id,
+            uuid4(),
+            self.delivery_messages.get(delivery_id),
         )
+
+    def document(self, tenant_id: UUID, document_id: UUID) -> StoredDocument | None:
+        found = self.documents.get(document_id)
+        return found[1] if found is not None and found[0] == tenant_id else None
 
     def _source(self, tenant_id: UUID, quotation_id: UUID, version: int) -> DocumentSource | None:
         quotation = self._quotation(tenant_id, quotation_id)
@@ -1090,44 +1122,159 @@ def quotation_db(now: datetime, industrial_tenant: UUID, office_tenant: UUID) ->
     return db
 
 
-class RecordingDeliveryChannel:
-    """Push DeliveryChannel fake ("email"). `outcome` decides the next attempt:
-    None = accept, or an exception instance to raise once."""
+class RecordingProvider:
+    """A provider fake that records what it is asked to send.
 
-    channel = "email"
+    `outcome` decides the next send: None = accept, or an exception instance to raise once.
+    `fail` (the old notifier switch) makes the next send raise OSError.
+    """
 
-    def __init__(self) -> None:
-        self.sent: list[tuple[DeliveryRequest, bytes]] = []
+    dev_only = False
+
+    def __init__(self, key: str, purpose: Purpose, kind: ReceiptKind = ReceiptKind.SENT) -> None:
+        self.key = key
+        self.display_name = key
+        self.purposes = frozenset({purpose})
+        self.capabilities = Capabilities()
+        self._kind = kind
+        self.messages: list[RenderedMessage] = []
         self.outcome: Exception | None = None
-
-    def deliver(self, request: DeliveryRequest, document: bytes) -> DeliveryReceipt:
-        if self.outcome is not None:
-            error, self.outcome = self.outcome, None
-            raise error
-        self.sent.append((request, document))
-        return DeliveryReceipt(ReceiptKind.SENT, f"msg-{len(self.sent)}")
-
-
-class RecordingNotifier:
-    """ApprovalNotifier fake: keeps sent messages; `fail` makes the next send raise."""
-
-    channel = "simulated"
-
-    def __init__(self) -> None:
-        self.sent: list[tuple[ChannelBinding, ReviewPacket, str]] = []
-        self.notices: list[tuple[ChannelBinding, UUID, str]] = []
         self.fail = False
 
-    def send_review(
-        self, binding: ChannelBinding, packet: ReviewPacket, reference: str, expires_at: datetime
-    ) -> None:
+    def send(self, conn: Connection, secrets: Any, message: RenderedMessage) -> SendReceipt:
         if self.fail:
             self.fail = False
             raise OSError("provider unavailable")
-        self.sent.append((binding, packet, reference))
+        if self.outcome is not None:
+            error, self.outcome = self.outcome, None
+            raise error
+        self.messages.append(message)
+        return SendReceipt(self._kind, f"msg-{len(self.messages)}")
 
-    def send_notice(self, binding: ChannelBinding, notice_id: UUID, text: str) -> None:
-        self.notices.append((binding, notice_id, text))
+    @property
+    def sent(self) -> list[tuple[str, RenderedMessage, str]]:
+        """Approval requests: (recipient, message, action reference)."""
+        return [
+            (m.recipient, m, m.action_reference or "")
+            for m in self.messages
+            if "task_id" in m.metadata
+        ]
+
+    @property
+    def notices(self) -> list[tuple[str, UUID, str]]:
+        return [
+            (m.recipient, UUID(m.metadata["notice_id"]), m.text)
+            for m in self.messages
+            if "notice_id" in m.metadata
+        ]
+
+    @property
+    def documents(self) -> list[tuple[RenderedMessage, bytes]]:
+        return [(m, m.attachment.data) for m in self.messages if m.attachment is not None]
+
+    def test(self, conn: Connection, secrets: Any) -> Any:
+        raise NotImplementedError
+
+    def verify_inbound(self, conn: Connection, secrets: Any, request: Any) -> None:
+        raise NotImplementedError
+
+    def parse_inbound(self, conn: Connection, request: Any) -> Any:
+        raise NotImplementedError
+
+    def catalogue_reader(self, conn: Connection, secrets: Any) -> Any:
+        raise NotImplementedError
+
+
+class MemoryOutbox:
+    """MessageOutbox over a dict; a message carrying a delivery mirrors its status there."""
+
+    def __init__(self, db: "MemoryQuotations") -> None:
+        self.db = db
+        self.messages: dict[UUID, OutboundMessage] = {}
+        self.delivery_of: dict[UUID, UUID] = {}
+
+    def enqueue(self, message: NewMessage) -> UUID:
+        for existing in self.messages.values():
+            if (existing.tenant_id, existing.idempotency_key) == (
+                message.tenant_id,
+                message.idempotency_key,
+            ):
+                return existing.message_id
+        now = self.db.clock()
+        links = message.links
+        stored = OutboundMessage(
+            uuid4(), message.tenant_id, message.connection_id, message.provider_key,
+            message.purpose, message.template_key, dict(message.params), message.recipient,
+            message.idempotency_key, message.body_text, dict(message.metadata),
+            MessageStatus.PENDING, links.document_id, links.quotation_id, links.version,
+            links.approval_task_id, links.binding_id, links.enquiry_id, links.response_id,
+            message.correlation_id, None, None, now, now,
+        )  # fmt: skip
+        self.messages[stored.message_id] = stored
+        self.db.jobs.append(
+            Job(message.tenant_id, JobKind.SEND_MESSAGE, {"message_id": str(stored.message_id)})
+        )
+        if links.delivery_id is not None:
+            self.delivery_of[stored.message_id] = links.delivery_id
+            self.db.delivery_messages[links.delivery_id] = stored.message_id
+            tenant, record = self.db.delivery_rows[links.delivery_id]
+            self.db.delivery_rows[links.delivery_id] = (
+                tenant,
+                replace(record, document_id=links.document_id),
+            )
+        return stored.message_id
+
+    def get(self, tenant_id: UUID, message_id: UUID) -> OutboundMessage | None:
+        found = self.messages.get(message_id)
+        return found if found is not None and found.tenant_id == tenant_id else None
+
+    def set_status(
+        self,
+        tenant_id: UUID,
+        message_id: UUID,
+        status: MessageStatus,
+        *,
+        expected: frozenset[MessageStatus],
+        provider_message_id: str | None = None,
+        error: str | None = None,
+    ) -> bool:
+        found = self.get(tenant_id, message_id)
+        if found is None or found.status not in expected:
+            return False
+        self.messages[message_id] = replace(
+            found,
+            status=status,
+            last_error=error,
+            provider_message_id=provider_message_id or found.provider_message_id,
+            updated_at=self.db.clock(),
+        )
+        delivery_id = self.delivery_of.get(message_id)
+        if delivery_id is not None:
+            target = (
+                DeliveryStatus.SENT
+                if status is MessageStatus.DELIVERED
+                else DeliveryStatus(status.value)
+            )
+            record = self.db.delivery_rows[delivery_id][1]
+            self.db.set_status(
+                tenant_id,
+                delivery_id,
+                target,
+                expected=frozenset({record.status}),
+                provider_reference=provider_message_id,
+                error=error,
+            )
+        return True
+
+    def apply_receipt(
+        self,
+        tenant_id: UUID,
+        connection_id: UUID,
+        provider_message_id: str,
+        status: MessageStatus,
+        detail: str | None,
+    ) -> bool:
+        raise NotImplementedError
 
 
 class MemoryConnections:
@@ -1137,9 +1284,30 @@ class MemoryConnections:
         self.rows: dict[UUID, Connection] = {}
         self.token_hashes: dict[UUID, str | None] = {}
         for tenant_id in tenants:
+            for provider, account, purpose in (
+                ("api", "api-key:test-client", Purpose.CUSTOMER_MESSAGES),
+                ("email", "shop-email", Purpose.CUSTOMER_MESSAGES),
+            ):
+                self.add(
+                    Connection(
+                        memory_connection_id(tenant_id, provider, account),
+                        tenant_id,
+                        provider,
+                        provider,
+                        frozenset({purpose}),
+                        {},
+                        {},
+                        account,
+                        ConnectionStatus.ACTIVE,
+                        None,
+                        "test",
+                        now,
+                        now,
+                    )  # fmt: skip
+                )
             self.add(
                 Connection(
-                    uuid4(),
+                    memory_connection_id(tenant_id, "simulated", "simulated-local"),
                     tenant_id,
                     "simulated",
                     "Simulated phone",
@@ -1259,7 +1427,7 @@ class QuotationHarness:
     erp: SimulatedErp
     pricing: QuotationPricingService
     checkpointer: InMemorySaver
-    notifier: RecordingNotifier
+    notifier: RecordingProvider  # the managers' simulated phones
     approvals: ApprovalService
     quotations: QuotationService
     channels: ChannelActionService
@@ -1269,14 +1437,48 @@ class QuotationHarness:
     now: list[datetime]  # mutable "current time" behind `clock`
     connections: MemoryConnections
     inbox: MemoryInbox
+    outbox: MemoryOutbox
+    email: RecordingProvider  # a push provider for customers
     renderer: ReportLabQuotationRenderer = field(default_factory=ReportLabQuotationRenderer)
-    email: RecordingDeliveryChannel = field(default_factory=RecordingDeliveryChannel)
+
+    @property
+    def registry(self) -> ProviderRegistry:
+        return ProviderRegistry([ApiProvider(), self.email, self.notifier])
+
+    def outbound(self) -> OutboundService:
+        return OutboundService(self.outbox)
 
     def deliveries(self) -> QuotationDeliveryHandler:
-        channels: dict[str, DeliveryChannel] = {"api": ApiPullDelivery(), "email": self.email}
         return QuotationDeliveryHandler(
-            self.db, self.storage, self.renderer, channels, clock=self.clock
-        )
+            self.db, self.storage, self.renderer, self.connections, self.outbound(),
+            clock=self.clock,
+        )  # fmt: skip
+
+    def sender(self) -> SendMessageHandler:
+        hooks = {
+            TemplateKey.APPROVAL_REQUEST: ApprovalRequestHook(self.db, clock=self.clock),
+            TemplateKey.QUOTATION_DOCUMENT: QuotationDocumentHook(self.db, self.storage),
+        }
+        return SendMessageHandler(self.outbox, self.connections, self.registry, None, hooks)  # type: ignore[arg-type]
+
+    def send(self, message_id: UUID, attempt: int = 1) -> None:
+        """Run the send_message job for one message (dropping its queued job)."""
+        payload = {"message_id": str(message_id)}
+        self.db.jobs[:] = [
+            job for job in self.db.jobs
+            if not (job.kind is JobKind.SEND_MESSAGE and job.payload == payload)
+        ]  # fmt: skip
+        self.sender()(ClaimedJob(uuid4(), self.tenant_id, JobKind.SEND_MESSAGE, payload, attempt,
+                                 5, uuid4(), uuid4()))  # fmt: skip
+
+    def deliver(self, delivery_id: UUID, attempt: int = 1) -> None:
+        """deliver_quotation, then the send_message job of the message it queued."""
+        payload = {"delivery_id": str(delivery_id)}
+        self.deliveries()(ClaimedJob(uuid4(), self.tenant_id, JobKind.DELIVER_QUOTATION, payload,
+                                     attempt, 5, uuid4(), uuid4()))  # fmt: skip
+        message_id = self.db.delivery_messages.get(delivery_id)
+        if message_id is not None:
+            self.send(message_id, attempt)
 
     def documents(self) -> QuotationDocumentService:
         return QuotationDocumentService(self.db, self.storage, self.renderer, clock=self.clock)
@@ -1296,7 +1498,7 @@ class QuotationHarness:
         return QuotationJobHandler(graph, self.db)
 
     def notifications(self) -> ApprovalNotificationHandler:
-        return ApprovalNotificationHandler(self.db, {"simulated": self.notifier}, clock=self.clock)
+        return ApprovalNotificationHandler(self.db, self.connections, self.outbound())
 
     def enquiry(self, *lines: tuple[str, str, str], tenant_id: UUID | None = None) -> UUID:
         enquiry_id = uuid4()
@@ -1310,27 +1512,36 @@ class QuotationHarness:
     def run_jobs(self) -> int:
         """Run due jobs (and the jobs they queue) until none are due; delayed ones stay."""
         handled = 0
-        while True:
-            due = [job for job in self.db.jobs if job.run_at is None or job.run_at <= self.clock()]
-            if not due:
-                return handled
-            job = due[0]
-            self.db.jobs.remove(job)
-            claimed = ClaimedJob(uuid4(), job.tenant_id, job.kind, job.payload, 1, 5, uuid4(),
-                                 uuid4())  # fmt: skip
-            if job.kind is JobKind.NOTIFY_APPROVERS:
-                self.notifications()(claimed)
-            elif job.kind is JobKind.DELIVER_QUOTATION:
-                self.deliveries()(claimed)
-            elif job.kind is JobKind.EXPIRE_QUOTATION:
-                QuotationExpiryHandler(self.responses())(claimed)
-            elif job.kind is JobKind.NOTIFY_RESPONSE:
-                ResponseNotificationHandler(self.db, self.db, {"simulated": self.notifier})(claimed)
-            elif job.kind is JobKind.PROCESS_INBOUND:
-                ProcessInboundHandler(self.inbox, routes_for(self.channels))(claimed)
-            else:
-                self.handler()(claimed)
+        while self.run_one():
             handled += 1
+        return handled
+
+    def run_one(self) -> bool:
+        """Run the first due job; False if none is due."""
+        due = [job for job in self.db.jobs if job.run_at is None or job.run_at <= self.clock()]
+        if not due:
+            return False
+        job = due[0]
+        self.db.jobs.remove(job)
+        claimed = ClaimedJob(uuid4(), job.tenant_id, job.kind, job.payload, 1, 5, uuid4(),
+                             uuid4())  # fmt: skip
+        if job.kind is JobKind.NOTIFY_APPROVERS:
+            self.notifications()(claimed)
+        elif job.kind is JobKind.DELIVER_QUOTATION:
+            self.deliveries()(claimed)
+        elif job.kind is JobKind.EXPIRE_QUOTATION:
+            QuotationExpiryHandler(self.responses())(claimed)
+        elif job.kind is JobKind.NOTIFY_RESPONSE:
+            ResponseNotificationHandler(self.db, self.db, self.connections, self.outbound())(
+                claimed
+            )
+        elif job.kind is JobKind.SEND_MESSAGE:
+            self.sender()(claimed)
+        elif job.kind is JobKind.PROCESS_INBOUND:
+            ProcessInboundHandler(self.inbox, routes_for(self.channels))(claimed)
+        else:
+            self.handler()(claimed)
+        return True
 
     def quotation(self, enquiry_id: UUID) -> QuotationRow:
         return next(row for row in self.db.quotations.values() if row.enquiry_id == enquiry_id)
@@ -1392,7 +1603,7 @@ def harness(
         erp=simulated_erp,
         pricing=pricing,
         checkpointer=InMemorySaver(),
-        notifier=RecordingNotifier(),
+        notifier=RecordingProvider("simulated", Purpose.MANAGER_APPROVALS),
         approvals=approvals,
         quotations=QuotationService(quotation_db, quotation_db, pricing),
         channels=ChannelActionService(quotation_db, approvals, clock=clock),
@@ -1402,6 +1613,8 @@ def harness(
         now=current,
         connections=connections,
         inbox=MemoryInbox(connections, quotation_db.jobs),
+        outbox=MemoryOutbox(quotation_db),
+        email=RecordingProvider("email", Purpose.CUSTOMER_MESSAGES),
     )
 
 

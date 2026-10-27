@@ -608,6 +608,71 @@ class QuotationDocument(Base):
     valid_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class OutboundMessageRow(Base):
+    """One message we send (ADR 0018). Stores fixed wording and IDs, never action tokens."""
+
+    __tablename__ = "outbound_messages"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_ref"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_outbound_messages_connection",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "document_id"],
+            ["quotation_documents.tenant_id", "quotation_documents.id"],
+            name="fk_outbound_messages_document",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_outbound_messages_tenant_id_id"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_outbound_messages_idempotency"),
+        CheckConstraint(
+            "status IN ('pending', 'sending', 'available', 'sent', 'delivered', 'failed', "
+            "'unknown')",
+            name="ck_outbound_messages_status",
+        ),
+        Index(
+            "uq_outbound_messages_provider_message",
+            "tenant_id",
+            "connection_ref",
+            "provider_message_id",
+            unique=True,
+            postgresql_where=text("provider_message_id IS NOT NULL"),
+        ),
+        Index("ix_outbound_messages_status", "tenant_id", "status"),
+        Index("ix_outbound_messages_quotation", "tenant_id", "quotation_id"),
+        Index("ix_outbound_messages_task", "tenant_id", "approval_task_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    connection_ref: Mapped[UUID] = mapped_column()
+    provider_key: Mapped[str] = mapped_column(String(32))
+    purpose: Mapped[str] = mapped_column(String(32))
+    template_key: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict[str, str]] = mapped_column(JSONB)
+    body_text: Mapped[str] = mapped_column(Text)
+    metadata_: Mapped[dict[str, str]] = mapped_column(
+        "metadata", JSONB, server_default=text("'{}'")
+    )
+    recipient: Mapped[str] = mapped_column(String(200))
+    idempotency_key: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(16))
+    provider_message_id: Mapped[str | None] = mapped_column(String(200))
+    last_error: Mapped[str | None] = mapped_column(String(300))
+    document_id: Mapped[UUID | None] = mapped_column()
+    quotation_id: Mapped[UUID | None] = mapped_column()
+    version: Mapped[int | None] = mapped_column(Integer)
+    approval_task_id: Mapped[UUID | None] = mapped_column()
+    binding_id: Mapped[UUID | None] = mapped_column()
+    enquiry_id: Mapped[UUID | None] = mapped_column()
+    response_id: Mapped[UUID | None] = mapped_column()
+    correlation_id: Mapped[UUID] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class QuotationDelivery(Base):
     """Outbox row: one approved version to one recipient on one channel, with its outcome."""
 
@@ -636,6 +701,12 @@ class QuotationDelivery(Base):
             name="uq_quotation_deliveries_target",
         ),
         CheckConstraint(DELIVERY_STATUS_CHECK, name="ck_quotation_deliveries_status"),
+        ForeignKeyConstraint(
+            ["tenant_id", "outbound_message_id"],
+            ["outbound_messages.tenant_id", "outbound_messages.id"],
+            name="fk_quotation_deliveries_message",
+        ),
+        UniqueConstraint("outbound_message_id", name="uq_quotation_deliveries_message"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -648,6 +719,7 @@ class QuotationDelivery(Base):
     document_id: Mapped[UUID | None] = mapped_column()
     provider_reference: Mapped[str | None] = mapped_column(String(200))
     last_error: Mapped[str | None] = mapped_column(String(300))
+    outbound_message_id: Mapped[UUID | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

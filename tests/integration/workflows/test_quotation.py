@@ -8,6 +8,9 @@ isolation through the real roles.
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -26,31 +29,20 @@ from pypdf import PdfReader
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
-from quotation_app.adapters.channels.simulated import SimulatedChannelNotifier
-from quotation_app.adapters.delivery.api import ApiPullDelivery
-from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
-from quotation_app.adapters.documents.text import PdfAndTextReader
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.rules import RulesInterpreter
 from quotation_app.adapters.providers.simulated.signing import SIGNATURE_HEADER, hook_token, sign
 from quotation_app.adapters.secrets.local import new_key
-from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.app import create_app
 from quotation_app.api.auth import CSRF_HEADER
 from quotation_app.application.acceptance import (
-    QuotationExpiryHandler,
     QuotationResponseService,
-    ResponseNotificationHandler,
 )
 from quotation_app.application.approvals import ApprovalService
-from quotation_app.application.channel_actions import ChannelActionService
-from quotation_app.application.delivery import QuotationDeliveryHandler
-from quotation_app.application.inbound import ProcessInboundHandler, routes_for
 from quotation_app.application.jobs import JobRunner
-from quotation_app.application.notifications import ApprovalNotificationHandler
-from quotation_app.application.preparation import EnquiryPreparationHandler
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.tenancy import TenantContextResolver
+from quotation_app.composition import build_job_handlers, build_runtime
 from quotation_app.config import Settings
 from quotation_app.domain.acceptance import (
     OfferNotOpen,
@@ -60,34 +52,19 @@ from quotation_app.domain.acceptance import (
     ResponseRequest,
 )
 from quotation_app.domain.connections import ConnectionStatus
-from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.quotations import ApprovalAction, DecisionCommand, DecisionConflict
 from quotation_app.domain.tenancy import Role, TenantContext
 from quotation_app.persistence.acceptance import SqlResponseStore
-from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.connections import SqlConnectionStore, set_status
-from quotation_app.persistence.documents import SqlDeliveryStore
-from quotation_app.persistence.inbound import SqlInboundStore
-from quotation_app.persistence.intake import SqlPreparationStore
 from quotation_app.persistence.jobs import SqlJobQueue
-from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
+from quotation_app.persistence.quotations import SqlApprovalStore
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT, seed_demo_tenants
 from quotation_app.persistence.tenancy import (
     SqlMembershipReader,
     SqlPricingPolicyReader,
     tenant_transaction,
 )
-from quotation_app.persistence.workflow import SqlWorkflowStore, open_checkpointer
-from quotation_app.workflows.enquiry import (
-    EnquiryWorkflowDeps,
-    ExtractionJobHandler,
-    build_enquiry_graph,
-)
-from quotation_app.workflows.quotation import (
-    QuotationJobHandler,
-    QuotationWorkflowDeps,
-    build_quotation_graph,
-)
+from quotation_app.persistence.workflow import open_checkpointer
 
 type ApiKeyFactory = Callable[[UUID, Role], str]
 
@@ -121,64 +98,12 @@ def make_client(settings: Settings, runtime_engine: Engine) -> Iterator[Callable
 @contextmanager
 def running_worker(settings: Settings, engine: Engine) -> Iterator[JobRunner]:
     """Everything python -m quotation_app.worker wires, in-process (rules interpreter)."""
-    storage = LocalObjectStorage(settings.storage_dir)
     erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
-    runs = SqlWorkflowStore(engine)
-    quotation_store = SqlQuotationWorkflowStore(engine)
-    pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
-    responses = SqlResponseStore(engine)
     with open_checkpointer(settings.worker_url()) as checkpointer:
-        enquiry_graph = build_enquiry_graph(
-            EnquiryWorkflowDeps(runs, storage, PdfAndTextReader(), RulesInterpreter(), erp),
-            checkpointer,
+        handlers = build_job_handlers(
+            settings, engine, build_runtime(settings), checkpointer, RulesInterpreter(), erp
         )
-        quotations = QuotationJobHandler(
-            build_quotation_graph(
-                QuotationWorkflowDeps(quotation_store, pricing, responses), checkpointer
-            ),
-            quotation_store,
-        )
-        yield JobRunner(
-            SqlJobQueue(engine),
-            {
-                JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(
-                    SqlPreparationStore(engine), storage
-                ),
-                JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(enquiry_graph, runs),
-                JobKind.DRAFT_QUOTATION: quotations,
-                JobKind.RESUME_QUOTATION: quotations,
-                JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(
-                    SqlNotificationStore(engine),
-                    {"simulated": SimulatedChannelNotifier(settings.storage_dir / "outbox")},
-                ),
-                JobKind.EXPIRE_QUOTATION: QuotationExpiryHandler(
-                    QuotationResponseService(responses, pricing)
-                ),
-                JobKind.NOTIFY_RESPONSE: ResponseNotificationHandler(
-                    responses,
-                    SqlNotificationStore(engine),
-                    {"simulated": SimulatedChannelNotifier(settings.storage_dir / "outbox")},
-                ),
-                JobKind.PROCESS_INBOUND: ProcessInboundHandler(
-                    SqlInboundStore(engine),
-                    routes_for(
-                        ChannelActionService(
-                            SqlChannelStore(engine),
-                            ApprovalService(
-                                SqlApprovalStore(engine),
-                                TenantContextResolver(SqlMembershipReader(engine)),
-                            ),
-                        )
-                    ),
-                ),
-                JobKind.DELIVER_QUOTATION: QuotationDeliveryHandler(
-                    SqlDeliveryStore(engine),
-                    storage,
-                    ReportLabQuotationRenderer(),
-                    {"api": ApiPullDelivery()},
-                ),
-            },
-        )
+        yield JobRunner(SqlJobQueue(engine), handlers)
 
 
 def drain(settings: Settings, engine: Engine) -> None:
@@ -352,7 +277,7 @@ def test_manager_approves_from_the_simulated_channel(
 
     submit(make_client(), make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE), ENQUIRY)
     drain(settings, worker_engine)
-    [message_file] = list(Path(settings.storage_dir / "outbox").rglob("*.json"))
+    [message_file] = list(Path(settings.storage_dir / "simulated-channel").rglob("*.json"))
     message = json.loads(message_file.read_text(encoding="utf-8"))
     assert message["to"] == "phone-1" and "total 10450.38 INR" in message["text"]
 
@@ -408,7 +333,7 @@ def test_manager_approves_through_the_generic_hook(
 
         submit(make_client(), make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE), ENQUIRY)
         drain(keyed, worker_engine)
-        [message_file] = list(Path(keyed.storage_dir / "outbox").rglob("*.json"))
+        [message_file] = list(Path(keyed.storage_dir / "simulated-channel").rglob("*.json"))
         reference = json.loads(message_file.read_text(encoding="utf-8"))["action_reference"]
         decision = {"event_id": "h2", "external_user_id": "phone-9", "type": "decision",
                     "action_reference": reference, "action": "approve"}  # fmt: skip
@@ -899,3 +824,82 @@ def test_answers_are_append_only_and_tenant_isolated(
             assert (
                 connection.execute(text("SELECT count(*) FROM quotation_responses")).scalar() == 0
             )
+
+
+def alembic(*arguments: str) -> None:
+    environment = {
+        **os.environ,
+        "QUOTATION_ENVIRONMENT": "test",
+        "QUOTATION_DATABASE_URL": os.environ["TEST_DATABASE_URL"],
+        "QUOTATION_MIGRATION_DATABASE_URL": os.environ["TEST_MIGRATION_DATABASE_URL"],
+    }
+    subprocess.run([sys.executable, "-m", "alembic", *arguments], check=True, env=environment)
+
+
+def test_migration_0009_round_trip_with_a_delivered_quotation(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    issued_quotation(make_client, make_api_key, settings, worker_engine)
+
+    def scalar(query: str) -> Any:
+        with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as db:
+            return db.execute(text(query)).scalar_one()
+
+    alembic("downgrade", "0008_connections")
+    try:
+        assert scalar("SELECT status FROM quotation_deliveries") == "available"
+        assert scalar("SELECT count(*) FROM jobs WHERE kind = 'send_message'") == 0
+    finally:
+        alembic("upgrade", "head")
+    # The backfill gives the delivery its message again, with the same status.
+    assert (
+        scalar(
+            "SELECT count(*) FROM quotation_deliveries d JOIN outbound_messages m "
+            "ON m.id = d.outbound_message_id WHERE m.status = d.status "
+            "AND m.template_key = 'quotation_document' AND m.recipient = d.recipient"
+        )
+        == 1
+    )
+
+
+def test_every_linked_phone_gets_a_working_request(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    """Regression (phase 1 live run): two accounts get the same task file name; both messages
+    must be recorded as sent and both tokens must work."""
+    manager = make_client()
+    headers = login(manager, MANAGER)
+
+    def post(event: dict[str, Any]) -> Any:
+        raw = json.dumps(event).encode()
+        return manager.post("/api/v1/channels/simulated/events", content=raw,
+                            headers={SIGNATURE_HEADER: sign(SECRET, raw)})  # fmt: skip
+
+    common = {"tenant_id": str(INDUSTRIAL_TENANT), "connection_id": "simulated-local"}
+    for phone in ("phone-a", "phone-b"):
+        code = manager.post(f"{base()}/channel-enrollments", json={"channel": "simulated"},
+                            headers=headers).json()["code"]  # fmt: skip
+        enroll = {**common, "event_id": f"e-{phone}", "external_user_id": phone,
+                  "type": "enroll", "code": code}  # fmt: skip
+        assert post(enroll).json()["result"] == "enrolled"
+    submit(make_client(), make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE), ENQUIRY)
+    drain(settings, worker_engine)
+    with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as db:
+        statuses = db.execute(
+            text("SELECT status FROM outbound_messages WHERE template_key = 'approval_request'")
+        ).scalars().all()  # fmt: skip
+    assert statuses == ["sent", "sent"]
+    files = sorted(Path(settings.storage_dir / "simulated-channel").rglob("*.json"))
+    assert [path.parent.name for path in files] == ["phone-a", "phone-b"]
+    reference = json.loads(files[1].read_text(encoding="utf-8"))["action_reference"]
+    decision = {**common, "event_id": "d-b", "external_user_id": "phone-b", "type": "decision",
+                "action_reference": reference, "action": "approve"}  # fmt: skip
+    assert post(decision).json()["result"] == "recorded"

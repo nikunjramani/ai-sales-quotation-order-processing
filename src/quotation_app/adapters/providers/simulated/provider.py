@@ -125,7 +125,8 @@ class SimulatedProvider:
         else:
             raise SendRejected("The simulated phone only receives manager messages")
         write_message(self._outbox, conn.tenant_id, message.recipient, name, body)
-        return SendReceipt(ReceiptKind.SENT, provider_message_id=name)
+        # One ID per message: the same file name is used for every account that gets this task.
+        return SendReceipt(ReceiptKind.SENT, provider_message_id=str(message.message_id))
 
     def catalogue_reader(self, conn: Connection, secrets: SecretStore) -> ErpReader:
         name = str(conn.config.get("catalogue", ""))

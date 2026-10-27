@@ -1,19 +1,68 @@
-"""Composition root: builds the pluggable runtime parts from settings (ADR 0018).
+"""Composition root: builds the pluggable runtime parts and the worker's job handlers (ADR 0018).
 
-The API, the worker, scripts and tests all wire providers and stores through these functions,
-so adding a provider never means editing the API or the worker.
+The API, the worker, scripts and tests all wire providers, stores and handlers through these
+functions, so adding a provider never means editing the API or the worker.
 """
 
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from sqlalchemy import Engine
+
+from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
+from quotation_app.adapters.documents.text import PdfAndTextReader
+from quotation_app.adapters.storage.local import LocalObjectStorage
+from quotation_app.application.acceptance import (
+    QuotationExpiryHandler,
+    QuotationResponseService,
+    ResponseNotificationHandler,
+)
+from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.delivery import QuotationDeliveryHandler, QuotationDocumentHook
+from quotation_app.application.inbound import ProcessInboundHandler, routes_for
+from quotation_app.application.jobs import JobHandler
+from quotation_app.application.messaging import OutboundService, SendMessageHandler
+from quotation_app.application.notifications import (
+    ApprovalNotificationHandler,
+    ApprovalRequestHook,
+)
 from quotation_app.application.plugins import load_named
+from quotation_app.application.preparation import EnquiryPreparationHandler
+from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.providers import ProviderRegistry
+from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
+from quotation_app.domain.jobs import JobKind
+from quotation_app.domain.messages import TemplateKey
+from quotation_app.persistence.acceptance import SqlResponseStore
+from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
+from quotation_app.persistence.connections import SqlConnectionStore
+from quotation_app.persistence.documents import SqlDeliveryStore
+from quotation_app.persistence.inbound import SqlInboundStore
+from quotation_app.persistence.intake import SqlPreparationStore
+from quotation_app.persistence.messages import SqlMessageOutbox
+from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
+from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
+from quotation_app.persistence.workflow import SqlWorkflowStore
+from quotation_app.ports.erp import ErpReader
+from quotation_app.ports.interpretation import EnquiryInterpreter
 from quotation_app.ports.providers import ProviderEnvironment
 from quotation_app.ports.secrets import SecretStore, SecretStoreEnvironment
+from quotation_app.workflows.enquiry import (
+    EnquiryWorkflowDeps,
+    ExtractionJobHandler,
+    build_enquiry_graph,
+)
+from quotation_app.workflows.quotation import (
+    QuotationJobHandler,
+    QuotationWorkflowDeps,
+    build_quotation_graph,
+)
 
 SECRET_STORES = "quotation_app.secret_stores"
 
@@ -70,3 +119,79 @@ def build_provider_registry(settings: Settings) -> ProviderRegistry:
     return ProviderRegistry.load(
         ProviderEnvironment(environment=settings.environment, storage_dir=settings.storage_dir)
     )
+
+
+@dataclass(frozen=True)
+class Runtime:
+    """The pluggable parts shared by the API and the worker."""
+
+    registry: ProviderRegistry
+    secrets: SecretStore
+
+
+def build_runtime(settings: Settings) -> Runtime:
+    return Runtime(build_provider_registry(settings), lazy_secret_store(settings))
+
+
+def build_job_handlers(
+    settings: Settings,
+    engine: Engine,
+    runtime: Runtime,
+    checkpointer: BaseCheckpointSaver[str],
+    interpreter: EnquiryInterpreter,
+    catalogue: ErpReader,
+) -> dict[JobKind, JobHandler]:
+    """Every job the worker runs, wired to the worker-role engine."""
+    storage = LocalObjectStorage(settings.storage_dir)
+    connections = SqlConnectionStore(engine)
+    notifications = SqlNotificationStore(engine)
+    deliveries = SqlDeliveryStore(engine)
+    outbox = SqlMessageOutbox(engine)
+    outbound = OutboundService(outbox)
+    pricing = QuotationPricingService(catalogue, SqlPricingPolicyReader(engine))
+    responses = SqlResponseStore(engine)
+    workflow_store = SqlWorkflowStore(engine)
+    quotation_store = SqlQuotationWorkflowStore(engine)
+    enquiry_graph = build_enquiry_graph(
+        EnquiryWorkflowDeps(workflow_store, storage, PdfAndTextReader(), interpreter, catalogue),
+        checkpointer,
+    )
+    quotations = QuotationJobHandler(
+        build_quotation_graph(
+            QuotationWorkflowDeps(quotation_store, pricing, responses), checkpointer
+        ),
+        quotation_store,
+    )
+    approvals = ApprovalService(
+        SqlApprovalStore(engine), TenantContextResolver(SqlMembershipReader(engine))
+    )
+    return {
+        JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(SqlPreparationStore(engine), storage),
+        JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(enquiry_graph, workflow_store),
+        JobKind.DRAFT_QUOTATION: quotations,
+        JobKind.RESUME_QUOTATION: quotations,
+        JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(notifications, connections, outbound),
+        JobKind.DELIVER_QUOTATION: QuotationDeliveryHandler(
+            deliveries, storage, ReportLabQuotationRenderer(), connections, outbound
+        ),
+        JobKind.EXPIRE_QUOTATION: QuotationExpiryHandler(
+            QuotationResponseService(responses, pricing)
+        ),
+        JobKind.NOTIFY_RESPONSE: ResponseNotificationHandler(
+            responses, notifications, connections, outbound
+        ),
+        JobKind.SEND_MESSAGE: SendMessageHandler(
+            outbox,
+            connections,
+            runtime.registry,
+            runtime.secrets,
+            {
+                TemplateKey.APPROVAL_REQUEST: ApprovalRequestHook(notifications),
+                TemplateKey.QUOTATION_DOCUMENT: QuotationDocumentHook(deliveries, storage),
+            },
+        ),
+        JobKind.PROCESS_INBOUND: ProcessInboundHandler(
+            SqlInboundStore(engine),
+            routes_for(ChannelActionService(SqlChannelStore(engine), approvals)),
+        ),
+    }

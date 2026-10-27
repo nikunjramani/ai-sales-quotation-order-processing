@@ -161,7 +161,12 @@ See the [phase 1 plan](../plan/platform/implementation/phase-1-foundations.md). 
 | [api/channels.py](../../src/quotation_app/api/channels.py) | Deprecated simulated route, now finding the business's connection and routing through ManagerActionRoute |
 | [adapters/providers/api/](../../src/quotation_app/adapters/providers/api/__init__.py) | Provider `api` (pull: send = available) |
 | [adapters/providers/simulated/](../../src/quotation_app/adapters/providers/simulated/provider.py) | Provider `simulated` (dev only): outbox files, per-connection HMAC signing, manager actions, demo catalogue reader; `signing.py` (incl. `hook_token`), `outbox.py` |
-| [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests: secret store (built lazily), provider registry |
+| [0009_outbound_messages.py](../../migrations/versions/0009_outbound_messages.py) | outbound_messages (forced RLS, column grants), `quotation_deliveries.outbound_message_id`, backfill and downgrade |
+| [persistence/messages.py](../../src/quotation_app/persistence/messages.py) | SqlMessageOutbox: idempotent enqueue with the send job, compare-and-set status mirrored onto a linked delivery, provider receipts |
+| [application/messaging.py](../../src/quotation_app/application/messaging.py) | OutboundService (render a template, store the message) and SendMessageHandler (`send_message` job) |
+| [application/delivery.py](../../src/quotation_app/application/delivery.py) | `deliver_quotation`: prepare the PDF, queue the outbox message; QuotationDocumentHook attaches the verified PDF at send time |
+| [application/notifications.py](../../src/quotation_app/application/notifications.py) | `notify_approvers` queues approval requests; ApprovalRequestHook creates the single-use token at send time |
+| [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests: secret store (built lazily), provider registry, `build_job_handlers` for every job kind |
 
 ## Planned modules
 

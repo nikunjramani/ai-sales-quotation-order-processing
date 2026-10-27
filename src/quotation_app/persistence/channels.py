@@ -39,6 +39,7 @@ _BINDING_COLUMNS = (
     ChannelBindingRow.external_user_id,
     ChannelBindingRow.created_at,
     ChannelBindingRow.revoked_at,
+    ChannelBindingRow.connection_ref,
 )
 
 
@@ -52,6 +53,7 @@ def _binding(row: Row[Any]) -> ChannelBinding:
         external_user_id=row.external_user_id,
         created_at=row.created_at,
         revoked_at=row.revoked_at,
+        connection_ref=row.connection_ref,
     )
 
 

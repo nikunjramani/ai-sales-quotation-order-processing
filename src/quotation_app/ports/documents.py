@@ -1,13 +1,12 @@
-"""Quotation document rendering, customer delivery channels and their storage contracts.
+"""Quotation document rendering and delivery storage contracts.
 
-Adding a customer delivery channel (email, Telegram, ...) means writing one DeliveryChannel
-adapter and registering it by channel name in the worker; see
-.docs/development/adding-channels.md. Nothing in the application layer changes.
+Sending goes through the outbox and the connection's provider (ADR 0018): a delivery is carried
+out by one outbound message, whose status the delivery mirrors. Adding a customer tool means
+adding a provider package; see .docs/development/adding-providers.md.
 """
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from typing import Protocol
 from uuid import UUID
 
@@ -32,55 +31,6 @@ class QuotationRenderer(Protocol):
 
 
 @dataclass(frozen=True)
-class DeliveryRequest:
-    """What a channel adapter needs. delivery_id doubles as the provider idempotency key."""
-
-    delivery_id: UUID
-    tenant_id: UUID
-    tenant_name: str
-    quotation_id: UUID
-    quotation_number: str
-    version: int
-    recipient: str  # channel-specific address: API connection, email address, chat ID ...
-    customer_reference: str | None
-    filename: str
-    document_sha256: str
-
-
-class ReceiptKind(StrEnum):
-    AVAILABLE = "available"  # pull channel: the customer fetches it
-    SENT = "sent"  # push channel: the provider accepted it
-
-
-@dataclass(frozen=True)
-class DeliveryReceipt:
-    kind: ReceiptKind
-    provider_reference: str | None = None
-
-
-class DeliveryRejected(Exception):
-    """The provider refused the delivery for good (bad address, blocked, too large...)."""
-
-
-class DeliveryUncertain(Exception):
-    """The request may have reached the provider (e.g. a timeout after sending).
-
-    The delivery becomes 'unknown' and is not resent automatically, to avoid duplicates.
-    """
-
-
-class DeliveryChannel(Protocol):
-    """Sends (or offers) one approved quotation document through one customer channel.
-
-    Any other exception means nothing was handed over and the attempt may be retried.
-    """
-
-    channel: str
-
-    def deliver(self, request: DeliveryRequest, document: bytes) -> DeliveryReceipt: ...
-
-
-@dataclass(frozen=True)
 class DeliveryWork:
     """A delivery with the facts needed to process it."""
 
@@ -89,6 +39,10 @@ class DeliveryWork:
     customer_reference: str | None
     document: StoredDocument | None
     validity_days: int  # the tenant's setting, used when the document is first prepared
+    connection_id: UUID | None  # the connection the enquiry arrived on (replies go there)
+    enquiry_id: UUID
+    correlation_id: UUID
+    outbound_message_id: UUID | None  # set once the message carrying it is queued
 
 
 class DeliveryStore(Protocol):
@@ -106,6 +60,8 @@ class DeliveryStore(Protocol):
     def save_document(self, tenant_id: UUID, document: StoredDocument) -> StoredDocument:
         """Insert once; a repeat returns the row stored first."""
         ...
+
+    def document(self, tenant_id: UUID, document_id: UUID) -> StoredDocument | None: ...
 
     def set_status(
         self,

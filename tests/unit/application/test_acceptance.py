@@ -102,8 +102,8 @@ def test_customer_accepts_unchanged_prices_and_managers_are_told(harness: Any) -
     harness.run_jobs()  # resume the run, notify managers
     run = harness.db.runs[(harness.tenant_id, enquiry, "quotation-approval-v1")]
     assert harness.db.run_status[run] == "accepted"
-    [(binding, notice_id, text)] = harness.notifier.notices
-    assert binding.external_user_id == "manager-phone" and notice_id == recorded.response_id
+    [(recipient, notice_id, text)] = harness.notifier.notices
+    assert recipient == "manager-phone" and notice_id == recorded.response_id
     assert "the customer accepted quotation Q-" in text and "version 1" in text
 
     again, replayed = answer(harness, enquiry, offer)  # network retry: same key, same answer

@@ -12,11 +12,12 @@ Every answer is recorded once (idempotency key, append-only); a replay returns t
 """
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from quotation_app.application.messaging import OutboundService
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.domain.acceptance import (
     SYSTEM_SUBJECT,
@@ -35,7 +36,7 @@ from quotation_app.domain.acceptance import (
 from quotation_app.domain.documents import DocumentNotAvailable
 from quotation_app.domain.intake import validate_idempotency_key
 from quotation_app.domain.jobs import PermanentJobError
-from quotation_app.domain.messages import TemplateKey, render_template
+from quotation_app.domain.messages import TemplateKey
 from quotation_app.domain.pricing import PricingRejected, RequestedLine
 from quotation_app.domain.quotations import (
     QuotationNotFound,
@@ -47,8 +48,10 @@ from quotation_app.domain.quotations import (
 )
 from quotation_app.domain.tenancy import Permission, PermissionDenied, Role, TenantContext
 from quotation_app.ports.acceptance import NewResponse, ResponseStore, RevisedContent
-from quotation_app.ports.channels import ApprovalNotifier, NotificationStore
+from quotation_app.ports.channels import NotificationStore
+from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.jobs import ClaimedJob
+from quotation_app.ports.messages import MessageLinks
 
 logger = logging.getLogger(__name__)
 
@@ -264,21 +267,23 @@ class QuotationExpiryHandler:
 
 
 class ResponseNotificationHandler:
-    """Job handler for notify_response: tell managers' linked channels about an answer.
+    """Job handler for notify_response: tell managers' linked accounts about an answer.
 
-    At least once: if one account fails, the retry may repeat the notice to the others; each
-    notice carries the response ID so a provider (or the simulated outbox) can drop repeats.
+    One response_notice message per approver binding (idempotency key
+    response-notice:<response>:<binding>), so a retried job never repeats a notice.
     """
 
     def __init__(
         self,
         responses: ResponseStore,
         bindings: NotificationStore,
-        notifiers: Mapping[str, ApprovalNotifier],
+        connections: ConnectionStore,
+        outbound: OutboundService,
     ) -> None:
         self._responses = responses
         self._bindings = bindings
-        self._notifiers = dict(notifiers)
+        self._connections = connections
+        self._outbound = outbound
 
     def __call__(self, job: ClaimedJob) -> None:
         try:
@@ -291,12 +296,27 @@ class ResponseNotificationHandler:
         offer = self._responses.offer_for_quotation(job.tenant_id, response.quotation_id)
         if offer is None:
             raise QuotationNotFound("Quotation not found")
-        text = render_template(
-            TemplateKey.RESPONSE_NOTICE, {"offer": offer, "response": response}
-        ).text
         for binding in self._bindings.approver_bindings(job.tenant_id):
-            notifier = self._notifiers.get(binding.channel)
-            if notifier is None:
-                logger.warning("No notifier configured for channel %s", binding.channel)
+            connection = self._connections.get(job.tenant_id, binding.connection_ref)
+            if connection is None or not connection.active:
+                logger.warning("Binding %s has no active connection", binding.binding_id)
                 continue
-            notifier.send_notice(binding, response.response_id, text)
+            self._outbound.queue(
+                connection,
+                template=TemplateKey.RESPONSE_NOTICE,
+                render={"offer": offer, "response": response},
+                params={
+                    "response_id": str(response.response_id),
+                    "binding_id": str(binding.binding_id),
+                },
+                recipient=binding.external_user_id,
+                idempotency_key=f"response-notice:{response.response_id}:{binding.binding_id}",
+                links=MessageLinks(
+                    quotation_id=response.quotation_id,
+                    version=response.version,
+                    binding_id=binding.binding_id,
+                    enquiry_id=offer.enquiry_id,
+                    response_id=response.response_id,
+                ),
+                correlation_id=job.correlation_id,
+            )

@@ -1,4 +1,5 @@
-"""Manager approval channel contracts: bindings, action references and review delivery.
+"""Manager approval channel contracts: bindings and action references (sending is the
+outbox's job, ADR 0018).
 
 A channel binding links an internal manager (subject) to one external account on one provider
 connection. It is created only through enrollment (proof of control) and can be revoked.
@@ -18,11 +19,12 @@ class ChannelBinding:
     binding_id: UUID
     tenant_id: UUID
     subject: str
-    channel: str
-    connection_id: str
+    channel: str  # the provider key
+    connection_id: str  # the connection's legacy key (for display and old readers)
     external_user_id: str
     created_at: datetime
     revoked_at: datetime | None
+    connection_ref: UUID  # the connection row
 
     @property
     def active(self) -> bool:
@@ -37,27 +39,6 @@ class ActionReference:
     content_sha256: str  # of the task's version
     expires_at: datetime
     consumed_at: datetime | None
-
-
-class ApprovalNotifier(Protocol):
-    """Delivers messages to one bound manager account. Raises on failure (retried)."""
-
-    channel: str
-
-    def send_review(
-        self,
-        binding: ChannelBinding,
-        packet: ReviewPacket,
-        action_reference: str,
-        expires_at: datetime,
-    ) -> None: ...
-
-    def send_notice(self, binding: ChannelBinding, notice_id: UUID, text: str) -> None:
-        """An information-only message (e.g. "customer accepted Q-..."); it has no actions.
-
-        notice_id identifies the event, so a provider can drop a repeated delivery.
-        """
-        ...
 
 
 class NotificationStore(Protocol):

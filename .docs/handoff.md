@@ -216,7 +216,22 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Scripts:** `scripts/simulated_channel.py --via hooks`.
   - **Deviation from the plan, on purpose:** `ChannelEvent` keeps the provider key and the connection's legacy key (exactly one connection per business). Decision command IDs therefore stay the same across the upgrade, so the planned "replay after upgrade gets 409" edge case does not happen.
   - **Checks:** 439 tests on PostgreSQL, including approval through the generic hook. Live: demo page, enquiry, phone, approve (alias), quotation for the customer.
-- **Next:** WI-6 + WI-7 (outbox table and `send_message` job).
+- **WI-6, WI-7, WI-8 and WI-11 done:**
+  - **Migration `0009_outbound_messages`:** one outbox with forced RLS. Worker grants are column-level, so the worker can advance a message but never rewrite its text or recipient. Backfill gives one message per existing delivery; downgrade re-queues pending work.
+  - **`SqlMessageOutbox`:** each delivery mirrors its message's status, and expiry is queued as before.
+  - **`OutboundService` + `send_message` job:** honest statuses. `unknown` is never resent; a crash while sending becomes `unknown`.
+  - **Send hooks:** `ApprovalRequestHook` creates the single-use token only at send time, so it is never stored. `QuotationDocumentHook` re-checks the PDF hash and attaches it.
+  - **Rebuilt on the outbox:** `deliver_quotation`, `notify_approvers` and `notify_response`. Response notices are no longer repeated on retry.
+  - **Removed (replaced):** `DeliveryChannel` and its errors, `ApprovalNotifier`, `adapters/delivery/api.py` and `adapters/channels/`.
+  - **Composition root:** `composition.build_job_handlers` is shared by the worker and the PostgreSQL tests.
+  - **Bug found in the live run and fixed:**
+    - **Cause:** with several linked phones, the simulated provider reported the file name as the message ID, and that ID is unique per connection. The second "sent" update failed, so the token written to the phone was never marked sent ("Action not accepted").
+    - **Fix:** the ID is now the message's own ID.
+    - **Tests:** a unit test and a PostgreSQL regression test.
+  - **Wording change staff can see:** a refused send now reads "Rejected by the provider: …" (was "…by the channel…"). A tool with no connection reads "No active connection for '<provider>' to send the quotation".
+  - **Checks:** 391 unit tests; `check_database.py --cycle` with 448 tests (450 after the regression test). Live demo: enquiry, phone, approve, PDF, accept, notice.
+  - **Observed, not phase 1:** the Gemini reader once read "2 x IND-FAN-450" as unit "x" and asked a clarification question. The free rules reader does not do this.
+- **Next:** WI-9 (API intake on its `api` connection; `reply_to` at intake), WI-10 (per-business catalogue source), then the portal work items (WI-12, WI-13), contract tests (WI-14) and docs/ADR 0018 (WI-15).
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

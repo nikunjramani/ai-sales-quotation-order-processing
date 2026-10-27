@@ -126,3 +126,16 @@ def test_catalogue_reader_is_the_named_demo_catalogue_for_that_business() -> Non
     with pytest.raises(OperationUnsupported):
         no_catalogue = connection(purposes=frozenset({Purpose.MANAGER_APPROVALS}))
         provider.catalogue_reader(no_catalogue, OneSecret())
+
+
+def test_each_message_gets_its_own_provider_message_id(tmp_path: Path) -> None:
+    """Two linked accounts get the same task: file names repeat, message IDs must not."""
+    provider = SimulatedProvider(tmp_path)
+    review = message(task_id=TASK, quotation="Q-1A2B3C4D", version="1")
+    first = provider.send(connection(), OneSecret(), review)
+    second = provider.send(
+        connection(), OneSecret(), RenderedMessage(**{**vars(review), "message_id": uuid4(),
+                                                      "recipient": "other/phone"})
+    )  # fmt: skip
+    assert first.provider_message_id != second.provider_message_id
+    assert first.provider_message_id == str(review.message_id)
