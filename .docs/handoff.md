@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-27 (phase 1 connector framework implemented on `feat/phase-1-foundations`, PR #6; M0-M6 complete on main).
+Updated: 2026-10-27 (phase 1 merged to main through PR #6; phase 2 accounts in progress on `feat/phase-2-accounts`).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -191,7 +191,7 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
 - **Not found:** say so and list the business's product **categories** (from the ERP); asking about a category lists its products.
 - **Replies:** stay fixed templates; AI only reads enquiries.
 
-## Phase 1 foundations (in progress, branch `feat/phase-1-foundations`)
+## Phase 1 foundations (complete, merged to main through PR #6, merge commit aee8988, 2026-10-27)
 - **User (2026-10-27):** "start implementation as per plan". PR #5 (the plan) is merged. All phase 1 open questions were answered with the recommendations; see [phase 1 plan §3](plan/platform/implementation/phase-1-foundations.md#user-answers-2026-10-27). Claude may commit and push on this branch, one commit per work item, with a draft PR to `main` (never merging).
 - **WI-0 done:** golden tests pin today's behaviour before the refactor:
   - approval request wording;
@@ -282,7 +282,16 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Live, portal API:** the manager sees only the linkable connection; sales staff get 403.
   - **Live, generic hook:** `--via hooks` enrol gives 200, and the worker enrols the account. A bad token gives 404 and a bad signature 401.
   - **Cosmetic, dev databases only:** a connection created by the 0008 backfill keeps its generated name (e.g. "simulated simulated-local"), because the seed does not rename existing connections.
-- **Next:** the user reviews PR #6. Phase 2 (accounts) needs its open questions answered first ([phase 2 plan](plan/platform/implementation/phase-2-accounts.md)).
+- **Merged:** the user allowed the merge on 2026-10-27; PR #6 was green (`verify` and `portal`).
+
+## Phase 2 accounts and onboarding (in progress, branch `feat/phase-2-accounts`)
+- **User (2026-10-27):** "work on phase two". All of Q1-Q27 and P1-Q9 were answered; see [phase 2 plan, user answers](plan/platform/implementation/phase-2-accounts.md#user-answers-2026-10-27). Same commit arrangement as phase 1 (one commit per work item, pushed, draft PR; the user merges).
+- **Answers that change the plan:**
+  - no account lockout; the rate limits are the only guard against guessing;
+  - rate-limit counters live in PostgreSQL (`rate_limit_counters`);
+  - demo people also get a password, from `QUOTATION_DEMO_PASSWORD` in `.env`;
+  - an API key sees only the enquiries and quotations it submitted itself (was: any key of the business).
+- **W0 done:** answers recorded in the plan, [07 decisions](plan/platform/07-decisions-needed.md) and here.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).
