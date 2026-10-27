@@ -183,7 +183,7 @@ class ProcessInboundHandler:
             inbox_event_id = UUID(job.payload["inbox_event_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid inbox_event_id") from None
-        stored = self._store.load(job.tenant_id, inbox_event_id)
+        stored = self._store.load(job.require_tenant(), inbox_event_id)
         if stored is None:
             raise PermanentJobError("Inbox event not found")
         if stored.processed_at is not None:
@@ -196,7 +196,7 @@ class ProcessInboundHandler:
         else:
             outcome = route(stored.connection, stored.event)
         logger.info("Inbound event %s: %s", inbox_event_id, outcome)
-        self._store.mark_processed(job.tenant_id, inbox_event_id, outcome[:300])
+        self._store.mark_processed(job.require_tenant(), inbox_event_id, outcome[:300])
 
 
 def routes_for(actions: ChannelActionService) -> Mapping[InboundEventType, InboundRoute]:

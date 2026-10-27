@@ -24,5 +24,11 @@ def test_seed_is_idempotent_and_tenants_are_isolated(
     # A reused pooled connection cannot retain the previous transaction's tenant.
     with runtime_engine.connect() as connection:
         assert list(connection.execute(text("SELECT id FROM tenants")).scalars()) == []
+    # Phase 2: settings may rename the current business, but nothing is reachable without one,
+    # and businesses are only created through create_business().
+    with runtime_engine.connect() as connection, connection.begin() as transaction:
+        changed = connection.execute(text("UPDATE tenants SET name = 'forbidden'")).rowcount
+        transaction.rollback()
+    assert changed == 0
     with pytest.raises(ProgrammingError), runtime_engine.begin() as connection:
-        connection.execute(text("UPDATE tenants SET name = 'forbidden'"))
+        connection.execute(text("INSERT INTO tenants (id, name) VALUES (gen_random_uuid(), 'x')"))

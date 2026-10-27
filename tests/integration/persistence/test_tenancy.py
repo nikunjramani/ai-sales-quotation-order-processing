@@ -56,7 +56,10 @@ def test_rows_are_invisible_without_or_across_tenant_context(
     [
         "INSERT INTO memberships (id, tenant_id, subject, role) "
         "VALUES (gen_random_uuid(), :tenant, 'intruder@example.test', 'approver')",
-        "UPDATE tenant_pricing_policies SET tax_rate = 0 WHERE tenant_id = :tenant",
+        "DELETE FROM memberships WHERE tenant_id = :tenant",
+        "INSERT INTO tenants (id, name) VALUES (gen_random_uuid(), 'intruder')",
+        "UPDATE tenant_pricing_policies SET tenant_id = gen_random_uuid() "
+        "WHERE tenant_id = :tenant",
     ],
 )
 def test_runtime_role_cannot_change_access_or_policy(
@@ -67,6 +70,24 @@ def test_runtime_role_cannot_change_access_or_policy(
         tenant_transaction(runtime_engine, industrial_tenant) as connection,
     ):
         connection.execute(text(statement), {"tenant": industrial_tenant})
+
+
+def test_runtime_role_changes_pricing_of_its_own_business_only(
+    runtime_engine: Engine, industrial_tenant: UUID, office_tenant: UUID
+) -> None:
+    """Phase 2 (Q26): the pricing screen saves through a column grant limited by tenant RLS."""
+    update_all = text("UPDATE tenant_pricing_policies SET tax_rate = 0")
+    with runtime_engine.connect() as connection, connection.begin() as transaction:
+        connection.execute(
+            text("SELECT set_config('app.tenant_id', :id, true)"), {"id": str(industrial_tenant)}
+        )
+        assert connection.execute(update_all).rowcount == 1  # its own row only
+        other = connection.execute(
+            text("SELECT count(*) FROM tenant_pricing_policies WHERE tenant_id = :id"),
+            {"id": office_tenant},
+        ).scalar_one()
+        assert other == 0
+        transaction.rollback()
 
 
 def test_policies_are_read_per_tenant(

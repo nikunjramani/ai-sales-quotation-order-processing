@@ -26,6 +26,8 @@ THIRD_PARTY = {
         "langchain",
         "langchain_core",
         "pydantic",
+        "argon2",  # phase 2: password hashing
+        "PIL",  # phase 2: logo checks and re-encoding
     },
     "workflows": {"langgraph", "langchain_core"},
 }

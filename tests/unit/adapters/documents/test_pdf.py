@@ -1,5 +1,6 @@
 """ReportLab quotation PDFs: faithful amounts, determinism, escaping and refusal to guess."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from io import BytesIO
 from uuid import uuid4
@@ -7,8 +8,11 @@ from uuid import uuid4
 import pytest
 from pypdf import PdfReader
 
+from quotation_app.adapters.documents.logo import PillowLogoNormalizer
 from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
-from quotation_app.domain.documents import DocumentSource, UnrenderableContent
+from quotation_app.domain.documents import DocumentSource, SellerDetails, UnrenderableContent
+
+type ImageFactory = Callable[[str, int, int], bytes]
 
 
 def content(lines: int = 1, description: str = "Industrial fan 450 mm") -> dict[str, object]:
@@ -144,3 +148,27 @@ def test_a_version_without_lines_is_refused(renderer: ReportLabQuotationRenderer
     empty["lines"] = []
     with pytest.raises(UnrenderableContent):
         renderer.render(source(content=empty), preview=False)
+
+
+def test_seller_details_are_printed_when_set(
+    renderer: ReportLabQuotationRenderer, make_image: ImageFactory
+) -> None:
+    seller = SellerDetails(
+        legal_name="Demo Industrial Supplies Pvt Ltd",
+        address_lines=("12 Ring Road", "Pune 411001"),
+        tax_id_label="GSTIN",
+        tax_id="27ABCDE1234F1Z5",
+        logo_png=PillowLogoNormalizer().normalize(make_image("PNG", 300, 120)),
+    )
+    text = text_of(renderer.render(source(seller=seller), preview=False))
+    for expected in ("Demo Industrial Supplies Pvt Ltd", "12 Ring Road", "Pune 411001"):
+        assert expected in text
+    assert "GSTIN: 27ABCDE1234F1Z5" in text
+    plain = text_of(renderer.render(source(), preview=False))
+    assert "Demo Industrial" in plain and "GSTIN" not in plain  # no profile: name only
+
+
+def test_seller_text_is_escaped(renderer: ReportLabQuotationRenderer) -> None:
+    seller = SellerDetails(legal_name="<b>A & B</b>", address_lines=("<i>x</i>",))
+    text = text_of(renderer.render(source(seller=seller), preview=False))
+    assert "<b>A & B</b>" in text and "<i>x</i>" in text

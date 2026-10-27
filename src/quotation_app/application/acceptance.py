@@ -263,7 +263,7 @@ class QuotationExpiryHandler:
             version = int(job.payload["version"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid quotation_id/version") from None
-        self._service.expire(job.tenant_id, quotation_id, version)
+        self._service.expire(job.require_tenant(), quotation_id, version)
 
 
 class ResponseNotificationHandler:
@@ -290,14 +290,14 @@ class ResponseNotificationHandler:
             response_id = UUID(job.payload["response_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid response_id") from None
-        response = self._responses.response(job.tenant_id, response_id)
+        response = self._responses.response(job.require_tenant(), response_id)
         if response is None:
             raise PermanentJobError("Response not found")
-        offer = self._responses.offer_for_quotation(job.tenant_id, response.quotation_id)
+        offer = self._responses.offer_for_quotation(job.require_tenant(), response.quotation_id)
         if offer is None:
             raise QuotationNotFound("Quotation not found")
-        for binding in self._bindings.approver_bindings(job.tenant_id):
-            connection = self._connections.get(job.tenant_id, binding.connection_ref)
+        for binding in self._bindings.approver_bindings(job.require_tenant()):
+            connection = self._connections.get(job.require_tenant(), binding.connection_ref)
             if connection is None or not connection.active:
                 logger.warning("Binding %s has no active connection", binding.binding_id)
                 continue

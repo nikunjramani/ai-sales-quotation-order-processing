@@ -55,11 +55,11 @@ class ApprovalNotificationHandler:
             task_id = UUID(job.payload["task_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid task_id") from None
-        packet = self._store.review_packet(job.tenant_id, task_id)
+        packet = self._store.review_packet(job.require_tenant(), task_id)
         if packet is None:
             return  # decided or gone: nothing to announce
-        for binding in self._store.approver_bindings(job.tenant_id):
-            connection = self._connections.get(job.tenant_id, binding.connection_ref)
+        for binding in self._store.approver_bindings(job.require_tenant()):
+            connection = self._connections.get(job.require_tenant(), binding.connection_ref)
             if connection is None or not connection.active:
                 logger.warning("Binding %s has no active connection", binding.binding_id)
                 continue

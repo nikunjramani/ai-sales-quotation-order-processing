@@ -12,7 +12,7 @@ from sqlalchemy import Connection, Engine, select, text
 
 from quotation_app.domain.money import RoundingMode
 from quotation_app.domain.pricing import PricingPolicy
-from quotation_app.domain.tenancy import Role, TenantContext
+from quotation_app.domain.tenancy import Role, TenantContext, TenantStatus
 from quotation_app.persistence.models import Membership, Tenant, TenantPricingPolicy
 from quotation_app.ports.tenancy import PricingPolicyNotConfigured, TenantMembership
 
@@ -52,7 +52,7 @@ class SqlMembershipReader:
                 text("SELECT set_config('app.subject', :subject, true)"), {"subject": subject}
             )
             rows = connection.execute(
-                select(Membership.tenant_id, Tenant.name, Membership.role)
+                select(Membership.tenant_id, Tenant.name, Tenant.status, Membership.role)
                 .join(Tenant, Tenant.id == Membership.tenant_id)
                 .where(Membership.subject == subject)
                 .order_by(Tenant.name, Membership.tenant_id)
@@ -61,7 +61,9 @@ class SqlMembershipReader:
         for row in rows:
             known = grouped.get(row.tenant_id)
             roles = (known.roles if known else frozenset()) | {Role(row.role)}
-            grouped[row.tenant_id] = TenantMembership(row.tenant_id, row.name, roles)
+            grouped[row.tenant_id] = TenantMembership(
+                row.tenant_id, row.name, roles, TenantStatus(row.status)
+            )
         return list(grouped.values())
 
 
@@ -86,6 +88,16 @@ class SqlPricingPolicyReader:
             ).one_or_none()
         if row is None:
             raise PricingPolicyNotConfigured("No pricing policy is configured for this tenant")
+        if (
+            row.currency is None
+            or row.minor_units is None
+            or row.rounding_mode is None
+            or row.tax_rate is None
+            or row.max_price_age_seconds is None
+            or row.max_stock_age_seconds is None
+        ):
+            # "Set later" (phase 2): never price with values nobody has confirmed.
+            raise PricingPolicyNotConfigured("The pricing settings are not complete yet")
         return PricingPolicy(
             tenant_id=row.tenant_id,
             version=row.version,

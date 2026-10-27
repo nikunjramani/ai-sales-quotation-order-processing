@@ -1,7 +1,7 @@
 """Create local-only credentials without printing them or changing existing values.
 
 Default: create .env, refusing to overwrite it. With --add-missing: append only the settings an
-older .env lacks (e.g. the M2 worker role or the phase 1 secret store key), leaving existing
+older .env lacks (e.g. the phase 1 secret store key or the phase 2 demo password), leaving existing
 lines as is.
 """
 
@@ -45,6 +45,8 @@ def _wanted(existing: dict[str, str]) -> dict[str, str]:
         # Encrypts provider secrets in the local secret store (phase 1, ADR 0018); 32 bytes.
         "QUOTATION_SECRET_STORE_KEY": existing.get("QUOTATION_SECRET_STORE_KEY")
         or urlsafe_b64encode(token_bytes(32)).decode("ascii"),
+        # Password of the seeded demo people (phase 2, Q24); development only, never in Git.
+        "QUOTATION_DEMO_PASSWORD": secret("QUOTATION_DEMO_PASSWORD"),
     }
 
 

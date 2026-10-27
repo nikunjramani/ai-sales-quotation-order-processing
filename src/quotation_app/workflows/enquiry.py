@@ -312,7 +312,7 @@ class ExtractionJobHandler:
             enquiry_id = UUID(job.payload["enquiry_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid enquiry_id") from None
-        run_id = self._store.start_run(job.tenant_id, enquiry_id, GRAPH_VERSION)
+        run_id = self._store.start_run(job.require_tenant(), enquiry_id, GRAPH_VERSION)
         config: RunnableConfig = {"configurable": {"thread_id": str(run_id)}}
         snapshot = self._graph.get_state(config)
         if snapshot.values and not snapshot.next:
@@ -321,7 +321,7 @@ class ExtractionJobHandler:
             self._graph.invoke(None, config)  # resume after a crash
         else:
             start: EnquiryState = {
-                "tenant_id": str(job.tenant_id),
+                "tenant_id": str(job.require_tenant()),
                 "enquiry_id": str(enquiry_id),
                 "run_id": str(run_id),
             }

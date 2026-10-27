@@ -120,7 +120,7 @@ class SendMessageHandler:
             message_id = UUID(job.payload["message_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid message_id") from None
-        tenant_id = job.tenant_id
+        tenant_id = job.require_tenant()
         message = self._outbox.get(tenant_id, message_id)
         if message is None:
             raise PermanentJobError("Message not found")

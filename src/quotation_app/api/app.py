@@ -114,7 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         SessionService(SqlSessionStore(engine), timedelta(hours=configuration.session_hours)),
         resolver,
     )
-    dev_login = configuration.portal_login == "dev"
+    dev_login = configuration.dev_login_enabled
     app.include_router(
         build_auth_router(
             auth,

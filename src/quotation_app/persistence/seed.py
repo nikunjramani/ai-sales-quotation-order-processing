@@ -1,16 +1,20 @@
-"""Idempotently insert fictional tenants, memberships, policies and connections (owner access).
+"""Idempotently insert fictional tenants, people, memberships, policies and connections.
 
-Existing rows are left unchanged. Subjects use the reserved .example domain. Each demo business
-gets one `simulated` connection (ADR 0018): the fake manager phone and its demo catalogue.
+Runs with owner credentials, development/test only. Existing rows are left unchanged. Subjects
+use the reserved .example domain. Each demo business gets one `simulated` connection (ADR 0018):
+the fake manager phone and its demo catalogue. Phase 2: the demo businesses are live, each demo
+person is a verified user and, when QUOTATION_DEMO_PASSWORD is set, can also sign in with that
+password (user answer Q24); the dev login keeps working either way.
 """
 
 import hashlib
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import Connection, select, text, update
+from sqlalchemy import Connection, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
+from quotation_app.adapters.accounts.password import Argon2PasswordHasher
 from quotation_app.adapters.providers.simulated.provider import SIGNING_SECRET
 from quotation_app.adapters.providers.simulated.signing import hook_token
 from quotation_app.composition import build_secret_store
@@ -25,6 +29,9 @@ from quotation_app.persistence.models import (
     Membership,
     Tenant,
     TenantPricingPolicy,
+    TenantProfile,
+    User,
+    UserCredential,
 )
 from quotation_app.ports.secrets import SecretNotFound, SecretStore
 
@@ -104,18 +111,66 @@ def _enable_hook(
     )
 
 
+def _demo_people(connection: Connection, password: str | None) -> None:
+    """Verified users for the demo subjects (their email), before memberships reference them."""
+    hasher = Argon2PasswordHasher() if password is not None else None
+    for subject in sorted({subject for _, subject, _ in DEMO_MEMBERSHIPS}):
+        connection.execute(
+            insert(User)
+            .values(
+                id=uuid5(NAMESPACE_URL, f"demo-user:{subject}"),
+                subject=subject,
+                email=subject,
+                email_normalized=subject,
+                email_verified_at=func.now(),
+            )
+            .on_conflict_do_nothing(index_elements=["subject"])
+        )
+        # People backfilled by migration 0010 exist already, unverified.
+        user_id = connection.execute(
+            update(User)
+            .where(User.subject == subject)
+            .values(email_verified_at=func.coalesce(User.email_verified_at, func.now()))
+            .returning(User.id)
+        ).scalar_one()
+        if hasher is None or password is None:
+            continue
+        current = connection.execute(
+            select(UserCredential.password_hash).where(UserCredential.user_id == user_id)
+        ).scalar_one_or_none()
+        if current is not None and hasher.verify(current, password):
+            continue
+        new_hash = hasher.hash(password)
+        connection.execute(
+            insert(UserCredential)
+            .values(user_id=user_id, password_hash=new_hash)
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={"password_hash": new_hash, "password_changed_at": func.now()},
+            )
+        )
+
+
 def seed_demo_tenants(settings: Settings) -> None:
     if settings.environment not in {"development", "test"}:
         raise ValueError("Demo data seeding is disabled outside development/test")
     engine = build_engine(settings.migration_url())
     try:
         with engine.begin() as connection:
+            demo_password = settings.demo_password
+            _demo_people(connection, demo_password.get_secret_value() if demo_password else None)
             for tenant_id, name in DEMO_TENANTS:
                 _set_tenant(connection, tenant_id)
                 connection.execute(
                     insert(Tenant)
-                    .values(id=tenant_id, name=name)
+                    .values(id=tenant_id, name=name, status="active", went_live_at=func.now())
                     .on_conflict_do_nothing(index_elements=["id"])
+                )
+                # Empty PDF details: demo PDFs keep printing only the business name.
+                connection.execute(
+                    insert(TenantProfile)
+                    .values(tenant_id=tenant_id)
+                    .on_conflict_do_nothing(index_elements=["tenant_id"])
                 )
             for tenant_id, subject, role in DEMO_MEMBERSHIPS:
                 _set_tenant(connection, tenant_id)

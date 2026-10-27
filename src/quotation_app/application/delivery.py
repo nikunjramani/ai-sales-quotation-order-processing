@@ -79,7 +79,7 @@ class QuotationDeliveryHandler:
             delivery_id = UUID(job.payload["delivery_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid delivery_id") from None
-        tenant_id = job.tenant_id
+        tenant_id = job.require_tenant()
         work = self._store.delivery(tenant_id, delivery_id)
         if work is None:
             raise PermanentJobError("Delivery not found")

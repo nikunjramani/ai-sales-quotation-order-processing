@@ -25,7 +25,7 @@ from quotation_app.domain.connections import DeliveryMode
 from quotation_app.domain.quotations import quotation_number
 from quotation_app.domain.validation import require_aware
 
-RENDERER_VERSION = "quotation-pdf-v1"
+RENDERER_VERSION = "quotation-pdf-v2"  # v2 (phase 2): seller details and logo
 MAX_ERROR_CHARACTERS = 300
 
 

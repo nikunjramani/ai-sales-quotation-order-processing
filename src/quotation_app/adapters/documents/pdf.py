@@ -10,6 +10,8 @@
   characters raise UnrenderableContent rather than turning into boxes or question marks.
   Embedding a Unicode font is a recorded gap before real customer data.
 - Validity: the customer document prints "Valid until <UTC time>" (M6); previews do not.
+- Seller (phase 2, v2): logo, legal name, address and tax ID from the business profile, when
+  set; otherwise only the business name, exactly as in v1.
 - Customer-facing: internal evidence (price list IDs, stock checks, content hash details) stays
   in the portal; the PDF shows prices, totals and a short document reference.
 """
@@ -25,7 +27,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Flowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image as PdfImage
 
 from quotation_app.domain.documents import (
     RENDERER_VERSION,
@@ -124,7 +127,7 @@ class ReportLabQuotationRenderer:
             + " UTC"
         )
         story = [
-            Paragraph(escape(tenant), self._title),
+            *self._seller(source, tenant),
             Paragraph(
                 f"<b>Quotation {escape(source.number)}</b>, version {source.version}", self._body
             ),
@@ -169,8 +172,29 @@ class ReportLabQuotationRenderer:
             topMargin=18 * mm,
             bottomMargin=18 * mm,
             title=f"Quotation {source.number} v{source.version}",
-            author=tenant,
+            author=tenant if source.seller is None else _text(source.seller.legal_name, "name"),
             invariant=1,
         )
         document.build(story, onFirstPage=decorate, onLaterPages=decorate)
         return buffer.getvalue()
+
+    def _seller(self, source: DocumentSource, tenant: str) -> list[Flowable]:
+        """The header: logo, legal name, address and tax ID (phase 2), or just the name."""
+        seller = source.seller
+        if seller is None:
+            return [Paragraph(escape(tenant), self._title)]
+        header: list[Flowable] = []
+        if seller.logo_png is not None:
+            logo = PdfImage(BytesIO(seller.logo_png), width=60 * mm, height=24 * mm, kind="bound")
+            logo.hAlign = "LEFT"
+            header.append(logo)
+        header.append(Paragraph(escape(_text(seller.legal_name, "legal name")), self._title))
+        for line in seller.address_lines:
+            header.append(Paragraph(escape(_text(line, "address")), self._body))
+        if seller.tax_id:
+            label = _text(seller.tax_id_label or "Tax ID", "tax ID label")
+            header.append(
+                Paragraph(f"{escape(label)}: {escape(_text(seller.tax_id, 'tax ID'))}", self._body)
+            )
+        header.append(Spacer(1, 3 * mm))
+        return header

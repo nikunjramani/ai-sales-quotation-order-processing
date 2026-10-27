@@ -21,5 +21,8 @@ def test_production_gets_the_none_store() -> None:
         _env_file=None,
         database_url="postgresql+psycopg://app:x@localhost/db",
         environment="production",
+        mailer="real_mailer",
+        mail_from="no-reply@quotes.example",
+        public_portal_url="https://quotes.example/portal/",
     )
     assert type(build_secret_store(settings)).__name__ == "NoSecretStore"

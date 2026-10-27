@@ -18,7 +18,7 @@ class IdentityRejected(Exception):
 
 @dataclass(frozen=True)
 class VerifiedIdentity:
-    subject: str  # stable user ID from the provider (OIDC "sub"; the dev login uses an email)
+    subject: str  # stable person ID: "user:<uuid>" for password sign-ups, an email for demo people
     provider: str
 
     def __post_init__(self) -> None:
@@ -49,3 +49,7 @@ class SessionStore(Protocol):
     def find(self, token_sha256: str) -> SessionRecord | None: ...
 
     def revoke(self, token_sha256: str) -> None: ...
+
+    def revoke_all_for(self, subject: str, keep_token_sha256: str | None = None) -> int:
+        """Sign the person out everywhere (except the kept session); returns how many."""
+        ...

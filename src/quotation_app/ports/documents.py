@@ -19,7 +19,7 @@ from quotation_app.domain.documents import (
 
 
 class QuotationRenderer(Protocol):
-    renderer: str  # version label stored with each document, e.g. "quotation-pdf-v1"
+    renderer: str  # version label stored with each document, e.g. "quotation-pdf-v2"
 
     def render(self, source: DocumentSource, *, preview: bool) -> bytes:
         """Return PDF bytes. The same source must give the same bytes (retries are safe).

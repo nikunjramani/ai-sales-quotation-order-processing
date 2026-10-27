@@ -63,6 +63,20 @@ class SqlSessionStore:
             revoked=row.revoked_at is not None,
         )
 
+    def revoke_all_for(self, subject: str, keep_token_sha256: str | None = None) -> int:
+        """Uses the session_for_subject policies (app.subject): the person's own sessions only."""
+        conditions = [UserSession.subject == subject, UserSession.revoked_at.is_(None)]
+        if keep_token_sha256 is not None:
+            conditions.append(UserSession.token_sha256 != keep_token_sha256)
+        with self._engine.begin() as connection:
+            connection.execute(
+                text("SELECT set_config('app.subject', :subject, true)"), {"subject": subject}
+            )
+            result = connection.execute(
+                update(UserSession).where(*conditions).values(revoked_at=func.now())
+            )
+        return result.rowcount
+
     def revoke(self, token_sha256: str) -> None:
         with self._for_token(token_sha256) as connection:
             connection.execute(

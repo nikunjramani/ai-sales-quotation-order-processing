@@ -30,10 +30,26 @@ class Settings(BaseSettings):
     model: str | None = Field(default=None, pattern=r"^[a-z0-9_-]+:\S+$")
     model_api_key: SecretStr | None = None
     model_options: dict[str, Any] = Field(default_factory=dict)
-    # Portal sign-in. "dev" lets you pick a synthetic member without a password and is refused
-    # in production; OIDC is added later as another provider (ADR 0013). Unset means "dev" in
-    # development/test and "disabled" in production.
-    auth_provider: Literal["dev", "disabled"] | None = None
+    # Portal sign-in is always email + password (phase 2, D1). The dev login additionally lets
+    # you pick a seeded demo person without a password; unset = on in development/test, off in
+    # production, where turning it on is refused. Replaces QUOTATION_AUTH_PROVIDER.
+    dev_login: bool | None = None
+    # Password of the seeded demo people (development/test seed only; user answer Q24).
+    # init_local_env.py --add-missing fills it with a random value. Unset = no demo passwords.
+    demo_password: SecretStr | None = None
+    # Account emails (phase 2): an entry point name in quotation_app.mailers. "console" writes
+    # files under storage_dir/dev-mail and is refused in production (a real sender: phase 5).
+    mailer: str = Field(default="console", pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    mailer_options: dict[str, Any] = Field(default_factory=dict)
+    # Sender address and the portal address used in email links. Development defaults below;
+    # production must set both (https for the portal).
+    mail_from: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+$")
+    public_portal_url: str | None = Field(default=None, pattern=r"^https?://\S+/$")
+    # Number of reverse proxies in front of the API whose X-Forwarded-For can be trusted for
+    # the client IP used by rate limits. 0 = use the direct peer address.
+    trusted_proxy_count: int = Field(default=0, ge=0, le=5)
+    # Simultaneous Argon2id hashes (64 MiB each).
+    password_hash_concurrency: int = Field(default=4, ge=1, le=16)
     session_hours: float = Field(default=8.0, gt=0, le=24)
     # Cookies are always Secure in production; set true locally when serving over HTTPS.
     session_cookie_secure: bool = False
@@ -52,12 +68,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def no_dev_features_in_production(self) -> "Settings":
-        if self.environment == "production" and (
-            self.auth_provider == "dev" or self.simulated_channel_secret is not None
-        ):
+        if self.environment != "production":
+            return self
+        if self.dev_login or self.simulated_channel_secret is not None:
             raise ValueError("The dev login and simulated channel are not allowed in production")
-        if self.environment == "production" and self.secret_store == "local":
+        if self.demo_password is not None:
+            raise ValueError("Demo passwords are not allowed in production")
+        if self.secret_store == "local":
             raise ValueError("The local secret store is not allowed in production")
+        if self.mailer == "console":
+            raise ValueError("The console mailer is not allowed in production")
+        if self.mail_from is None:
+            raise ValueError("QUOTATION_MAIL_FROM is required in production")
+        if self.public_portal_url is None or not self.public_portal_url.startswith("https://"):
+            raise ValueError("QUOTATION_PUBLIC_PORTAL_URL must be an https address in production")
         return self
 
     @property
@@ -67,10 +91,18 @@ class Settings(BaseSettings):
         return "none" if self.environment == "production" else "local"
 
     @property
-    def portal_login(self) -> Literal["dev", "disabled"]:
-        if self.auth_provider is not None:
-            return self.auth_provider
-        return "disabled" if self.environment == "production" else "dev"
+    def dev_login_enabled(self) -> bool:
+        if self.dev_login is not None:
+            return self.dev_login
+        return self.environment != "production"
+
+    @property
+    def mail_sender(self) -> str:
+        return self.mail_from or "no-reply@localhost.example"
+
+    @property
+    def portal_url(self) -> str:
+        return self.public_portal_url or "http://localhost:8000/portal/"
 
     @property
     def cookie_secure(self) -> bool:

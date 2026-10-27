@@ -17,6 +17,10 @@ dependencies = [
     "pypdf>=6,<7",
     "reportlab>=5.0.1,<5.1",
     "cryptography>=50,<51",
+    # Phase 2: password hashing (Argon2id) and logo checking/re-encoding (already installed
+    # through ReportLab; imported directly now, so pinned here with the same range).
+    "argon2-cffi>=25.1,<26",
+    "pillow>=12.3,<13",
 ]
 
 # Pluggable parts are found by name through these entry points (ADR 0018). A new provider or
@@ -28,6 +32,11 @@ simulated = "quotation_app.adapters.providers.simulated:build"
 [project.entry-points."quotation_app.secret_stores"]
 local = "quotation_app.adapters.secrets.local:build"
 none = "quotation_app.adapters.secrets.none:build"
+
+# Account email senders (phase 2): `console` writes files for development. A real sender is one
+# more package with its own entry point (phase 5), chosen by QUOTATION_MAILER.
+[project.entry-points."quotation_app.mailers"]
+console = "quotation_app.adapters.accounts.mail.console:build"
 
 [project.optional-dependencies]
 # AI enquiry reader: the generic model loader plus the provider packages in use. Any other

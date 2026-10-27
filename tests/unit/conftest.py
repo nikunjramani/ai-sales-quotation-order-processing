@@ -1640,3 +1640,19 @@ def memory_sessions(quotation_db: MemoryQuotations) -> MemorySessions:
 @pytest.fixture
 def memory_directory(quotation_db: MemoryQuotations) -> MemoryDirectory:
     return MemoryDirectory(quotation_db)
+
+
+@pytest.fixture
+def make_image() -> Callable[[str, int, int], bytes]:
+    """A small synthetic image file (format "PNG" or "JPEG") for logo and PDF tests."""
+
+    def make(image_format: str, width: int, height: int) -> bytes:
+        from io import BytesIO
+
+        from PIL import Image
+
+        output = BytesIO()
+        Image.new("RGB", (width, height), (20, 90, 160)).save(output, format=image_format)
+        return output.getvalue()
+
+    return make

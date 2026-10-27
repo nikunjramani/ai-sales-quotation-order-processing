@@ -29,7 +29,7 @@ class EnquiryPreparationHandler:
             enquiry_id = UUID(job.payload["enquiry_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid enquiry_id") from None
-        attachments = self._store.attachments_for(job.tenant_id, enquiry_id)
+        attachments = self._store.attachments_for(job.require_tenant(), enquiry_id)
         if attachments is None:
             raise PermanentJobError("Enquiry not found for this tenant")
 
@@ -38,11 +38,11 @@ class EnquiryPreparationHandler:
             status = attachment.status
             if status is AttachmentStatus.QUARANTINED:
                 status = self._inspect(
-                    job.tenant_id, attachment.attachment_id, attachment.declared_content_type
+                    job.require_tenant(), attachment.attachment_id, attachment.declared_content_type
                 )
             all_clean = all_clean and status is AttachmentStatus.CLEAN
         final = EnquiryStatus.READY_FOR_EXTRACTION if all_clean else EnquiryStatus.NEEDS_REVIEW
-        self._store.finish_preparation(job.tenant_id, enquiry_id, final, job.correlation_id)
+        self._store.finish_preparation(job.require_tenant(), enquiry_id, final, job.correlation_id)
 
     def _inspect(
         self, tenant_id: UUID, attachment_id: UUID, declared_content_type: str

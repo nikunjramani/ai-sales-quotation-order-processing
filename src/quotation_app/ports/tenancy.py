@@ -5,7 +5,7 @@ from typing import Protocol
 from uuid import UUID
 
 from quotation_app.domain.pricing import PricingPolicy
-from quotation_app.domain.tenancy import Role, TenantContext
+from quotation_app.domain.tenancy import Role, TenantContext, TenantStatus
 
 
 class PricingPolicyNotConfigured(Exception):
@@ -27,6 +27,7 @@ class TenantMembership:
     tenant_id: UUID
     tenant_name: str
     roles: frozenset[Role]
+    status: TenantStatus = TenantStatus.ACTIVE
 
 
 class MembershipDirectory(Protocol):
