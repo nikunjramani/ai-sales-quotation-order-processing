@@ -108,6 +108,10 @@ class UserStore(Protocol):
         """Queue a reset email when the account exists and has a password; otherwise nothing."""
         ...
 
+    def reset_email(self, token_sha256: str, now: datetime) -> str | None:
+        """The address of a usable reset link (to check the new password against), else None."""
+        ...
+
     def reset_password(self, token_sha256: str, password_hash: str, now: datetime) -> str | None:
         """Consume the token, set the hash and queue a "password changed" notice. Returns the
         subject (to sign out all its sessions) or None for an unusable token."""

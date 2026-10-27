@@ -318,6 +318,18 @@ class SqlUserStore:
                 return
             self._replace_link(connection, PasswordReset, row.id, email_normalized)
 
+    def reset_email(self, token_sha256: str, now: datetime) -> str | None:
+        with self._engine.begin() as connection:
+            set_settings(connection, account_token_sha256=token_sha256)
+            return connection.execute(
+                select(PasswordReset.email_normalized).where(
+                    PasswordReset.token_sha256 == token_sha256,
+                    PasswordReset.consumed_at.is_(None),
+                    PasswordReset.revoked_at.is_(None),
+                    PasswordReset.expires_at > now,
+                )
+            ).scalar_one_or_none()
+
     def reset_password(self, token_sha256: str, password_hash: str, now: datetime) -> str | None:
         with self._engine.begin() as connection:
             set_settings(connection, account_token_sha256=token_sha256)
@@ -596,8 +608,8 @@ class SqlBusinessStore:
         policy = TenantPricingPolicy
         with tenant_transaction(self._engine, context.tenant_id) as connection:
             row = connection.execute(
-                select(policy).where(policy.tenant_id == context.tenant_id)
-            ).scalar_one()
+                select(policy.__table__).where(policy.tenant_id == context.tenant_id)
+            ).one()
             return StoredPricing(_pricing(row), row.version)
 
     def update_pricing(
@@ -608,8 +620,8 @@ class SqlBusinessStore:
         new["quote_validity_days"] = pricing.quote_validity_days
         with tenant_transaction(self._engine, context.tenant_id) as connection:
             old = connection.execute(
-                select(policy).where(policy.tenant_id == context.tenant_id)
-            ).scalar_one()
+                select(policy.__table__).where(policy.tenant_id == context.tenant_id)
+            ).one()
             old_values = {name: getattr(old, name) for name in new}
             version = connection.execute(
                 update(policy)
@@ -671,8 +683,8 @@ class SqlBusinessStore:
             )
         ).one()
         pricing = connection.execute(
-            select(TenantPricingPolicy).where(TenantPricingPolicy.tenant_id == tenant_id)
-        ).scalar_one_or_none()
+            select(TenantPricingPolicy.__table__).where(TenantPricingPolicy.tenant_id == tenant_id)
+        ).one_or_none()
         approver = connection.execute(
             select(Membership.id)
             .where(Membership.tenant_id == tenant_id, Membership.role == Role.APPROVER.value)
@@ -857,11 +869,11 @@ class SqlInvitationStore:
     def list(self, context: TenantContext) -> list[Invitation]:
         with tenant_transaction(self._engine, context.tenant_id) as connection:
             rows = connection.execute(
-                select(InvitationRow)
+                select(InvitationRow.__table__)
                 .where(InvitationRow.tenant_id == context.tenant_id)
                 .order_by(InvitationRow.created_at.desc())
                 .limit(200)
-            ).scalars()
+            ).all()
             return [_invitation(row) for row in rows]
 
     def resend(self, context: TenantContext, invitation_id: UUID) -> bool:
@@ -906,8 +918,8 @@ class SqlInvitationStore:
         with self._engine.begin() as connection:
             set_settings(connection, account_token_sha256=token_sha256)
             row = connection.execute(
-                select(InvitationRow).where(InvitationRow.token_sha256 == token_sha256)
-            ).scalar_one_or_none()
+                select(InvitationRow.__table__).where(InvitationRow.token_sha256 == token_sha256)
+            ).one_or_none()
             if row is None:
                 return None
             invitation = _invitation(row)
