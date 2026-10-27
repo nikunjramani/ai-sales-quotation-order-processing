@@ -158,10 +158,14 @@ class SignupService:
         name = clean_display_name(display_name)
         _check_password(password, normalized, self._common)
         password_hash = self._hasher.hash(password)  # always, so timing does not differ
-        # The owner of an existing address gets at most the resend allowance of notices.
-        notify = self._limits.allowed(
-            RateRules.RESEND_PER_MINUTE, f"exists:{normalized}"
-        ) and self._limits.allowed(RateRules.RESEND_PER_DAY, f"exists:{normalized}")
+
+        def notify() -> bool:
+            """Asked only when the address exists: at most the resend allowance of notices."""
+            key = f"exists:{normalized}"
+            return self._limits.allowed(RateRules.RESEND_PER_MINUTE, key) and self._limits.allowed(
+                RateRules.RESEND_PER_DAY, key
+            )
+
         self._users.sign_up(
             uuid4(), email.strip(), normalized, name, password_hash, notify_existing=notify
         )

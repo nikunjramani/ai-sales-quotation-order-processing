@@ -30,6 +30,12 @@ class TenantMembership:
     status: TenantStatus = TenantStatus.ACTIVE
 
 
+class TenantStatusReader(Protocol):
+    def status(self, tenant_id: UUID) -> TenantStatus:
+        """setting_up, active or suspended (phase 2); gates read it at the moment they act."""
+        ...
+
+
 class MembershipDirectory(Protocol):
     def tenants_for(self, subject: str) -> list[TenantMembership]:
         """Every tenant where this subject has a membership (used for login and tenant choice)."""

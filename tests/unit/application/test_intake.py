@@ -133,9 +133,9 @@ def test_status_is_tenant_scoped(
     enquiry_id = service.submit(
         intake_context, submission(), "request-0001", "api"
     ).receipt.enquiry_id
-    view = service.status(intake_context, enquiry_id)
+    view = service.status(intake_context, enquiry_id, "api")
     assert view is not None and view.attachments[0].filename == "a.txt"
-    assert service.status(make_context(office_tenant, Role.VIEWER), enquiry_id) is None
+    assert service.status(make_context(office_tenant, Role.VIEWER), enquiry_id, "api") is None
 
 
 def test_invalid_idempotency_key_is_refused(

@@ -59,6 +59,7 @@ class EnquiryView:
     correlation_id: UUID
     attachments: tuple[AttachmentView, ...]
     extraction: ExtractionView | None = None
+    connection_ref: UUID | None = None  # the connection it arrived through
 
 
 class IntakeStore(Protocol):

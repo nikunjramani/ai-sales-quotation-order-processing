@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from uuid import UUID
 
 from quotation_app.application.providers import ProviderRegistry
-from quotation_app.domain.connections import Connection, Purpose
+from quotation_app.domain.connections import Connection, DeliveryMode, Purpose
 from quotation_app.domain.documents import clean_error
 from quotation_app.domain.jobs import PermanentJobError
 from quotation_app.domain.messages import (
@@ -29,6 +29,7 @@ from quotation_app.domain.messages import (
     TemplateKey,
     render_template,
 )
+from quotation_app.domain.tenancy import may_contact_customers
 from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.messages import (
@@ -45,6 +46,7 @@ from quotation_app.ports.providers import (
     SendUncertain,
 )
 from quotation_app.ports.secrets import SecretStore
+from quotation_app.ports.tenancy import TenantStatusReader
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,9 @@ _PURPOSE = {
     TemplateKey.RESPONSE_NOTICE: Purpose.MANAGER_APPROVALS,
     TemplateKey.QUOTATION_DOCUMENT: Purpose.CUSTOMER_MESSAGES,
 }
+
+
+NOT_LIVE = "The business is not live yet; nothing is sent to customers"
 
 
 class OutboundService:
@@ -108,7 +113,9 @@ class SendMessageHandler:
         registry: ProviderRegistry,
         secrets: SecretStore,
         hooks: Mapping[TemplateKey, SendHook],
+        statuses: TenantStatusReader | None = None,
     ) -> None:
+        self._statuses = statuses
         self._outbox = outbox
         self._connections = connections
         self._registry = registry
@@ -141,6 +148,9 @@ class SendMessageHandler:
             return
         if provider is None:
             fail(f"No provider is installed for '{message.provider_key}'")
+            return
+        if self._not_live_for(message, provider.capabilities.delivery_mode):
+            fail(NOT_LIVE)
             return
         hook = self._hooks.get(message.template_key)
         preparation = hook.before_send(message) if hook is not None else SendPreparation()
@@ -195,6 +205,15 @@ class SendMessageHandler:
         )
         if hook is not None:
             hook.after_send(message, preparation, receipt)
+
+    def _not_live_for(self, message: OutboundMessage, mode: DeliveryMode) -> bool:
+        """Q11/D3: nothing is pushed to customers before Go live. Pull (the business's own API
+        client, Q27) and messages to the business's managers still work while setting up."""
+        if self._statuses is None or message.purpose is not Purpose.CUSTOMER_MESSAGES:
+            return False
+        if mode is DeliveryMode.PULL:
+            return False
+        return not may_contact_customers(self._statuses.status(message.tenant_id))
 
     def _set(
         self,

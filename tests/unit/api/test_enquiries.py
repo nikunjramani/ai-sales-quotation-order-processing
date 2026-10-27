@@ -24,6 +24,9 @@ from quotation_app.ports.erp import ErpError, ErpErrorCode
 BODY = {"text": "Please quote 50 industrial fans for Pune", "customer_reference": "CUST-1"}
 
 
+CLIENT_KEY = UUID("00000000-0000-4000-8000-0000000000c1")  # the harness API client
+
+
 @pytest.fixture
 def client(
     api_key_reader: Any,
@@ -50,9 +53,16 @@ def client(
 @pytest.fixture
 def make_headers(api_key_reader: Any) -> Any:
     def build(
-        tenant: UUID, role: Role = Role.INTAKE_SERVICE, key: str = "req-000001"
+        tenant: UUID,
+        role: Role = Role.INTAKE_SERVICE,
+        key: str = "req-000001",
+        key_id: UUID | None = None,
     ) -> dict[str, str]:
+        """A new key; key_id=CLIENT_KEY is the harness's API client (its quotations' recipient)."""
         new = generate_api_key()
+        if key_id is not None:
+            token = f"qk_{key_id.hex}_{new.token.split('_', 2)[2]}"
+            new = replace(new, key_id=key_id, token=token)
         api_key_reader.records[new.key_id] = ApiKeyRecord(
             new.key_id, tenant, role, new.secret_sha256, False
         )
@@ -87,17 +97,18 @@ def test_status_lookup_is_tenant_scoped(
         "content_type": "text/plain",
         "content_base64": base64.b64encode(b"50 fans, 450 mm").decode(),
     }
+    submitter = make_headers(industrial_tenant)
     created = client.post(
-        "/api/v1/enquiries",
-        json={**BODY, "attachments": [attachment]},
-        headers=make_headers(industrial_tenant),
+        "/api/v1/enquiries", json={**BODY, "attachments": [attachment]}, headers=submitter
     ).json()
     url = f"/api/v1/enquiries/{created['enquiry_id']}"
-    own = client.get(url, headers=make_headers(industrial_tenant, Role.VIEWER))
+    own = client.get(url, headers=submitter)
     assert own.status_code == 200
     assert own.json()["channel"] == "api"  # pinned: phase 1 keeps the provider key here
     assert own.json()["attachments"][0]["status"] == "quarantined"
     assert client.get(url, headers=make_headers(office_tenant, Role.VIEWER)).status_code == 404
+    # Another key of the same business sees only its own enquiries (P1-Q9).
+    assert client.get(url, headers=make_headers(industrial_tenant)).status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -195,7 +206,7 @@ def test_customers_see_only_an_issued_quotation(
 ) -> None:
     enquiry = harness.enquiry(("IND-FAN-450", "2", "each"))
     harness.run_jobs()
-    headers = make_headers(industrial_tenant)
+    headers = make_headers(industrial_tenant, key_id=CLIENT_KEY)
     url = f"/api/v1/enquiries/{enquiry}/quotation"
     waiting = client.get(url, headers=headers)
     assert waiting.status_code == 404  # drafted but not approved: invisible to the customer
@@ -225,6 +236,9 @@ def test_customers_see_only_an_issued_quotation(
     assert delivery.first_downloaded_at is not None
 
     assert client.get(url, headers=make_headers(office_tenant)).status_code == 404
+    other_key = make_headers(industrial_tenant)  # same business, another key (P1-Q9)
+    assert client.get(url, headers=other_key).status_code == 404
+    assert client.get(f"{url}.pdf", headers=other_key).status_code == 404
     assert client.get(url).status_code == 401
 
 
@@ -242,7 +256,7 @@ def test_customer_accepts_or_is_told_why_not(
     client: TestClient, make_headers: Any, harness: Any, industrial_tenant: UUID
 ) -> None:
     enquiry = issue_through_harness(harness)
-    headers = make_headers(industrial_tenant, key="accept-0001")
+    headers = make_headers(industrial_tenant, key="accept-0001", key_id=CLIENT_KEY)
     issued = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=headers).json()
     assert issued["status"] == "open" and issued["valid_until"]
     url = issued["response_path"]
@@ -256,11 +270,15 @@ def test_customer_accepts_or_is_told_why_not(
     assert accepted.json()["outcome"] == "accepted" and accepted.json()["replayed"] is False
     replay = client.post(url, json=body, headers=headers)
     assert replay.status_code == 200 and replay.json()["replayed"] is True
-    other_key = client.post(
-        url, json=body, headers=make_headers(industrial_tenant, key="accept-0002")
+    other_request = client.post(
+        url,
+        json=body,
+        headers={**headers, "Idempotency-Key": "accept-0002"},  # same key, new request
     )
-    assert other_key.status_code == 409
-    assert other_key.json()["detail"]["status"] == "accepted"
+    assert other_request.status_code == 409
+    assert other_request.json()["detail"]["status"] == "accepted"
+    other_key = client.post(url, json=body, headers=make_headers(industrial_tenant, key="x-0002"))
+    assert other_key.status_code == 404  # not this key's quotation
     after = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=headers).json()
     assert after["status"] == "accepted"
     no_key = {k: v for k, v in headers.items() if k != "Idempotency-Key"}
@@ -271,7 +289,7 @@ def test_changed_prices_and_erp_failures_are_explained(
     client: TestClient, make_headers: Any, harness: Any, industrial_tenant: UUID
 ) -> None:
     enquiry = issue_through_harness(harness)
-    headers = make_headers(industrial_tenant, key="accept-0003")
+    headers = make_headers(industrial_tenant, key="accept-0003", key_id=CLIENT_KEY)
     issued = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=headers).json()
     body = {"action": "accept", "version": 1, "content_sha256": issued["content_sha256"]}
     harness.erp.failures["get_prices"] = ErpError(ErpErrorCode.TEMPORARY_UNAVAILABLE, "down")
@@ -295,9 +313,9 @@ def test_decline_needs_the_respond_permission(
     client: TestClient, make_headers: Any, harness: Any, industrial_tenant: UUID
 ) -> None:
     enquiry = issue_through_harness(harness)
-    viewer = make_headers(industrial_tenant, Role.VIEWER, key="decline-001")
-    customer = make_headers(industrial_tenant, key="decline-002")
-    issued = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=customer).json()
+    # The same client key, first with a role that may only look.
+    viewer = make_headers(industrial_tenant, Role.VIEWER, key="decline-001", key_id=CLIENT_KEY)
+    issued = client.get(f"/api/v1/enquiries/{enquiry}/quotation", headers=viewer).json()
     body = {
         "action": "decline",
         "version": 1,
@@ -305,5 +323,6 @@ def test_decline_needs_the_respond_permission(
         "reason": "Too expensive",
     }
     assert client.post(issued["response_path"], json=body, headers=viewer).status_code == 403
+    customer = make_headers(industrial_tenant, key="decline-002", key_id=CLIENT_KEY)
     declined = client.post(issued["response_path"], json=body, headers=customer)
     assert declined.status_code == 200 and declined.json()["outcome"] == "declined"

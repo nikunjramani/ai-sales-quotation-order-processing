@@ -1,5 +1,6 @@
 """Account services with in-memory fakes: enumeration safety, limits, links and permissions."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -112,10 +113,10 @@ class FakeUsers:
         display_name: str | None,
         password_hash: str,
         *,
-        notify_existing: bool,
+        notify_existing: Callable[[], bool],
     ) -> bool:
         exists = email_normalized in self.records
-        self.signups.append((email_normalized, notify_existing if exists else False))
+        self.signups.append((email_normalized, notify_existing() if exists else False))
         if not exists:
             self.add(email_normalized, password_hash, email_verified=False)
         return not exists

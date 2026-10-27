@@ -20,7 +20,9 @@ VIEWER = "viewer@industrial.example"
 def intake_client(harness: Any, tenant_id: UUID | None = None) -> TenantContext:
     """The API key context a customer system uses (intake_service role)."""
     return TenantContext(
-        tenant_id or harness.tenant_id, "api-key:test-client", frozenset({Role.INTAKE_SERVICE})
+        tenant_id or harness.tenant_id,
+        "api-key:00000000-0000-4000-8000-0000000000c1",
+        frozenset({Role.INTAKE_SERVICE}),
     )
 
 

@@ -7,7 +7,7 @@ app.account_token_sha256 (a presented link). Membership changes call the databas
 SECURITY DEFINER functions; this module never inserts memberships or tenants itself.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Literal, NoReturn
@@ -176,7 +176,7 @@ class SqlUserStore:
         display_name: str | None,
         password_hash: str,
         *,
-        notify_existing: bool,
+        notify_existing: Callable[[], bool],
     ) -> bool:
         with self._engine.begin() as connection:
             set_settings(connection, user_email=email_normalized)
@@ -184,7 +184,7 @@ class SqlUserStore:
                 select(UserRow.id).where(UserRow.email_normalized == email_normalized)
             ).scalar_one_or_none()
             if existing is not None:
-                if notify_existing:
+                if notify_existing():
                     _queue_notice(
                         connection, existing, email_normalized, AccountEmailPurpose.ACCOUNT_EXISTS
                     )

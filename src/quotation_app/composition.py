@@ -21,12 +21,13 @@ from quotation_app.application.acceptance import (
     QuotationResponseService,
     ResponseNotificationHandler,
 )
+from quotation_app.application.accounts import AccountEmailHandler
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_sources import CatalogueSourceResolver, TenantCatalogue
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.delivery import QuotationDeliveryHandler, QuotationDocumentHook
 from quotation_app.application.inbound import ProcessInboundHandler, routes_for
-from quotation_app.application.jobs import JobHandler
+from quotation_app.application.jobs import JobHandler, PauseWhileSuspended
 from quotation_app.application.messaging import OutboundService, SendMessageHandler
 from quotation_app.application.notifications import (
     ApprovalNotificationHandler,
@@ -41,6 +42,7 @@ from quotation_app.config import Settings
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.messages import TemplateKey
 from quotation_app.persistence.acceptance import SqlResponseStore
+from quotation_app.persistence.accounts import SqlAccountEmailStore, SqlBusinessStore
 from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.connections import SqlConnectionStore
 from quotation_app.persistence.documents import SqlDeliveryStore
@@ -50,6 +52,7 @@ from quotation_app.persistence.messages import SqlMessageOutbox
 from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
 from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
 from quotation_app.persistence.workflow import SqlWorkflowStore
+from quotation_app.ports.accounts import Mailer, MailerEnvironment
 from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.interpretation import EnquiryInterpreter
 from quotation_app.ports.providers import ProviderEnvironment
@@ -66,6 +69,7 @@ from quotation_app.workflows.quotation import (
 )
 
 SECRET_STORES = "quotation_app.secret_stores"
+MAILERS = "quotation_app.mailers"
 
 
 def build_secret_store(settings: Settings) -> SecretStore:
@@ -110,6 +114,18 @@ class LazySecretStore:
 
     def delete(self, tenant_id: UUID, reference: str) -> None:
         self._get().delete(tenant_id, reference)
+
+
+def build_mailer(settings: Settings) -> Mailer:
+    """The account email sender named by QUOTATION_MAILER (an installed entry point)."""
+    factory = cast(Callable[[MailerEnvironment], Mailer], load_named(MAILERS, settings.mailer))
+    return factory(
+        MailerEnvironment(
+            environment=settings.environment,
+            storage_dir=settings.storage_dir,
+            options=settings.mailer_options,
+        )
+    )
 
 
 def lazy_secret_store(settings: Settings) -> SecretStore:
@@ -178,7 +194,8 @@ def build_job_handlers(
     approvals = ApprovalService(
         SqlApprovalStore(engine), TenantContextResolver(SqlMembershipReader(engine))
     )
-    return {
+    statuses = SqlBusinessStore(engine)
+    handlers: dict[JobKind, JobHandler] = {
         JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(SqlPreparationStore(engine), storage),
         JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(enquiry_graph, workflow_store),
         JobKind.DRAFT_QUOTATION: quotations,
@@ -202,6 +219,13 @@ def build_job_handlers(
                 TemplateKey.APPROVAL_REQUEST: ApprovalRequestHook(notifications),
                 TemplateKey.QUOTATION_DOCUMENT: QuotationDocumentHook(deliveries, storage),
             },
+            statuses,
+        ),
+        JobKind.SEND_ACCOUNT_EMAIL: AccountEmailHandler(
+            SqlAccountEmailStore(engine),
+            build_mailer(settings),
+            settings.portal_url,
+            settings.mail_sender,
         ),
         JobKind.PROCESS_INBOUND: ProcessInboundHandler(
             SqlInboundStore(engine),
@@ -212,3 +236,5 @@ def build_job_handlers(
             ),
         ),
     }
+    # A suspended business's jobs wait instead of running (phase 2, Q13).
+    return {kind: PauseWhileSuspended(handler, statuses) for kind, handler in handlers.items()}

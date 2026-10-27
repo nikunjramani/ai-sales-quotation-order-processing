@@ -83,7 +83,7 @@ from quotation_app.domain.quotations import (
     TaskStatus,
     quotation_number,
 )
-from quotation_app.domain.tenancy import Role, TenantContext
+from quotation_app.domain.tenancy import Role, TenantContext, TenantStatus
 from quotation_app.ports.acceptance import NewResponse
 from quotation_app.ports.approvals import TaskState
 from quotation_app.ports.channels import ActionReference, ChannelBinding
@@ -688,7 +688,9 @@ class MemoryQuotations:
             or row.current_version != version
         ):
             return False
-        channel, recipient = self.senders.get(row.enquiry_id, ("api", "api-key:test-client"))
+        channel, recipient = self.senders.get(
+            row.enquiry_id, ("api", "api-key:00000000-0000-4000-8000-0000000000c1")
+        )
         target = (tenant_id, quotation_id, version, channel, recipient)
         for tenant, record in self.delivery_rows.values():
             key = (tenant, record.quotation_id, record.version, record.channel, record.recipient)
@@ -1291,7 +1293,7 @@ class MemoryConnections:
         self.token_hashes: dict[UUID, str | None] = {}
         for tenant_id in tenants:
             for provider, account, purpose in (
-                ("api", "api-key:test-client", Purpose.CUSTOMER_MESSAGES),
+                ("api", "api-key:00000000-0000-4000-8000-0000000000c1", Purpose.CUSTOMER_MESSAGES),
                 ("email", "shop-email", Purpose.CUSTOMER_MESSAGES),
             ):
                 self.add(
@@ -1446,6 +1448,11 @@ class QuotationHarness:
     outbox: MemoryOutbox
     email: RecordingProvider  # a push provider for customers
     renderer: ReportLabQuotationRenderer = field(default_factory=ReportLabQuotationRenderer)
+    # Business status per tenant (phase 2); unlisted businesses are live.
+    business_status: dict[UUID, TenantStatus] = field(default_factory=dict)
+
+    def status(self, tenant_id: UUID) -> TenantStatus:
+        return self.business_status.get(tenant_id, TenantStatus.ACTIVE)
 
     @property
     def registry(self) -> ProviderRegistry:
@@ -1465,7 +1472,14 @@ class QuotationHarness:
             TemplateKey.APPROVAL_REQUEST: ApprovalRequestHook(self.db, clock=self.clock),
             TemplateKey.QUOTATION_DOCUMENT: QuotationDocumentHook(self.db, self.storage),
         }
-        return SendMessageHandler(self.outbox, self.connections, self.registry, None, hooks)  # type: ignore[arg-type]
+        return SendMessageHandler(
+            self.outbox,
+            self.connections,
+            self.registry,
+            None,  # type: ignore[arg-type]
+            hooks,  # type: ignore[arg-type]
+            self,
+        )
 
     def send(self, message_id: UUID, attempt: int = 1) -> None:
         """Run the send_message job for one message (dropping its queued job)."""
@@ -1640,6 +1654,21 @@ def memory_sessions(quotation_db: MemoryQuotations) -> MemorySessions:
 @pytest.fixture
 def memory_directory(quotation_db: MemoryQuotations) -> MemoryDirectory:
     return MemoryDirectory(quotation_db)
+
+
+class NoPeople:
+    """A user store without stored people (the dev-login demo people are subjects only)."""
+
+    def by_subject(self, subject: str) -> None:
+        return None
+
+
+@pytest.fixture
+def session_view(memory_directory: MemoryDirectory) -> Any:
+    from quotation_app.api.auth import SessionView
+    from quotation_app.application.accounts import ProfileService
+
+    return SessionView(memory_directory, ProfileService(NoPeople()))  # type: ignore[arg-type]
 
 
 @pytest.fixture

@@ -35,12 +35,12 @@ class NoEnquiries:
         return []
 
 
-def build_app(harness: Any, sessions: Any, directory: Any, dev: bool = True) -> FastAPI:
+def build_app(harness: Any, sessions: Any, directory: Any, view: Any, dev: bool = True) -> FastAPI:
     auth = PortalAuth(SessionService(sessions), TenantContextResolver(harness.db))
     app = FastAPI()
     app.include_router(
         build_auth_router(
-            auth, directory, DevIdentityProvider(directory) if dev else None, [MANAGER], False
+            auth, view, DevIdentityProvider(directory) if dev else None, [MANAGER], False
         )
     )
     app.include_router(
@@ -65,8 +65,10 @@ def build_app(harness: Any, sessions: Any, directory: Any, dev: bool = True) -> 
 
 
 @pytest.fixture
-def client(harness: Any, memory_sessions: Any, memory_directory: Any) -> Iterator[TestClient]:
-    with TestClient(build_app(harness, memory_sessions, memory_directory)) as http:
+def client(
+    harness: Any, memory_sessions: Any, memory_directory: Any, session_view: Any
+) -> Iterator[TestClient]:
+    with TestClient(build_app(harness, memory_sessions, memory_directory, session_view)) as http:
         yield http
 
 
@@ -91,7 +93,8 @@ def test_dev_login_sets_a_protected_cookie_and_returns_tenants(
     client: TestClient, harness: Any
 ) -> None:
     assert client.get("/api/v1/auth/config").json() == {
-        "provider": "dev",
+        "password_login": True,
+        "dev_login": True,
         "dev_subjects": [MANAGER],
     }
     response = client.post("/api/v1/auth/dev-login", json={"subject": MANAGER})
@@ -107,16 +110,18 @@ def test_dev_login_sets_a_protected_cookie_and_returns_tenants(
 
 
 def test_unknown_people_and_disabled_dev_login_are_refused(
-    harness: Any, memory_sessions: Any, memory_directory: Any
+    harness: Any, memory_sessions: Any, memory_directory: Any, session_view: Any
 ) -> None:
-    with TestClient(build_app(harness, memory_sessions, memory_directory)) as http:
+    with TestClient(build_app(harness, memory_sessions, memory_directory, session_view)) as http:
         assert (
             http.post("/api/v1/auth/dev-login", json={"subject": "nobody@x.test"}).status_code
             == 401
         )
         assert http.get("/api/v1/auth/session").status_code == 401
-    with TestClient(build_app(harness, memory_sessions, memory_directory, dev=False)) as http:
-        assert http.get("/api/v1/auth/config").json()["provider"] == "disabled"
+    with TestClient(
+        build_app(harness, memory_sessions, memory_directory, session_view, dev=False)
+    ) as http:
+        assert http.get("/api/v1/auth/config").json()["dev_login"] is False
         assert http.post("/api/v1/auth/dev-login", json={"subject": MANAGER}).status_code == 404
 
 

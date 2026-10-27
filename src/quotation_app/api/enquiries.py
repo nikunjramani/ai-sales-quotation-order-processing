@@ -54,10 +54,11 @@ from quotation_app.domain.intake import (
     AttachmentUpload,
     EnquirySubmission,
 )
-from quotation_app.domain.tenancy import PermissionDenied, TenantContext
+from quotation_app.domain.tenancy import PermissionDenied, TenantContext, accepts_intake
 from quotation_app.ports.erp import ErpError
 from quotation_app.ports.intake import EnquiryView, IdempotencyConflict
 from quotation_app.ports.storage import ObjectNotFound
+from quotation_app.ports.tenancy import TenantStatusReader
 
 # Base64 is about 4/3 of the binary size; allow headroom for JSON and text.
 MAX_REQUEST_BYTES = MAX_TOTAL_ATTACHMENT_BYTES * 4 // 3 + MAX_TEXT_CHARACTERS * 4 + 64 * 1024
@@ -249,12 +250,17 @@ def _view(enquiry: EnquiryView) -> EnquiryOut:
     )
 
 
+_NOT_ISSUED = "No quotation has been issued for this enquiry yet"
+
+
 def build_enquiry_router(
     authenticator: ApiKeyAuthenticator,
     intake: EnquiryIntakeService,
     documents: QuotationDocumentService,
     responses: QuotationResponseService,
+    statuses: TenantStatusReader | None = None,
 ) -> APIRouter:
+    """statuses: when given, a suspended business's keys are refused (403, phase 2 Q13)."""
     router = APIRouter(prefix="/api/v1/enquiries", tags=["enquiries"])
     bearer = HTTPBearer(auto_error=False, description="API key: qk_<id>_<secret>")
 
@@ -264,7 +270,10 @@ def build_enquiry_router(
         try:
             if credentials is None:
                 raise AuthenticationFailed("Invalid credentials")
-            return authenticator.authenticate(credentials.credentials)
+            context = authenticator.authenticate(credentials.credentials)
+            if statuses is not None and not accepts_intake(statuses.status(context.tenant_id)):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted")
+            return context
         except AuthenticationFailed:
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED,
@@ -356,15 +365,28 @@ def build_enquiry_router(
     def get_status(
         enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
     ) -> EnquiryOut:
-        enquiry = guarded(lambda: intake.status(context, enquiry_id))
+        return _view(own(context, enquiry_id))
+
+    def own(context: TenantContext, enquiry_id: UUID) -> EnquiryView:
+        """Every per-enquiry route answers only for enquiries this key submitted (P1-Q9)."""
+        enquiry = guarded(lambda: intake.status(context, enquiry_id, PROVIDER_KEY))
         if enquiry is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Enquiry not found")
-        return _view(enquiry)
+        return enquiry
+
+    def own_quotation(context: TenantContext, enquiry_id: UUID) -> None:
+        """The quotation was delivered to this key (the recipient fixed at intake is the
+        submitting key's account); another key's quotation looks like "not issued" (P1-Q9)."""
+        offer = guarded(lambda: documents.offered(context, enquiry_id, PROVIDER_KEY))
+        if offer.delivery.recipient != context.subject:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_ISSUED)
 
     @router.get("/{enquiry_id}/quotation", response_model=IssuedQuotationOut, responses={404: {}})
     def issued_quotation(
         enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
     ) -> IssuedQuotationOut:
+        own_quotation(context, enquiry_id)
+
         def run() -> IssuedQuotationOut:
             issued = _issued(enquiry_id, documents.offered(context, enquiry_id, PROVIDER_KEY))
             offer = responses.offer(context, enquiry_id, PROVIDER_KEY)
@@ -389,6 +411,8 @@ def build_enquiry_router(
         context: Annotated[TenantContext, Depends(authenticate)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> QuotationResponseOut:
+        own_quotation(context, enquiry_id)
+
         def run() -> QuotationResponseOut:
             request = ResponseRequest(body.action, body.version, body.content_sha256, body.reason)
             try:
@@ -417,6 +441,7 @@ def build_enquiry_router(
     def issued_quotation_pdf(
         enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
     ) -> Response:
+        own_quotation(context, enquiry_id)
         return pdf_response(guarded(lambda: documents.download(context, enquiry_id, PROVIDER_KEY)))
 
     return router

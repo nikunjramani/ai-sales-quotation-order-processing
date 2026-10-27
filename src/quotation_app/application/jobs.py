@@ -10,12 +10,33 @@ from collections.abc import Callable, Mapping
 from datetime import timedelta
 
 from quotation_app.domain.jobs import JobKind, PermanentJobError, retry_delay
+from quotation_app.domain.tenancy import TenantStatus
 from quotation_app.ports.erp import ErpError
 from quotation_app.ports.jobs import ClaimedJob, JobQueue, LeaseLost
+from quotation_app.ports.tenancy import TenantStatusReader
 
 type JobHandler = Callable[[ClaimedJob], None]
 
 logger = logging.getLogger(__name__)
+
+
+class BusinessSuspended(Exception):
+    """The business is suspended: its jobs wait (and are retried) instead of running."""
+
+
+class PauseWhileSuspended:
+    """Wraps a job handler: a suspended business's jobs do nothing and are retried with backoff
+    until the operator lifts the suspension or the job dies (phase 2, Q13)."""
+
+    def __init__(self, handler: "JobHandler", statuses: TenantStatusReader) -> None:
+        self._handler = handler
+        self._statuses = statuses
+
+    def __call__(self, job: ClaimedJob) -> None:
+        if job.tenant_id is not None:
+            if self._statuses.status(job.tenant_id) is TenantStatus.SUSPENDED:
+                raise BusinessSuspended("The business is suspended")
+        self._handler(job)
 
 
 class JobRunner:

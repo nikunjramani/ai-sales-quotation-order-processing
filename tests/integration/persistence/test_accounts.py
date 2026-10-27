@@ -83,7 +83,7 @@ def person(
     """A signed-up person with a verified email."""
     users = SqlUserStore(runtime_engine)
     user_id = uuid4()
-    assert users.sign_up(user_id, email, email, None, HASH, notify_existing=False)
+    assert users.sign_up(user_id, email, email, None, HASH, notify_existing=lambda: False)
     ref = next(p["ref_id"] for _, k, p in jobs(owner_engine) if p["purpose"] == "verify_email"
                and _ref_user(owner_engine, p["ref_id"]) == user_id)  # fmt: skip
     token = send_link(worker_engine, AccountEmailPurpose.VERIFY_EMAIL, ref)
@@ -111,7 +111,7 @@ def test_sign_up_verify_and_single_use_links(
     users = SqlUserStore(runtime_engine)
     user_id = uuid4()
     assert users.sign_up(user_id, "Ana@Shop.example", "ana@shop.example", "Ana", HASH,
-                         notify_existing=True)  # fmt: skip
+                         notify_existing=lambda: True)  # fmt: skip
     [(tenant, kind, payload)] = jobs(owner_engine)
     assert tenant is None and kind == JobKind.SEND_ACCOUNT_EMAIL
     assert set(payload) == {"purpose", "ref_id"}  # references only, never address or token
@@ -124,7 +124,7 @@ def test_sign_up_verify_and_single_use_links(
     assert users.by_subject(f"user:{user_id}").email_verified  # type: ignore[union-attr]
     # The same address again: nothing changes, the owner gets a notice instead.
     assert not users.sign_up(uuid4(), "ANA@shop.example", "ana@shop.example", None, HASH,
-                             notify_existing=True)  # fmt: skip
+                             notify_existing=lambda: True)  # fmt: skip
     assert [p["purpose"] for _, _, p in jobs(owner_engine)] == ["verify_email", "account_exists"]
     found = users.find_for_login("ana@shop.example")
     assert found is not None and found.password_hash == HASH
@@ -198,7 +198,7 @@ def test_create_business_cannot_be_abused(
         businesses.create(other_id, subject, NEW)
     unverified = uuid4()
     SqlUserStore(runtime_engine).sign_up(unverified, "new@shop.example", "new@shop.example",
-                                         None, HASH, notify_existing=False)  # fmt: skip
+                                         None, HASH, notify_existing=lambda: False)  # fmt: skip
     with pytest.raises(NotAllowed):
         businesses.create(unverified, f"user:{unverified}", NEW)
     with pytest.raises(ValueError, match="time zone"):

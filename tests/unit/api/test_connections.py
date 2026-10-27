@@ -32,12 +32,14 @@ class NoEnquiries:
 
 
 @pytest.fixture
-def client(harness: Any, memory_sessions: Any, memory_directory: Any) -> Iterator[TestClient]:
+def client(
+    harness: Any, memory_sessions: Any, memory_directory: Any, session_view: Any
+) -> Iterator[TestClient]:
     harness.db.add_member(harness.tenant_id, ADMIN, Role.ADMINISTRATOR)
     auth = PortalAuth(SessionService(memory_sessions), TenantContextResolver(harness.db))
     app = FastAPI()
     app.include_router(
-        build_auth_router(auth, memory_directory, DevIdentityProvider(memory_directory), [], False)
+        build_auth_router(auth, session_view, DevIdentityProvider(memory_directory), [], False)
     )
     app.include_router(
         build_portal_router(
@@ -120,7 +122,9 @@ def test_a_code_from_one_connection_only_links_there(client: TestClient, harness
     assert bindings[0]["connection_ref"] == str(phone.connection_id)
     assert bindings[0]["connection_name"] == phone.display_name
 
-    api = harness.connections.find_by_account(harness.tenant_id, "api", "api-key:test-client")
+    api = harness.connections.find_by_account(
+        harness.tenant_id, "api", "api-key:00000000-0000-4000-8000-0000000000c1"
+    )
     not_for_approvals = client.post(
         f"{base(harness)}/connections/{api.connection_id}/enrollments", headers=headers
     )

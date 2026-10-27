@@ -38,7 +38,9 @@ VIEWER = "viewer@industrial.example"
 
 def customer(harness: Any, tenant_id: UUID | None = None) -> TenantContext:
     return TenantContext(
-        tenant_id or harness.tenant_id, "api-key:test-client", frozenset({Role.INTAKE_SERVICE})
+        tenant_id or harness.tenant_id,
+        "api-key:00000000-0000-4000-8000-0000000000c1",
+        frozenset({Role.INTAKE_SERVICE}),
     )
 
 
@@ -97,7 +99,7 @@ def test_customer_accepts_unchanged_prices_and_managers_are_told(harness: Any) -
 
     recorded, replayed = answer(harness, enquiry, offer)
     assert recorded.outcome is ResponseOutcome.ACCEPTED and not replayed
-    assert recorded.actor == "api-key:test-client"
+    assert recorded.actor == "api-key:00000000-0000-4000-8000-0000000000c1"
     assert harness.quotation(enquiry).status is QuotationStatus.ACCEPTED
     harness.run_jobs()  # resume the run, notify managers
     run = harness.db.runs[(harness.tenant_id, enquiry, "quotation-approval-v1")]

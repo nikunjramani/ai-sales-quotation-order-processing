@@ -8,7 +8,7 @@ Rules that hold for every implementation:
 - Membership changes go through the database's own narrow functions, never plain inserts.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -76,11 +76,11 @@ class UserStore(Protocol):
         display_name: str | None,
         password_hash: str,
         *,
-        notify_existing: bool,
+        notify_existing: Callable[[], bool],
     ) -> bool:
         """One transaction: user + credential + verification row + email job. Returns False,
-        and changes nothing, if the email already has an account; then, when notify_existing,
-        an "account exists" notice is queued for its owner instead."""
+        and changes nothing, if the email already has an account; then, if notify_existing()
+        allows it (asked only in that case), an "account exists" notice is queued instead."""
         ...
 
     def find_for_login(self, email_normalized: str) -> LoginRecord | None: ...
