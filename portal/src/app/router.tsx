@@ -1,7 +1,7 @@
 import { createHashRouter, Navigate } from "react-router";
 
 import { authRoutes } from "@/features/auth";
-import { channelRoutes } from "@/features/channels";
+import { connectionRoutes } from "@/features/connections";
 import { enquiryRoutes } from "@/features/enquiries";
 import { quotationRoutes } from "@/features/quotations";
 
@@ -23,7 +23,7 @@ export function createRouter() {
         { index: true, element: <Navigate to="/quotations" replace /> },
         ...quotationRoutes,
         ...enquiryRoutes,
-        ...channelRoutes,
+        ...connectionRoutes,
         { path: "*", element: <NotFoundPage /> },
       ],
     },

@@ -6,7 +6,7 @@ import { TenantSwitcher, useCurrentTenant } from "@/features/tenant";
 const NAVIGATION = [
   { to: "/quotations", label: "Quotations" },
   { to: "/enquiries", label: "Enquiries" },
-  { to: "/channels", label: "Channels" },
+  { to: "/connections", label: "Connections" },
 ];
 
 export function TopBar() {

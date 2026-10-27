@@ -252,7 +252,12 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **The old `/channel-enrollments`:** now checks the provider registry and the business's active connections (unknown provider or no connection gives 422). The `ApprovalChannel` enum is removed.
   - **Bindings:** each now shows `connection_ref` and `connection_name`.
   - **Checks:** 409 unit tests; 468 tests on PostgreSQL.
-- **Next:** WI-13 (portal "Connections" page), WI-14 (provider contract and architecture tests), WI-15 (ADR 0018, adding-providers guide, docs), then the final live run.
+- **WI-13 done:**
+  - **Feature:** the portal feature `connections` replaces `channels`. The page is at `#/connections`, and `#/channels` redirects there. The top bar says "Connections".
+  - **Page contents:** a list of tools (status, purposes; last error for administrators only) and "Link my account on <tool>" for each active approval connection. The code is per connection; linked accounts show the tool's name.
+  - **Removed:** the hardcoded `"simulated"` in the portal. Decisions use purposes and status only.
+  - **Checks:** portal typecheck, 46 tests, build.
+- **Next:** WI-14 (provider contract tests and architecture rules), WI-15 (ADR 0018, adding-providers guide, docs pass), then the final live run.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).
