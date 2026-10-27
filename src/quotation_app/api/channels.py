@@ -1,15 +1,24 @@
-"""Inbound webhook for the simulated manager channel.
+"""DEPRECATED inbound route for the simulated manager phone (kept in phase 1, ADR 0018 §5.2).
 
 POST /api/v1/channels/simulated/events
-  Header X-Simulated-Signature: hex HMAC-SHA256 of the raw body with the shared secret.
+  Header X-Simulated-Signature: hex HMAC-SHA256 of the raw body with the global development
+  secret (QUOTATION_SIMULATED_CHANNEL_SECRET).
   Body: {"event_id", "tenant_id", "connection_id", "external_user_id", "type": "enroll"|"decision",
          "code"?, "action_reference"?, "action"?, "reason"?}
 
-The signature is checked on the raw bytes before anything is parsed. Then the event goes to the
-same ChannelActionService (and ApprovalService) a real provider adapter will use. Rejections
-share one generic message so callers learn nothing about which check failed.
+New callers use the generic route /api/v1/hooks/{connection_id}/{token}, where the business
+comes from the connection and each connection has its own secret. This alias stays because the
+demo page and scripts rely on its synchronous answers (enrolled / recorded / replayed, 403,
+409); it is removed when the demo moves to a real provider (phase 4/5).
+
+It works on the new framework: the signature is checked on the raw bytes first, the body's
+tenant_id and connection_id only FIND that business's active `simulated` connection (none:
+403), the event is stored in inbox_events and routed in the request through the same
+ChannelActionService (and ApprovalService) every provider uses. Known weakness (development
+only, refused in production): the body chooses among businesses that share the dev secret.
 """
 
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -18,22 +27,22 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
-from quotation_app.adapters.channels.simulated import SIGNATURE_HEADER, signature_valid
+from quotation_app.adapters.providers.simulated import PROVIDER_KEY
+from quotation_app.adapters.providers.simulated.signing import SIGNATURE_HEADER, signature_valid
 from quotation_app.application.approvals import DecisionResult
-from quotation_app.application.channel_actions import (
-    ChannelActionRejected,
-    ChannelActionService,
-    ChannelEvent,
-    ChannelEventKind,
-)
+from quotation_app.application.channel_actions import ChannelActionRejected
+from quotation_app.application.inbound import ManagerActionRoute
+from quotation_app.domain.intake import ManagerAction, validate_event
 from quotation_app.domain.quotations import (
     ApprovalAction,
-    ApprovalChannel,
     DecisionConflict,
     StaleVersion,
     TaskNotFound,
 )
 from quotation_app.domain.tenancy import AuthorizationError
+from quotation_app.ports.channels import ChannelBinding
+from quotation_app.ports.connections import ConnectionStore
+from quotation_app.ports.inbound import InboundStore
 
 MAX_EVENT_BYTES = 16 * 1024
 _REJECTED = "Action not accepted"
@@ -59,13 +68,46 @@ class SimulatedEventOut(BaseModel):
     action: ApprovalAction | None = None
 
 
-def build_channel_router(service: ChannelActionService, secret: str | None) -> APIRouter:
-    router = APIRouter(prefix="/api/v1/channels", tags=["manager channels"])
+def build_channel_router(
+    route: ManagerActionRoute,
+    connections: ConnectionStore,
+    inbox: InboundStore,
+    secret: str | None,
+) -> APIRouter:
+    router = APIRouter(prefix="/api/v1/channels", tags=["manager channels (deprecated)"])
+
+    def handle(event: SimulatedEventIn) -> ChannelBinding | DecisionResult:
+        connection = connections.find_by_account(event.tenant_id, PROVIDER_KEY, event.connection_id)
+        if connection is None or not connection.active:
+            raise ChannelActionRejected(_REJECTED)
+        action = validate_event(
+            ManagerAction(
+                provider_event_id=event.event_id,
+                external_user_id=event.external_user_id,
+                kind=event.type,
+                code=event.code,
+                reference=event.action_reference,
+                action=event.action.value if event.action else None,
+                reason=event.reason,
+            )
+        )
+        assert isinstance(action, ManagerAction)
+        [recorded] = inbox.record(connection, [action], datetime.now(UTC), queue_jobs=False)
+        # A repeated event is routed again: the services are idempotent, so it says "replayed".
+        result = route.handle(connection, action)
+        outcome = (
+            ("replayed" if result.replayed else "recorded")
+            if isinstance(result, DecisionResult)
+            else "enrolled"
+        )
+        inbox.mark_processed(connection.tenant_id, recorded.inbox_event_id, outcome)
+        return result
 
     @router.post(
         "/simulated/events",
         response_model=SimulatedEventOut,
         responses={401: {}, 403: {}, 404: {}, 409: {}, 413: {}},
+        deprecated=True,
     )
     async def simulated_event(request: Request) -> SimulatedEventOut:
         if secret is None:
@@ -80,22 +122,8 @@ def build_channel_router(service: ChannelActionService, secret: str | None) -> A
         except ValidationError:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid event") from None
         try:
-            # The service uses blocking database calls; keep them off the event loop.
-            result = await run_in_threadpool(
-                service.handle,
-                ChannelEvent(
-                    channel=ApprovalChannel.SIMULATED.value,
-                    connection_id=event.connection_id,
-                    tenant_id=event.tenant_id,
-                    event_id=event.event_id,
-                    external_user_id=event.external_user_id,
-                    kind=ChannelEventKind(event.type),
-                    code=event.code,
-                    reference=event.action_reference,
-                    action=event.action,
-                    reason=event.reason,
-                ),
-            )
+            # The services use blocking database calls; keep them off the event loop.
+            result = await run_in_threadpool(handle, event)
         except (ChannelActionRejected, AuthorizationError, TaskNotFound):
             raise HTTPException(status.HTTP_403_FORBIDDEN, _REJECTED) from None
         except (DecisionConflict, StaleVersion, IntegrityError):

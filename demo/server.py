@@ -21,11 +21,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from quotation_app.adapters.channels.simulated import (
-    DEFAULT_CONNECTION_ID,
-    SIGNATURE_HEADER,
-    sign,
-)
+from quotation_app.adapters.providers.simulated import DEFAULT_CONNECTION_ID
+from quotation_app.adapters.providers.simulated.signing import SIGNATURE_HEADER, sign
 from quotation_app.application.api_keys import generate_api_key
 from quotation_app.config import Settings
 from quotation_app.domain.tenancy import Role

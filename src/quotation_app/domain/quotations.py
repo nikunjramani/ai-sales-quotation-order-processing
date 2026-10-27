@@ -66,13 +66,6 @@ QUOTATION_STATUS_AFTER: Mapping[ApprovalAction, QuotationStatus] = {
 }
 
 
-class ApprovalChannel(StrEnum):
-    """Manager approval channels. Real providers (email, Telegram...) are added as adapters;
-    see .docs/development/adding-channels.md."""
-
-    SIMULATED = "simulated"
-
-
 PORTAL_TRANSPORT = "portal"
 
 
@@ -248,32 +241,3 @@ class ReviewPacket:
     @property
     def number(self) -> str:
         return quotation_number(self.quotation_id)
-
-
-def render_review_text(packet: ReviewPacket) -> str:
-    """Plain-text review summary for messaging channels. Amounts are shown exactly as stored."""
-    content = packet.content
-    currency = str(content["currency"])
-    lines = content["lines"]
-    assert isinstance(lines, list)
-    text = [
-        f"{packet.tenant_name}: approval needed for quotation {packet.number} "
-        f"version {packet.version}",
-        f"Customer reference: {packet.customer_reference or 'not given'}",
-        "",
-    ]
-    for line in lines:
-        text.append(
-            f"- {line['sku']} {line['description']}: {line['quantity']} {line['unit']} x "
-            f"{line['unit_price']} = {line['line_total']} {currency} "
-            f"(stock: {line['stock_status']})"
-        )
-    text += [
-        "",
-        f"Subtotal {content['subtotal']} {currency}; tax {content['tax']} {currency}; "
-        f"total {content['total']} {currency}",
-    ]
-    if content.get("stock_review_required"):
-        text.append("Attention: at least one line is not confirmed as in stock.")
-    text.append(f"Content hash: {packet.content_sha256[:12]}")
-    return "\n".join(text)

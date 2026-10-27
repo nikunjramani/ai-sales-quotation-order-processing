@@ -23,4 +23,5 @@ export type Permission =
   | "quotations:draft"
   | "quotations:approve"
   | "tenant:manage"
-  | "enquiries:view";
+  | "enquiries:view"
+  | "integrations:manage";

@@ -16,7 +16,18 @@ dependencies = [
     "langchain-core>=1,<2",
     "pypdf>=6,<7",
     "reportlab>=5.0.1,<5.1",
+    "cryptography>=50,<51",
 ]
+
+# Pluggable parts are found by name through these entry points (ADR 0018). A new provider or
+# secret store is one package plus one entry point (here or in its own package); no core change.
+[project.entry-points."quotation_app.providers"]
+api = "quotation_app.adapters.providers.api:build"
+simulated = "quotation_app.adapters.providers.simulated:build"
+
+[project.entry-points."quotation_app.secret_stores"]
+local = "quotation_app.adapters.secrets.local:build"
+none = "quotation_app.adapters.secrets.none:build"
 
 [project.optional-dependencies]
 # AI enquiry reader: the generic model loader plus the provider packages in use. Any other

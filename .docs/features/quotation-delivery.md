@@ -12,13 +12,13 @@
 
 ## Source files
 - **Domain:** [domain/documents.py](../../src/quotation_app/domain/documents.py) holds statuses, `DocumentSource`, `delivery_recipient`, document IDs/keys and errors.
-- **Ports:** [ports/documents.py](../../src/quotation_app/ports/documents.py) defines `QuotationRenderer`, `DeliveryChannel`, `DeliveryStore` and `DocumentReader`.
+- **Ports:** [ports/documents.py](../../src/quotation_app/ports/documents.py) defines `QuotationRenderer`, `DeliveryStore` and `DocumentReader`. Since phase 1 a delivery is carried out by one outbox message (`deliver_quotation` prepares the PDF and queues it, `send_message` hands it to the enquiry's connection) and mirrors its status; see [connections](connections.md).
 - **Application:**
   - [application/delivery.py](../../src/quotation_app/application/delivery.py) (`QuotationDeliveryHandler`, the `deliver_quotation` job)
   - [application/documents.py](../../src/quotation_app/application/documents.py) (`QuotationDocumentService`: previews, approved files, customer downloads)
 - **Adapters:**
   - [adapters/documents/pdf.py](../../src/quotation_app/adapters/documents/pdf.py) (ReportLab renderer)
-  - [adapters/delivery/api.py](../../src/quotation_app/adapters/delivery/api.py) (API pull channel)
+  - [adapters/providers/api/](../../src/quotation_app/adapters/providers/api/__init__.py) (API provider: pull)
   - [adapters/storage/local.py](../../src/quotation_app/adapters/storage/local.py) (now also `documents/` keys)
 - **Workflow:** the `approved` step in [workflows/quotation.py](../../src/quotation_app/workflows/quotation.py) queues delivery.
 - **Persistence:** [persistence/documents.py](../../src/quotation_app/persistence/documents.py), [0006_documents.py](../../migrations/versions/0006_documents.py).
@@ -92,7 +92,7 @@ No new settings. PDFs live under `QUOTATION_STORAGE_DIR` (`tenants/<t>/documents
 - Built-in PDF fonts cover Western European text only; a Unicode font is needed before real customer data.
 - No resend or "mark as delivered" action for `failed`/`unknown` deliveries yet.
 - No quote validity date on the PDF yet (M6 offer lifecycle).
-- Only the API pull channel exists. Email and Telegram delivery come with those channels ([adding channels](../development/adding-channels.md)).
+- Only the API pull channel exists. Email and Telegram delivery come with those providers ([adding providers](../development/adding-providers.md)).
 - Local disk storage only; production object storage is decided at deployment (M8).
 
 Related ADRs: [0015](../adr/0015-quotation-documents-and-delivery.md), [0013](../adr/0013-portal-identity-and-approval-core.md), [0004](../adr/0004-durable-execution.md), [0007](../adr/0007-channel-independent-approval.md).

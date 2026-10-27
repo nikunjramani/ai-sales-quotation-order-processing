@@ -20,7 +20,6 @@ from quotation_app.domain.documents import (
     DocumentKind,
     DocumentSource,
     StoredDocument,
-    delivery_recipient,
 )
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.quotations import ApprovalAction, QuotationStatus
@@ -167,9 +166,11 @@ def _source(row: Row[Any], quotation_id: UUID, version: int) -> DocumentSource:
 def queue_delivery(
     connection: Connection, tenant_id: UUID, quotation_id: UUID, version: int
 ) -> bool:
-    """Queue delivery of an approved version to whoever sent the enquiry, on its channel.
+    """Queue delivery of an approved version to whoever sent the enquiry, on its connection.
 
-    The recipient comes from domain.documents.delivery_recipient. Safe to repeat: one delivery
+    The recipient is the envelope's reply_to, fixed at intake by
+    domain.documents.delivery_recipient (and backfilled by migration 0008). Safe to repeat: one
+    delivery
     per target. Returns False (and queues nothing) unless this version is the approved current
     version.
     """
@@ -179,8 +180,7 @@ def queue_delivery(
             Quotation.current_version,
             Enquiry.channel,
             Enquiry.correlation_id,
-            InboxEvent.connection_id,
-            InboxEvent.envelope["sender_external_id"].astext.label("sender_external_id"),
+            InboxEvent.envelope["reply_to"].astext.label("reply_to"),
         )
         .join(
             Enquiry,
@@ -207,7 +207,7 @@ def queue_delivery(
             quotation_id=quotation_id,
             version=version,
             channel=row.channel,
-            recipient=delivery_recipient(row.channel, row.connection_id, row.sender_external_id),
+            recipient=row.reply_to,
             status=DeliveryStatus.PENDING.value,
         )
         .on_conflict_do_nothing(constraint="uq_quotation_deliveries_target")
@@ -223,7 +223,7 @@ def queue_delivery(
     return True
 
 
-def _queue_expiry(connection: Connection, tenant_id: UUID, delivery_id: UUID) -> None:
+def queue_expiry(connection: Connection, tenant_id: UUID, delivery_id: UUID) -> None:
     """Schedule expire_quotation for the moment the delivered version stops being valid."""
     row = connection.execute(
         select(
@@ -273,6 +273,10 @@ class SqlDeliveryStore:
                     Tenant.name,
                     Enquiry.customer_reference,
                     TenantPricingPolicy.quote_validity_days,
+                    Enquiry.id.label("enquiry_id"),
+                    Enquiry.correlation_id,
+                    InboxEvent.connection_ref,
+                    QuotationDelivery.outbound_message_id,
                 )
                 .join(
                     Quotation,
@@ -283,6 +287,11 @@ class SqlDeliveryStore:
                     Enquiry,
                     (Enquiry.tenant_id == Quotation.tenant_id)
                     & (Enquiry.id == Quotation.enquiry_id),
+                )
+                .join(
+                    InboxEvent,
+                    (InboxEvent.tenant_id == Enquiry.tenant_id)
+                    & (InboxEvent.id == Enquiry.inbox_event_id),
                 )
                 .join(Tenant, Tenant.id == QuotationDelivery.tenant_id)
                 .join(
@@ -302,7 +311,20 @@ class SqlDeliveryStore:
             row.customer_reference,
             _document(row),
             row.quote_validity_days,
+            row.connection_ref,
+            row.enquiry_id,
+            row.correlation_id,
+            row.outbound_message_id,
         )
+
+    def document(self, tenant_id: UUID, document_id: UUID) -> StoredDocument | None:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            row = connection.execute(
+                select(*_DOCUMENT_COLUMNS).where(
+                    QuotationDocument.tenant_id == tenant_id, QuotationDocument.id == document_id
+                )
+            ).one_or_none()
+        return None if row is None else _document(row)
 
     def approved_source(
         self, tenant_id: UUID, quotation_id: UUID, version: int
@@ -383,7 +405,7 @@ class SqlDeliveryStore:
                 .values(**values)
             ).rowcount
             if changed == 1 and status in OFFERED_STATUSES:
-                _queue_expiry(connection, tenant_id, delivery_id)
+                queue_expiry(connection, tenant_id, delivery_id)
         return bool(changed == 1)
 
 

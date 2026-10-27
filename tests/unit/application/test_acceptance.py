@@ -1,7 +1,7 @@
 """Customer answers (M6, ADR 0016): accept, decline, price re-check with automatic revision,
 expiry, withdrawal, notifications, replays and tenant boundaries."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -17,6 +17,7 @@ from quotation_app.domain.acceptance import (
     Offer,
     OfferNotOpen,
     PricesChanged,
+    RecordedResponse,
     ResponseAction,
     ResponseConflict,
     ResponseOutcome,
@@ -24,6 +25,7 @@ from quotation_app.domain.acceptance import (
 )
 from quotation_app.domain.documents import DocumentNotAvailable
 from quotation_app.domain.jobs import JobKind
+from quotation_app.domain.messages import TemplateKey, render_template
 from quotation_app.domain.quotations import ApprovalAction, QuotationStatus
 from quotation_app.domain.tenancy import PermissionDenied, Role, TenantContext
 from quotation_app.ports.erp import ErpError, ErpErrorCode
@@ -100,8 +102,8 @@ def test_customer_accepts_unchanged_prices_and_managers_are_told(harness: Any) -
     harness.run_jobs()  # resume the run, notify managers
     run = harness.db.runs[(harness.tenant_id, enquiry, "quotation-approval-v1")]
     assert harness.db.run_status[run] == "accepted"
-    [(binding, notice_id, text)] = harness.notifier.notices
-    assert binding.external_user_id == "manager-phone" and notice_id == recorded.response_id
+    [(recipient, notice_id, text)] = harness.notifier.notices
+    assert recipient == "manager-phone" and notice_id == recorded.response_id
     assert "the customer accepted quotation Q-" in text and "version 1" in text
 
     again, replayed = answer(harness, enquiry, offer)  # network retry: same key, same answer
@@ -275,3 +277,36 @@ def test_only_customer_systems_of_the_same_business_can_answer(
         harness.responses().respond(
             customer(harness, office_tenant), enquiry, "api", "k-000002", request
         )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "reason", "expected"),
+    [
+        (
+            ResponseOutcome.ACCEPTED,
+            None,
+            "Demo Industrial: the customer accepted quotation Q-1A2B3C4D version 2"
+            " (total 10596.40 INR).",
+        ),
+        (
+            ResponseOutcome.DECLINED,
+            "Found a cheaper offer",
+            "Demo Industrial: the customer declined quotation Q-1A2B3C4D version 2"
+            " (total 10596.40 INR). Reason: Found a cheaper offer",
+        ),
+    ],
+)
+def test_notice_golden_wording(outcome: ResponseOutcome, reason: str | None, expected: str) -> None:
+    """Pins the exact manager notice wording before the phase 1 outbox moves it."""
+    quotation_id = UUID("1a2b3c4d-0000-4000-8000-000000000000")
+    now = datetime(2026, 10, 27, tzinfo=UTC)
+    offer = Offer(
+        uuid4(), "Demo Industrial", quotation_id, uuid4(), QuotationStatus.ACCEPTED, 2, 2,
+        {"total": "10596.40", "currency": "INR"}, "a" * 64, now, now,
+    )  # fmt: skip
+    response = RecordedResponse(
+        uuid4(), quotation_id, 2, "a" * 64, outcome, "api-key:x", reason, (), None, now
+    )
+    rendered = render_template(TemplateKey.RESPONSE_NOTICE, {"offer": offer, "response": response})
+    assert rendered.text == expected
+    assert rendered.metadata == {"notice_id": str(response.response_id)}

@@ -20,7 +20,7 @@ from quotation_app.domain.requirements import (
     RequestedItem,
 )
 from quotation_app.evaluation import InMemoryWorkflowStore
-from quotation_app.ports.erp import ErpError, ErpErrorCode
+from quotation_app.ports.erp import CatalogueSourceMissing, ErpError, ErpErrorCode
 from quotation_app.ports.interpretation import DocumentText, InterpretationRejected
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.workflow import CleanAttachment, EnquiryContent
@@ -240,3 +240,18 @@ def test_missing_enquiry_is_permanent(
     enquiry = harness.enquiry(industrial_tenant, "Please quote 2 x IND-FAN-450")
     with pytest.raises(PermanentJobError):
         harness.run(office_tenant, enquiry)  # right ID, wrong tenant
+
+
+@pytest.mark.parametrize(
+    "text", ["Please quote 2 x IND-FAN-450", "can you get price for tata cars"]
+)
+def test_a_business_without_a_product_source_goes_to_review(
+    make_harness: Callable[..., Harness], industrial_tenant: UUID, text: str
+) -> None:
+    """P1-Q3: no retries, review with a clear reason (whether matching or listing categories)."""
+    harness = make_harness()
+    for operation in ("search_products", "list_categories"):
+        harness.erp.failures[operation] = CatalogueSourceMissing()
+    outcome, details = harness.run(industrial_tenant, harness.enquiry(industrial_tenant, text))
+    assert outcome is ExtractionOutcome.NEEDS_REVIEW
+    assert details["review_reasons"] == ["No product source is connected"]

@@ -21,7 +21,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from quotation_app.domain.intake import Channel
+from quotation_app.domain.connections import DeliveryMode
 from quotation_app.domain.quotations import quotation_number
 from quotation_app.domain.validation import require_aware
 
@@ -92,18 +92,20 @@ class NoDeliveryAddress(Exception):
     """The enquiry carries no address to send the quotation back to."""
 
 
-def delivery_recipient(channel: str, connection_id: str, sender_external_id: str | None) -> str:
+def delivery_recipient(
+    mode: DeliveryMode, connection_key: str, sender_external_id: str | None
+) -> str:
     """Who receives the approved quotation: always whoever sent the enquiry, never an address
-    taken from message text.
+    taken from message text. Decided once, at intake (stored as the envelope's reply_to).
 
-    - API (pull): the connection (API key) that submitted it. The API's sender_external_id is
-      the customer's own reference label, not an address.
-    - Push channels (email, chat): the provider's verified sender address or chat ID.
+    - Pull providers (the API): the connection (API key) that submitted it. The API's
+      sender_external_id is the customer's own reference label, not an address.
+    - Push providers (email, chat): the provider's verified sender address or chat ID.
     """
-    if channel == Channel.API.value:
-        return connection_id
+    if mode is DeliveryMode.PULL:
+        return connection_key
     if not sender_external_id:
-        raise NoDeliveryAddress(f"The {channel} enquiry has no sender address")
+        raise NoDeliveryAddress("The enquiry has no sender address to reply to")
     return sender_external_id
 
 

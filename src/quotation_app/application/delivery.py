@@ -1,29 +1,30 @@
-"""Job handler: render an approved quotation's PDF (once) and deliver it to the customer.
+"""Job handler: render an approved quotation's PDF (once) and send it to the customer.
 
 Flow for one delivery (a row written in the same transaction as the job that processes it):
-1. Already finished (available/sent/failed/unknown)? Do nothing.
-2. Left in 'sending' by an earlier attempt? That worker stopped after handing the document over
-   and before recording the result, so we cannot know if it arrived: mark 'unknown' for a
-   person to check, never resend blindly.
+1. Already finished, or already handed to the outbox? Do nothing (a repeat is harmless).
+2. Find the connection the enquiry arrived on; the quotation goes back the same way. No active
+   connection: the delivery fails with the reason (shown in the portal).
 3. Get the document: reuse the stored one (hash re-checked) or render it from the approved
    version and store it. Only a version with an approve decision for its exact content hash
    can be rendered.
-4. Compare-and-set pending -> sending, so only one worker can hand it over.
-5. Ask the channel adapter. Accepted -> available/sent. Rejected -> failed. Possibly sent
-   (timeout) -> unknown. Any other error -> back to pending and retried with backoff; after the
-   last attempt -> failed.
+4. Queue one outbound message (template quotation_document, idempotency key
+   quotation-delivery:<id>) linked to the delivery. The send_message job does the rest, and
+   the delivery mirrors the message's status (pending, sending, available/sent, failed,
+   unknown; ADR 0015 and 0018).
+At send time QuotationDocumentHook loads and hash-checks the PDF and attaches it.
 Problems that retrying cannot fix are recorded on the delivery (failed + reason) so they show
 in the portal, instead of silently vanishing.
 """
 
 import hashlib
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
 from quotation_app.application.documents import read_verified
+from quotation_app.application.messaging import OutboundService
 from quotation_app.domain.acceptance import valid_until
 from quotation_app.domain.documents import (
     FINAL_DELIVERY_STATUSES,
@@ -39,25 +40,17 @@ from quotation_app.domain.documents import (
     document_key,
 )
 from quotation_app.domain.jobs import PermanentJobError
-from quotation_app.domain.quotations import quotation_number
-from quotation_app.ports.documents import (
-    DeliveryChannel,
-    DeliveryRejected,
-    DeliveryRequest,
-    DeliveryStore,
-    DeliveryUncertain,
-    DeliveryWork,
-    QuotationRenderer,
-    ReceiptKind,
-)
+from quotation_app.domain.messages import OutboundMessage, TemplateKey
+from quotation_app.ports.connections import ConnectionStore
+from quotation_app.ports.documents import DeliveryStore, DeliveryWork, QuotationRenderer
 from quotation_app.ports.jobs import ClaimedJob
+from quotation_app.ports.messages import MessageLinks, SendPreparation
+from quotation_app.ports.providers import Attachment, SendReceipt
 from quotation_app.ports.storage import ObjectNotFound, ObjectStorage
 
 logger = logging.getLogger(__name__)
 
 _PENDING = frozenset({DeliveryStatus.PENDING})
-_SENDING = frozenset({DeliveryStatus.SENDING})
-_INTERRUPTED = "The worker stopped while handing the document over; check with the provider"
 
 
 def utc_now() -> datetime:
@@ -70,13 +63,15 @@ class QuotationDeliveryHandler:
         store: DeliveryStore,
         storage: ObjectStorage,
         renderer: QuotationRenderer,
-        channels: Mapping[str, DeliveryChannel],
+        connections: ConnectionStore,
+        outbound: OutboundService,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._store = store
         self._storage = storage
         self._renderer = renderer
-        self._channels = dict(channels)
+        self._connections = connections
+        self._outbound = outbound
         self._clock = clock
 
     def __call__(self, job: ClaimedJob) -> None:
@@ -88,94 +83,51 @@ class QuotationDeliveryHandler:
         work = self._store.delivery(tenant_id, delivery_id)
         if work is None:
             raise PermanentJobError("Delivery not found")
-        status = work.record.status
-        if status in FINAL_DELIVERY_STATUSES:
-            return
-        if status is DeliveryStatus.SENDING:
-            self._store.set_status(
-                tenant_id,
-                delivery_id,
-                DeliveryStatus.UNKNOWN,
-                expected=_SENDING,
-                error=_INTERRUPTED,
-            )
+        if work.record.status in FINAL_DELIVERY_STATUSES or work.outbound_message_id is not None:
             return
 
-        def fail(reason: str, expected: frozenset[DeliveryStatus] = _PENDING) -> None:
+        def fail(reason: str) -> None:
             logger.warning("Delivery %s failed: %s", delivery_id, reason)
             self._store.set_status(
                 tenant_id,
                 delivery_id,
                 DeliveryStatus.FAILED,
-                expected=expected,
+                expected=_PENDING,
                 error=clean_error(reason),
             )
 
-        channel = self._channels.get(work.record.channel)
-        if channel is None:
-            fail(f"No delivery channel is configured for '{work.record.channel}'")
+        connection = (
+            None
+            if work.connection_id is None
+            else self._connections.get(tenant_id, work.connection_id)
+        )
+        if connection is None or not connection.active:
+            fail(f"No active connection for '{work.record.channel}' to send the quotation")
             return
         try:
-            document, data = self._document(tenant_id, work)
+            document, _ = self._document(tenant_id, work)
         except (DocumentNotAvailable, UnrenderableContent, DocumentIntegrityError) as error:
             fail(str(error))
             return
         except ObjectNotFound:
             fail("The stored document file is missing")
             return
-        if not self._store.set_status(
-            tenant_id,
-            delivery_id,
-            DeliveryStatus.SENDING,
-            expected=_PENDING,
-            document_id=document.document_id,
-        ):
-            return  # another worker took it over
         record = work.record
-        request = DeliveryRequest(
-            delivery_id=delivery_id,
-            tenant_id=tenant_id,
-            tenant_name=work.tenant_name,
-            quotation_id=record.quotation_id,
-            quotation_number=quotation_number(record.quotation_id),
-            version=record.version,
+        self._outbound.queue(
+            connection,
+            template=TemplateKey.QUOTATION_DOCUMENT,
+            render={"quotation_id": record.quotation_id, "version": record.version},
+            params={"delivery_id": str(delivery_id)},
             recipient=record.recipient,
-            customer_reference=work.customer_reference,
-            filename=document_filename(record.quotation_id, record.version),
-            document_sha256=document.sha256,
-        )
-        try:
-            receipt = channel.deliver(request, data)
-        except DeliveryRejected as error:
-            fail(f"Rejected by the channel: {error}", _SENDING)
-            return
-        except DeliveryUncertain as error:
-            self._store.set_status(
-                tenant_id,
-                delivery_id,
-                DeliveryStatus.UNKNOWN,
-                expected=_SENDING,
-                error=clean_error(f"Outcome unknown: {error}"),
-            )
-            return
-        except Exception as error:
-            last = job.attempt >= job.max_attempts
-            self._store.set_status(
-                tenant_id,
-                delivery_id,
-                DeliveryStatus.FAILED if last else DeliveryStatus.PENDING,
-                expected=_SENDING,
-                error=clean_error(f"{type(error).__name__}: {error}"),
-            )
-            raise  # the job queue retries with backoff (or marks the job dead after the last)
-        self._store.set_status(
-            tenant_id,
-            delivery_id,
-            DeliveryStatus.AVAILABLE
-            if receipt.kind is ReceiptKind.AVAILABLE
-            else DeliveryStatus.SENT,
-            expected=_SENDING,
-            provider_reference=receipt.provider_reference,
+            idempotency_key=f"quotation-delivery:{delivery_id}",
+            links=MessageLinks(
+                document_id=document.document_id,
+                quotation_id=record.quotation_id,
+                version=record.version,
+                enquiry_id=work.enquiry_id,
+                delivery_id=delivery_id,
+            ),
+            correlation_id=work.correlation_id,
         )
 
     def _document(self, tenant_id: UUID, work: DeliveryWork) -> tuple[StoredDocument, bytes]:
@@ -218,3 +170,39 @@ class QuotationDeliveryHandler:
             self._storage.delete(key)
             return stored, read_verified(self._storage, stored)
         return stored, data
+
+
+class QuotationDocumentHook:
+    """Send hook for quotation_document: attach the stored PDF after re-checking its hash."""
+
+    def __init__(self, store: DeliveryStore, storage: ObjectStorage) -> None:
+        self._store = store
+        self._storage = storage
+
+    def before_send(self, message: OutboundMessage) -> SendPreparation:
+        document = (
+            None
+            if message.document_id is None
+            else self._store.document(message.tenant_id, message.document_id)
+        )
+        if document is None:
+            return SendPreparation(cancel_reason="The quotation document is not available")
+        try:
+            data = read_verified(self._storage, document)
+        except DocumentIntegrityError as error:
+            return SendPreparation(cancel_reason=str(error))
+        except ObjectNotFound:
+            return SendPreparation(cancel_reason="The stored document file is missing")
+        return SendPreparation(
+            attachment=Attachment(
+                filename=document_filename(document.quotation_id, document.version),
+                content_type="application/pdf",
+                data=data,
+                sha256=document.sha256,
+            )
+        )
+
+    def after_send(
+        self, message: OutboundMessage, preparation: SendPreparation, receipt: SendReceipt
+    ) -> None:
+        return None

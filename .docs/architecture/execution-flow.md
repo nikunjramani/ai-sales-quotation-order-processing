@@ -89,6 +89,12 @@ See [customer acceptance](../features/customer-acceptance.md).
    - A price change continues to `request_approval` (or `await_revision`); approval -> delivery -> a new offer.
 4. **Expiry job / withdrawal:** the same atomic recording; the run ends `expired` / `withdrawn`.
 
+## Implemented phase 1 trace (connector framework, ADR 0018)
+1. A provider calls `POST /api/v1/hooks/{connection}/{token}`. The token, the size and the provider's signature are checked, then the body is parsed. Each event goes into `inbox_events` once, with a `process_inbound` job, in one transaction; the answer is 200.
+2. The worker runs `process_inbound`: a manager action goes through `ChannelActionService` and `ApprovalService` (as in the portal). The outcome is stored on the inbox event.
+3. `notify_approvers`, `deliver_quotation` and `notify_response` queue `outbound_messages` (idempotency key per message) and `send_message` jobs. `send_message` runs the template's send hook (approval token at send time; verified PDF), compare-and-sets pending to sending, and calls the connection's provider. A linked delivery mirrors the status, and expiry is queued as before.
+4. Product reads go to the business's own catalogue connection (`TenantCatalogue`). With no source, the enquiry goes to review at once.
+
 ## Planned sales workflow
 
 | Step | Input and action | Output / failure branch |

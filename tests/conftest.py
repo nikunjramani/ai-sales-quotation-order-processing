@@ -9,12 +9,15 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
 
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
+from quotation_app.adapters.providers.api import ApiProvider
+from quotation_app.application.providers import ProviderRegistry
 from quotation_app.domain.attachments import AttachmentStatus
+from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
 from quotation_app.domain.intake import EnquiryStatus, InboundEnvelope
 from quotation_app.domain.money import RoundingMode
 from quotation_app.domain.pricing import PricingPolicy
@@ -172,15 +175,15 @@ class FakeIntakeStore:
     """
 
     def __init__(self) -> None:
-        self.receipts: dict[tuple[UUID, str, str, str], Receipt] = {}
+        self.receipts: dict[tuple[UUID, UUID, str], Receipt] = {}
         self.envelopes: dict[UUID, InboundEnvelope] = {}
         self.fail_record: Exception | None = None
         self.concurrent_winner: Receipt | None = None
 
     def find_receipt(
-        self, tenant_id: UUID, channel: object, connection_id: str, provider_event_id: str
+        self, tenant_id: UUID, connection_ref: UUID, provider_event_id: str
     ) -> Receipt | None:
-        return self.receipts.get((tenant_id, str(channel), connection_id, provider_event_id))
+        return self.receipts.get((tenant_id, connection_ref, provider_event_id))
 
     def record(
         self, envelope: InboundEnvelope, payload_sha256: str, enquiry_id: UUID
@@ -196,12 +199,7 @@ class FakeIntakeStore:
             envelope.correlation_id,
             envelope.received_at,
         )
-        key = (
-            envelope.tenant_id,
-            str(envelope.channel),
-            envelope.connection_id,
-            envelope.provider_event_id,
-        )
+        key = (envelope.tenant_id, envelope.connection_ref, envelope.provider_event_id)
         self.receipts[key] = receipt
         self.envelopes[enquiry_id] = envelope
         return receipt, True
@@ -229,6 +227,47 @@ class FakeIntakeStore:
                 for item in envelope.attachments
             ),
         )
+
+
+class FakeConnections:
+    """ConnectionStore fake: every (business, provider, account) has an active connection,
+    except accounts listed in `disabled`. IDs are stable, so replays find the same one."""
+
+    def __init__(self) -> None:
+        self.disabled: set[str] = set()
+
+    def find_by_account(
+        self, tenant_id: UUID, provider_key: str, account_ref: str
+    ) -> Connection | None:
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        connection_id = uuid5(NAMESPACE_URL, f"fake:{tenant_id}:{provider_key}:{account_ref}")
+        status = (
+            ConnectionStatus.DISABLED if account_ref in self.disabled else ConnectionStatus.ACTIVE
+        )
+        return Connection(
+            connection_id, tenant_id, provider_key, provider_key,
+            frozenset({Purpose.CUSTOMER_MESSAGES}), {}, {}, account_ref, status, None, "test",
+            now, now,
+        )  # fmt: skip
+
+    def get(self, tenant_id: UUID, connection_id: UUID) -> Connection | None:
+        raise NotImplementedError
+
+    def list_for(self, tenant_id: UUID, purpose: Purpose | None = None) -> list[Connection]:
+        raise NotImplementedError
+
+    def catalogue_sources(self, tenant_id: UUID) -> list[Connection]:
+        raise NotImplementedError
+
+
+@pytest.fixture
+def connection_store() -> FakeConnections:
+    return FakeConnections()
+
+
+@pytest.fixture
+def provider_registry() -> ProviderRegistry:
+    return ProviderRegistry([ApiProvider()])
 
 
 class FakeApiKeys:

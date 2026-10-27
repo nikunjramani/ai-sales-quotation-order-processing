@@ -1,20 +1,31 @@
-"""Job handler: send a pending approval task's review packet to bound manager accounts.
+"""Approval requests to linked manager accounts, through the outbox (ADR 0013, 0018).
 
-Delivery is at least once. A reference is stored before sending and marked sent afterwards; if
-sending fails, the retry replaces the unsent token so only the delivered token can act. Each
-token is single use, expires, and only works for the account it was sent to.
+notify_approvers queues one approval_request message per active approver binding (idempotency
+key approval-request:<task>:<binding>), with the review text as fixed wording. The single-use
+action token is never stored with the message: ApprovalRequestHook creates it at send time,
+stores only its hash as an action reference (rotating an unsent one, so only the token actually
+sent can act) and marks the reference sent afterwards. Each token is single use, expires, and
+only works for the account it was sent to.
+
+A crash while handing a request over leaves the message 'unknown' and it is not resent
+automatically (user decision P1-Q6); the task stays visible in the portal.
 """
 
 import logging
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from quotation_app.application.api_keys import hash_secret
+from quotation_app.application.messaging import OutboundService
 from quotation_app.domain.jobs import PermanentJobError
-from quotation_app.ports.channels import ApprovalNotifier, NotificationStore
+from quotation_app.domain.messages import APPROVAL_ACTIONS, OutboundMessage, TemplateKey
+from quotation_app.ports.channels import NotificationStore
+from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.jobs import ClaimedJob
+from quotation_app.ports.messages import MessageLinks, SendPreparation
+from quotation_app.ports.providers import SendReceipt
 
 REFERENCE_LIFETIME = timedelta(hours=24)
 
@@ -30,17 +41,14 @@ def new_action_token() -> str:
 
 
 class ApprovalNotificationHandler:
+    """Job handler for notify_approvers, payload {"task_id": "..."}."""
+
     def __init__(
-        self,
-        store: NotificationStore,
-        notifiers: Mapping[str, ApprovalNotifier],
-        clock: Callable[[], datetime] = utc_now,
-        token_factory: Callable[[], str] = new_action_token,
+        self, store: NotificationStore, connections: ConnectionStore, outbound: OutboundService
     ) -> None:
         self._store = store
-        self._notifiers = dict(notifiers)
-        self._clock = clock
-        self._token_factory = token_factory
+        self._connections = connections
+        self._outbound = outbound
 
     def __call__(self, job: ClaimedJob) -> None:
         try:
@@ -51,16 +59,61 @@ class ApprovalNotificationHandler:
         if packet is None:
             return  # decided or gone: nothing to announce
         for binding in self._store.approver_bindings(job.tenant_id):
-            notifier = self._notifiers.get(binding.channel)
-            if notifier is None:
-                logger.warning("No notifier configured for channel %s", binding.channel)
+            connection = self._connections.get(job.tenant_id, binding.connection_ref)
+            if connection is None or not connection.active:
+                logger.warning("Binding %s has no active connection", binding.binding_id)
                 continue
-            token = self._token_factory()
-            expires_at = self._clock() + REFERENCE_LIFETIME
-            reference_id = self._store.prepare_reference(
-                job.tenant_id, task_id, binding.binding_id, hash_secret(token), expires_at
+            self._outbound.queue(
+                connection,
+                template=TemplateKey.APPROVAL_REQUEST,
+                render={"packet": packet},
+                params={"task_id": str(task_id), "binding_id": str(binding.binding_id)},
+                recipient=binding.external_user_id,
+                idempotency_key=f"approval-request:{task_id}:{binding.binding_id}",
+                links=MessageLinks(
+                    quotation_id=packet.quotation_id,
+                    version=packet.version,
+                    approval_task_id=task_id,
+                    binding_id=binding.binding_id,
+                ),
+                correlation_id=job.correlation_id,
             )
-            if reference_id is None:
-                continue  # already delivered on an earlier attempt
-            notifier.send_review(binding, packet, token, expires_at)
-            self._store.mark_sent(job.tenant_id, reference_id)
+
+
+class ApprovalRequestHook:
+    """Send hook for approval_request: the action token exists only at send time."""
+
+    def __init__(
+        self,
+        store: NotificationStore,
+        clock: Callable[[], datetime] = utc_now,
+        token_factory: Callable[[], str] = new_action_token,
+    ) -> None:
+        self._store = store
+        self._clock = clock
+        self._token_factory = token_factory
+
+    def before_send(self, message: OutboundMessage) -> SendPreparation:
+        task_id, binding_id = message.approval_task_id, message.binding_id
+        if task_id is None or binding_id is None:
+            return SendPreparation(cancel_reason="The approval request has no task or binding")
+        if self._store.review_packet(message.tenant_id, task_id) is None:
+            return SendPreparation(cancel_reason="The approval task was already decided")
+        token = self._token_factory()
+        expires_at = self._clock() + REFERENCE_LIFETIME
+        reference_id = self._store.prepare_reference(
+            message.tenant_id, task_id, binding_id, hash_secret(token), expires_at
+        )
+        if reference_id is None:
+            return SendPreparation(already_sent=True)
+        return SendPreparation(
+            action_reference=token,
+            expires_at=expires_at,
+            actions=APPROVAL_ACTIONS,
+            context={"reference_id": str(reference_id)},
+        )
+
+    def after_send(
+        self, message: OutboundMessage, preparation: SendPreparation, receipt: SendReceipt
+    ) -> None:
+        self._store.mark_sent(message.tenant_id, UUID(preparation.context["reference_id"]))

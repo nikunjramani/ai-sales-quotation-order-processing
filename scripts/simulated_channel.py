@@ -8,6 +8,11 @@
 Events are signed with QUOTATION_SIMULATED_CHANNEL_SECRET from .env, exactly as the API checks
 them, and sent to the running API (default http://127.0.0.1:8000). Action references are read
 from the outbox file and never printed.
+
+--via alias (default) posts to the deprecated /api/v1/channels/simulated/events and prints the
+synchronous result. --via hooks posts to the generic /api/v1/hooks/{connection}/{token} route
+(ADR 0018; run the seed first so the demo connection has its webhook): the answer only says
+"received", and the worker records the outcome.
 """
 
 import argparse
@@ -19,12 +24,11 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from quotation_app.adapters.channels.simulated import (
-    DEFAULT_CONNECTION_ID,
-    SIGNATURE_HEADER,
-    sign,
-)
+from quotation_app.adapters.providers.simulated import DEFAULT_CONNECTION_ID, PROVIDER_KEY
+from quotation_app.adapters.providers.simulated.signing import SIGNATURE_HEADER, hook_token, sign
 from quotation_app.config import Settings
+from quotation_app.persistence.connections import SqlConnectionStore
+from quotation_app.persistence.database import build_engine
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT
 
 
@@ -41,10 +45,24 @@ def _messages(settings: Settings, user: str | None) -> list[dict[str, Any]]:
     return found
 
 
-def _send(api: str, secret: str, event: dict[str, Any]) -> None:
+def _hook_url(api: str, settings: Settings, tenant_id: UUID, secret: str) -> str:
+    engine = build_engine(settings.database_url.get_secret_value())
+    try:
+        connection = SqlConnectionStore(engine).find_by_account(
+            tenant_id, PROVIDER_KEY, DEFAULT_CONNECTION_ID
+        )
+    finally:
+        engine.dispose()
+    if connection is None:
+        raise SystemExit("No simulated connection for this business; run the seed first")
+    token = hook_token(secret, connection.connection_id)
+    return f"{api}/api/v1/hooks/{connection.connection_id}/{token}"
+
+
+def _send(url: str, secret: str, event: dict[str, Any]) -> None:
     body = json.dumps(event).encode("utf-8")
     request = urllib.request.Request(
-        f"{api}/api/v1/channels/simulated/events",
+        url,
         data=body,
         method="POST",
         headers={"Content-Type": "application/json", SIGNATURE_HEADER: sign(secret, body)},
@@ -63,6 +81,7 @@ def main() -> None:
     )
     parser.add_argument("--api", default="http://127.0.0.1:8000")
     parser.add_argument("--tenant", type=UUID, default=INDUSTRIAL_TENANT)
+    parser.add_argument("--via", choices=["alias", "hooks"], default="alias")
     commands = parser.add_subparsers(dest="command", required=True)
     inbox = commands.add_parser("inbox")
     inbox.add_argument("--user")
@@ -97,14 +116,14 @@ def main() -> None:
             "QUOTATION_SIMULATED_CHANNEL_SECRET is not set; run init_local_env.py --add-missing"
         )
     secret = settings.simulated_channel_secret.get_secret_value()
-    event: dict[str, Any] = {
-        "event_id": f"cli-{uuid4()}",
-        "tenant_id": str(arguments.tenant),
-        "connection_id": DEFAULT_CONNECTION_ID,
-        "external_user_id": arguments.user,
-    }
+    event: dict[str, Any] = {"event_id": f"cli-{uuid4()}", "external_user_id": arguments.user}
+    if arguments.via == "hooks":
+        url = _hook_url(arguments.api, settings, arguments.tenant, secret)
+    else:  # the alias finds the business from the body
+        url = f"{arguments.api}/api/v1/channels/simulated/events"
+        event.update(tenant_id=str(arguments.tenant), connection_id=DEFAULT_CONNECTION_ID)
     if arguments.command == "enroll":
-        _send(arguments.api, secret, {**event, "type": "enroll", "code": arguments.code})
+        _send(url, secret, {**event, "type": "enroll", "code": arguments.code})
         return
     matching = [
         m for m in _messages(settings, arguments.user) if m.get("task_id") == arguments.task
@@ -112,7 +131,7 @@ def main() -> None:
     if not matching:
         raise SystemExit("No review message for this account and task in the outbox")
     _send(
-        arguments.api,
+        url,
         secret,
         {
             **event,

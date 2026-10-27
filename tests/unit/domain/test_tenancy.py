@@ -30,3 +30,14 @@ def test_permissions_combine_across_roles(industrial_tenant: UUID) -> None:
 def test_context_requires_roles(industrial_tenant: UUID) -> None:
     with pytest.raises(ValueError, match="role"):
         TenantContext(industrial_tenant, "nobody@example.test", frozenset())
+
+
+def test_only_administrators_manage_integrations(
+    make_context: ContextFactory, industrial_tenant: UUID
+) -> None:
+    holders = {
+        role
+        for role in Role
+        if Permission.MANAGE_INTEGRATIONS in make_context(industrial_tenant, role).permissions
+    }
+    assert holders == {Role.ADMINISTRATOR}

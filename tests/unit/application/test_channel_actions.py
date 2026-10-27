@@ -63,8 +63,8 @@ def delivered(harness: Any) -> tuple[UUID, str]:
     enroll(harness, MANAGER, "phone-manager")
     enquiry = harness.enquiry(("IND-FAN-450", "2", "each"))
     harness.run_jobs()
-    (binding, packet, reference) = harness.notifier.sent[0]
-    assert binding.external_user_id == "phone-manager" and packet.version == 1
+    (recipient, message, reference) = harness.notifier.sent[0]
+    assert recipient == "phone-manager" and message.metadata["version"] == "1"
     return enquiry, reference
 
 
@@ -158,10 +158,11 @@ def test_review_goes_only_to_current_approvers_and_is_not_resent(harness: Any) -
     harness.db.roles[(harness.tenant_id, former)] = frozenset({Role.VIEWER})  # role removed
     harness.enquiry(("IND-FAN-450", "2", "each"))
     harness.run_jobs()
-    assert [b.external_user_id for b, _, _ in harness.notifier.sent] == ["phone-manager"]
-    task_id = harness.notifier.sent[0][1].task_id
+    assert [recipient for recipient, _, _ in harness.notifier.sent] == ["phone-manager"]
+    task_id = UUID(harness.notifier.sent[0][1].metadata["task_id"])
     harness.notifications()(_notify_job(harness, task_id))  # duplicate job
-    assert len(harness.notifier.sent) == 1
+    harness.run_jobs()
+    assert len(harness.notifier.sent) == 1  # same idempotency key: nothing new queued
 
 
 def test_failed_delivery_is_retried_with_a_fresh_reference(harness: Any) -> None:
@@ -170,11 +171,11 @@ def test_failed_delivery_is_retried_with_a_fresh_reference(harness: Any) -> None
     harness.enquiry(("IND-FAN-450", "2", "each"))
     with pytest.raises(OSError):
         harness.run_jobs()
-    task_id = next(iter(harness.db.tasks))
     unsent = next(iter(harness.db.references.values()))
     assert unsent.sent_at is None
     old_hash = unsent.token_sha256
-    harness.notifications()(_notify_job(harness, task_id))
+    [message_id] = harness.outbox.messages  # back to pending; the job queue retries it
+    harness.send(message_id, attempt=2)
     assert unsent.sent_at is not None and unsent.token_sha256 != old_hash
     # Only the delivered token works.
     assert decide(harness, "phone-manager", "m1", harness.notifier.sent[0][2]).decision

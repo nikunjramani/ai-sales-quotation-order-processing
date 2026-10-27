@@ -16,8 +16,16 @@ type ContextFactory = Callable[[UUID, Role], TenantContext]
 
 
 @pytest.fixture
-def service(intake_store: Any, memory_storage: Any, now: datetime) -> EnquiryIntakeService:
-    return EnquiryIntakeService(intake_store, memory_storage, clock=lambda: now)
+def service(
+    intake_store: Any,
+    memory_storage: Any,
+    connection_store: Any,
+    provider_registry: Any,
+    now: datetime,
+) -> EnquiryIntakeService:
+    return EnquiryIntakeService(
+        intake_store, memory_storage, connection_store, provider_registry, clock=lambda: now
+    )
 
 
 @pytest.fixture
@@ -36,7 +44,7 @@ def test_new_enquiry_is_recorded_with_attachment_in_quarantine(
     intake_store: Any,
     now: datetime,
 ) -> None:
-    result = service.submit(intake_context, submission(), "request-0001")
+    result = service.submit(intake_context, submission(), "request-0001", "api")
     assert not result.duplicate
     assert result.receipt.status is EnquiryStatus.RECEIVED
     envelope = intake_store.envelopes[result.receipt.enquiry_id]
@@ -50,8 +58,8 @@ def test_new_enquiry_is_recorded_with_attachment_in_quarantine(
 def test_replay_returns_original_and_writes_nothing(
     service: EnquiryIntakeService, intake_context: TenantContext, memory_storage: Any
 ) -> None:
-    first = service.submit(intake_context, submission(), "request-0001")
-    again = service.submit(intake_context, submission(), "request-0001")
+    first = service.submit(intake_context, submission(), "request-0001", "api")
+    again = service.submit(intake_context, submission(), "request-0001", "api")
     assert again.duplicate and again.receipt == first.receipt
     assert len(memory_storage.objects) == 1
 
@@ -59,9 +67,9 @@ def test_replay_returns_original_and_writes_nothing(
 def test_reused_key_with_different_payload_conflicts(
     service: EnquiryIntakeService, intake_context: TenantContext
 ) -> None:
-    service.submit(intake_context, submission(), "request-0001")
+    service.submit(intake_context, submission(), "request-0001", "api")
     with pytest.raises(IdempotencyConflict):
-        service.submit(intake_context, submission("Quote 60 fans"), "request-0001")
+        service.submit(intake_context, submission("Quote 60 fans"), "request-0001", "api")
 
 
 def test_failed_receipt_removes_quarantined_files(
@@ -72,7 +80,7 @@ def test_failed_receipt_removes_quarantined_files(
 ) -> None:
     intake_store.fail_record = RuntimeError("database down")
     with pytest.raises(RuntimeError):
-        service.submit(intake_context, submission(), "request-0001")
+        service.submit(intake_context, submission(), "request-0001", "api")
     assert memory_storage.objects == {}
     assert intake_store.receipts == {}
 
@@ -85,7 +93,7 @@ def test_storage_failure_stores_nothing(
 ) -> None:
     memory_storage.fail_puts = True
     with pytest.raises(OSError):
-        service.submit(intake_context, submission(), "request-0001")
+        service.submit(intake_context, submission(), "request-0001", "api")
     assert intake_store.receipts == {}
 
 
@@ -100,7 +108,7 @@ def test_losing_a_concurrent_race_returns_the_winner(
         UUID(int=7), EnquiryStatus.RECEIVED, submission().fingerprint(), UUID(int=8), now
     )
     intake_store.concurrent_winner = winner
-    result = service.submit(intake_context, submission(), "request-0001")
+    result = service.submit(intake_context, submission(), "request-0001", "api")
     assert result.duplicate and result.receipt == winner
     assert memory_storage.objects == {}  # our copy of the files was discarded
 
@@ -113,7 +121,7 @@ def test_roles_without_submit_permission_are_refused(
     role: Role,
 ) -> None:
     with pytest.raises(PermissionDenied):
-        service.submit(make_context(industrial_tenant, role), submission(), "request-0001")
+        service.submit(make_context(industrial_tenant, role), submission(), "request-0001", "api")
 
 
 def test_status_is_tenant_scoped(
@@ -122,7 +130,9 @@ def test_status_is_tenant_scoped(
     make_context: ContextFactory,
     office_tenant: UUID,
 ) -> None:
-    enquiry_id = service.submit(intake_context, submission(), "request-0001").receipt.enquiry_id
+    enquiry_id = service.submit(
+        intake_context, submission(), "request-0001", "api"
+    ).receipt.enquiry_id
     view = service.status(intake_context, enquiry_id)
     assert view is not None and view.attachments[0].filename == "a.txt"
     assert service.status(make_context(office_tenant, Role.VIEWER), enquiry_id) is None
@@ -132,4 +142,23 @@ def test_invalid_idempotency_key_is_refused(
     service: EnquiryIntakeService, intake_context: TenantContext
 ) -> None:
     with pytest.raises(ValueError, match="Idempotency-Key"):
-        service.submit(intake_context, submission(), "short")
+        service.submit(intake_context, submission(), "short", "api")
+
+
+def test_a_disabled_connection_cannot_submit(
+    service: EnquiryIntakeService, intake_context: TenantContext, connection_store: Any
+) -> None:
+    connection_store.disabled.add(intake_context.subject)
+    with pytest.raises(PermissionDenied):
+        service.submit(intake_context, submission(), "request-0001", "api")
+    with pytest.raises(PermissionDenied):  # a provider that is not installed
+        service.submit(intake_context, submission(), "request-0002", "telegram")
+
+
+def test_the_reply_address_is_fixed_at_intake(
+    service: EnquiryIntakeService, intake_context: TenantContext, intake_store: Any
+) -> None:
+    result = service.submit(intake_context, submission(), "request-0001", "api")
+    envelope = intake_store.envelopes[result.receipt.enquiry_id]
+    # A pull provider: the quotation goes back to the submitting key, not the reference label.
+    assert envelope.reply_to == intake_context.subject and envelope.channel == "api"

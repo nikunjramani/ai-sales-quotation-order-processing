@@ -7,7 +7,8 @@ tests/
     conftest.py        M4/M5 in-memory quotation/approval/channel/session/document store and harness
     domain/  application/  ports/  workflows/  api/  persistence/
     adapters/erp/  adapters/storage/  adapters/documents/  adapters/interpreters/
-    adapters/identity/  adapters/channels/  (covered through application/api tests)
+    adapters/identity/  (covered through application/api tests)
+    adapters/providers/simulated/  providers/ (provider contract suite for every provider)
     test_config.py  test_architecture.py  test_evaluation.py
   integration/         Real PostgreSQL (quotation_test only); auto-marked `integration`
     conftest.py        Database settings, engines, cleanup, API-key and storage fixtures

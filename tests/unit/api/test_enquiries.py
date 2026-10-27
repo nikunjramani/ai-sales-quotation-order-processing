@@ -26,10 +26,18 @@ BODY = {"text": "Please quote 50 industrial fans for Pune", "customer_reference"
 
 @pytest.fixture
 def client(
-    api_key_reader: Any, intake_store: Any, memory_storage: Any, now: datetime, harness: Any
+    api_key_reader: Any,
+    intake_store: Any,
+    memory_storage: Any,
+    connection_store: Any,
+    provider_registry: Any,
+    now: datetime,
+    harness: Any,
 ) -> Iterator[TestClient]:
     app = FastAPI()
-    intake = EnquiryIntakeService(intake_store, memory_storage, clock=lambda: now)
+    intake = EnquiryIntakeService(
+        intake_store, memory_storage, connection_store, provider_registry, clock=lambda: now
+    )
     app.include_router(
         build_enquiry_router(
             ApiKeyAuthenticator(api_key_reader), intake, harness.documents(), harness.responses()
@@ -87,6 +95,7 @@ def test_status_lookup_is_tenant_scoped(
     url = f"/api/v1/enquiries/{created['enquiry_id']}"
     own = client.get(url, headers=make_headers(industrial_tenant, Role.VIEWER))
     assert own.status_code == 200
+    assert own.json()["channel"] == "api"  # pinned: phase 1 keeps the provider key here
     assert own.json()["attachments"][0]["status"] == "quarantined"
     assert client.get(url, headers=make_headers(office_tenant, Role.VIEWER)).status_code == 404
 

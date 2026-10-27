@@ -99,7 +99,7 @@ See [quotation approval](../features/quotation-approval.md).
 | [application/sessions.py](../../src/quotation_app/application/sessions.py) | Session tokens, expiry, CSRF |
 | [workflows/quotation.py](../../src/quotation_app/workflows/quotation.py) | Approval graph with interrupts; QuotationJobHandler (run lock, stale-resume protection) |
 | [adapters/identity/dev.py](../../src/quotation_app/adapters/identity/dev.py) | Development login (the OIDC adapter goes next to it) |
-| [adapters/channels/simulated.py](../../src/quotation_app/adapters/channels/simulated.py) | Simulated provider: outbox files, HMAC signatures |
+| [adapters/providers/simulated/](../../src/quotation_app/adapters/providers/simulated/provider.py) | Simulated provider (phase 1): outbox files, HMAC signatures |
 | [api/auth.py](../../src/quotation_app/api/auth.py), [api/portal.py](../../src/quotation_app/api/portal.py), [api/channels.py](../../src/quotation_app/api/channels.py) | Sign-in and session dependencies, tenant routes, signed webhook |
 | [persistence/quotations.py](../../src/quotation_app/persistence/quotations.py), [channels.py](../../src/quotation_app/persistence/channels.py), [sessions.py](../../src/quotation_app/persistence/sessions.py) | SQL stores, advisory run lock, job queuing in the same transaction |
 | [0005_approvals.py](../../migrations/versions/0005_approvals.py) | M4 tables, append-only triggers, column grants, narrow RLS policies |
@@ -113,16 +113,16 @@ Entry points:
 - the `deliver_quotation` job in the worker;
 - PDF and delivery routes in the portal API and the enquiry API.
 
-See [quotation delivery](../features/quotation-delivery.md) and [adding channels](adding-channels.md).
+See [quotation delivery](../features/quotation-delivery.md) and [adding providers](adding-providers.md).
 
 | Actual file | Responsibility |
 |---|---|
 | [domain/documents.py](../../src/quotation_app/domain/documents.py) | Delivery statuses, DocumentSource, recipient rule, document IDs/keys, document errors |
-| [ports/documents.py](../../src/quotation_app/ports/documents.py) | QuotationRenderer, DeliveryChannel (+ outcomes), DeliveryStore, DocumentReader |
+| [ports/documents.py](../../src/quotation_app/ports/documents.py) | QuotationRenderer, DeliveryStore, DocumentReader (sending moved to the outbox in phase 1) |
 | [application/delivery.py](../../src/quotation_app/application/delivery.py) | QuotationDeliveryHandler: render once, compare-and-set, record honest outcomes |
 | [application/documents.py](../../src/quotation_app/application/documents.py) | QuotationDocumentService: previews, verified approved files, customer view and downloads |
 | [adapters/documents/pdf.py](../../src/quotation_app/adapters/documents/pdf.py) | ReportLab renderer: deterministic, escaped, refuses unsupported characters |
-| [adapters/delivery/api.py](../../src/quotation_app/adapters/delivery/api.py) | API pull channel (makes the document available) |
+| [adapters/providers/api/](../../src/quotation_app/adapters/providers/api/__init__.py) | API provider (pull: makes the document available) |
 | [api/pdf.py](../../src/quotation_app/api/pdf.py) | Download response headers, integrity-failure response |
 | [persistence/documents.py](../../src/quotation_app/persistence/documents.py) | `queue_delivery` (outbox row + job), SqlDeliveryStore, SqlDocumentReader |
 | [0006_documents.py](../../migrations/versions/0006_documents.py) | quotation_documents (append-only) and quotation_deliveries, RLS, column grants |
@@ -139,6 +139,34 @@ See [customer acceptance](../features/customer-acceptance.md).
 | [persistence/acceptance.py](../../src/quotation_app/persistence/acceptance.py) | SqlResponseStore: row-locked recording, revised version, resume/notice jobs |
 | [0007_acceptance.py](../../migrations/versions/0007_acceptance.py) | Validity setting and column, quotation_responses (append-only), new statuses |
 | portal `features/quotations` | `CustomerPanel`, `customerService.ts`, `useCustomerAnswer.ts`, list filters |
+
+## Phase 1 connector framework (in progress)
+See the [phase 1 plan](../plan/platform/implementation/phase-1-foundations.md). This list grows with each work item.
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/connections.py](../../src/quotation_app/domain/connections.py) | Purpose, ConnectionStatus, DeliveryMode, Capabilities, Connection (with `legacy_key`), name and purpose checks |
+| [domain/messages.py](../../src/quotation_app/domain/messages.py) | Outbox MessageStatus, TemplateKey, OutboundMessage, `render_template` (the fixed approval-request and notice wording moved here word for word) |
+| [domain/intake.py](../../src/quotation_app/domain/intake.py) | Also the inbound event types: CustomerMessage, ManagerAction, DeliveryStatusUpdate, ConsentChange, `event_type` |
+| [ports/providers.py](../../src/quotation_app/ports/providers.py) | The Provider contract, InboundRequest, RenderedMessage, SendReceipt, provider errors, ProviderEnvironment/Factory |
+| [ports/connections.py](../../src/quotation_app/ports/connections.py), [ports/secrets.py](../../src/quotation_app/ports/secrets.py), [ports/messages.py](../../src/quotation_app/ports/messages.py) | ConnectionStore and HookLookup; SecretStore; MessageOutbox and SendHook |
+| [adapters/secrets/](../../src/quotation_app/adapters/secrets/local.py) | `local` (AES-256-GCM files bound to tenant and reference) and `none` secret stores, registered as entry points |
+| [application/plugins.py](../../src/quotation_app/application/plugins.py) | Load a pluggable part by entry point name, with clear errors |
+| [0008_connections.py](../../migrations/versions/0008_connections.py) | connections, connection_events, inbox/binding/enrollment `connection_ref`, lookup policy, worker grants, backfill and downgrade |
+| [persistence/connections.py](../../src/quotation_app/persistence/connections.py) | SqlConnectionStore, SqlHookLookup, owner-only `ensure_connection`/`set_status` with audit events; API keys and the seed use them |
+| [application/providers.py](../../src/quotation_app/application/providers.py) | ProviderRegistry: loads `quotation_app.providers` entry points, checks keys, skips dev-only providers in production |
+| [application/inbound.py](../../src/quotation_app/application/inbound.py) | InboundService (token, size, verify-before-parse, store once), ManagerActionRoute, ProcessInboundHandler (`process_inbound` job), `routes_for` |
+| [ports/inbound.py](../../src/quotation_app/ports/inbound.py), [persistence/inbound.py](../../src/quotation_app/persistence/inbound.py) | InboundStore and SqlInboundStore: inbox rows with dedupe, the job in the same transaction, outcome recording |
+| [api/hooks.py](../../src/quotation_app/api/hooks.py) | `POST /api/v1/hooks/{connection_id}/{webhook_token}` |
+| [api/channels.py](../../src/quotation_app/api/channels.py) | Deprecated simulated route, now finding the business's connection and routing through ManagerActionRoute |
+| [adapters/providers/api/](../../src/quotation_app/adapters/providers/api/__init__.py) | Provider `api` (pull: send = available) |
+| [adapters/providers/simulated/](../../src/quotation_app/adapters/providers/simulated/provider.py) | Provider `simulated` (dev only): outbox files, per-connection HMAC signing, manager actions, demo catalogue reader; `signing.py` (incl. `hook_token`), `outbox.py` |
+| [0009_outbound_messages.py](../../migrations/versions/0009_outbound_messages.py) | outbound_messages (forced RLS, column grants), `quotation_deliveries.outbound_message_id`, backfill and downgrade |
+| [persistence/messages.py](../../src/quotation_app/persistence/messages.py) | SqlMessageOutbox: idempotent enqueue with the send job, compare-and-set status mirrored onto a linked delivery, provider receipts |
+| [application/messaging.py](../../src/quotation_app/application/messaging.py) | OutboundService (render a template, store the message) and SendMessageHandler (`send_message` job) |
+| [application/delivery.py](../../src/quotation_app/application/delivery.py) | `deliver_quotation`: prepare the PDF, queue the outbox message; QuotationDocumentHook attaches the verified PDF at send time |
+| [application/notifications.py](../../src/quotation_app/application/notifications.py) | `notify_approvers` queues approval requests; ApprovalRequestHook creates the single-use token at send time |
+| [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests: secret store (built lazily), provider registry, `build_job_handlers` for every job kind |
 
 ## Planned modules
 

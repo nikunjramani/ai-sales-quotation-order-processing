@@ -25,6 +25,10 @@ class JobKind(StrEnum):
     DELIVER_QUOTATION = "deliver_quotation"
     EXPIRE_QUOTATION = "expire_quotation"
     NOTIFY_RESPONSE = "notify_response"
+    # Phase 1 connector framework (ADR 0018):
+    SEND_MESSAGE = "send_message"
+    PROCESS_INBOUND = "process_inbound"
+    PROVISION_CONNECTION = "provision_connection"  # no handler until phase 5
 
 
 class PermanentJobError(Exception):

@@ -29,11 +29,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from quotation_app.adapters.providers.api import PROVIDER_KEY
 from quotation_app.api.pdf import integrity_failure, pdf_response
 from quotation_app.application.acceptance import QuotationResponseService
 from quotation_app.application.api_keys import ApiKeyAuthenticator, AuthenticationFailed
 from quotation_app.application.documents import OfferedQuotation, QuotationDocumentService
-from quotation_app.application.intake import EnquiryIntakeService
+from quotation_app.application.intake import EnquiryIntakeService, IntakeResult
 from quotation_app.domain.acceptance import (
     CustomerStatus,
     NotCurrentOffer,
@@ -51,7 +52,6 @@ from quotation_app.domain.intake import (
     MAX_TEXT_CHARACTERS,
     MAX_TOTAL_ATTACHMENT_BYTES,
     AttachmentUpload,
-    Channel,
     EnquirySubmission,
 )
 from quotation_app.domain.tenancy import PermissionDenied, TenantContext
@@ -219,7 +219,7 @@ def _to_submission(body: EnquiryIn) -> EnquirySubmission:
 def _view(enquiry: EnquiryView) -> EnquiryOut:
     return EnquiryOut(
         enquiry_id=enquiry.enquiry_id,
-        channel=enquiry.channel.value,
+        channel=enquiry.channel,
         status=enquiry.status.value,
         customer_reference=enquiry.customer_reference,
         received_at=enquiry.received_at,
@@ -335,7 +335,11 @@ def build_enquiry_router(
         context: Annotated[TenantContext, Depends(authenticate)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> EnquiryAccepted:
-        result = guarded(lambda: intake.submit(context, _to_submission(body), idempotency_key))
+        def accept() -> IntakeResult:
+            # Converting the body may raise ValueError (bad base64): guarded maps it to 422.
+            return intake.submit(context, _to_submission(body), idempotency_key, PROVIDER_KEY)
+
+        result = guarded(accept)
         if result.duplicate:
             response.status_code = status.HTTP_200_OK
         receipt = result.receipt
@@ -362,8 +366,8 @@ def build_enquiry_router(
         enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
     ) -> IssuedQuotationOut:
         def run() -> IssuedQuotationOut:
-            issued = _issued(enquiry_id, documents.offered(context, enquiry_id, Channel.API.value))
-            offer = responses.offer(context, enquiry_id, Channel.API.value)
+            issued = _issued(enquiry_id, documents.offered(context, enquiry_id, PROVIDER_KEY))
+            offer = responses.offer(context, enquiry_id, PROVIDER_KEY)
             return issued.model_copy(update={"status": responses.status_of(offer)})
 
         return guarded(run)
@@ -389,7 +393,7 @@ def build_enquiry_router(
             request = ResponseRequest(body.action, body.version, body.content_sha256, body.reason)
             try:
                 recorded, replayed = responses.respond(
-                    context, enquiry_id, Channel.API.value, idempotency_key, request
+                    context, enquiry_id, PROVIDER_KEY, idempotency_key, request
                 )
             except IntegrityError:
                 # Two requests with the same key raced; the retry returns the stored answer.
@@ -413,8 +417,6 @@ def build_enquiry_router(
     def issued_quotation_pdf(
         enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
     ) -> Response:
-        return pdf_response(
-            guarded(lambda: documents.download(context, enquiry_id, Channel.API.value))
-        )
+        return pdf_response(guarded(lambda: documents.download(context, enquiry_id, PROVIDER_KEY)))
 
     return router

@@ -1,7 +1,7 @@
-"""Enquiry intake: what a channel submits, its limits, and the canonical envelope we store.
+"""Enquiry intake: what a provider submits, its limits, and the canonical envelope we store.
 
-Every channel (API now; email and Telegram later) is translated into the same envelope, so the
-rest of the system never depends on a particular provider's message format.
+Every provider (the API now; email and chat tools later) is translated into the same envelope,
+so the rest of the system never depends on a particular provider's message format.
 """
 
 import hashlib
@@ -17,11 +17,8 @@ MAX_TEXT_CHARACTERS = 20_000
 MAX_ATTACHMENTS = 5
 MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024
-ENVELOPE_SCHEMA_VERSION = 1
-
-
-class Channel(StrEnum):
-    API = "api"
+# 2 (phase 1): the connection row (connection_ref) and the reply address (reply_to).
+ENVELOPE_SCHEMA_VERSION = 2
 
 
 class EnquiryStatus(StrEnum):
@@ -109,8 +106,10 @@ class InboundEnvelope:
 
     event_id: UUID
     tenant_id: UUID
-    channel: Channel
-    connection_id: str
+    channel: str  # the provider key, e.g. "api"
+    connection_id: str  # the connection's legacy key (kept for old readers)
+    connection_ref: UUID  # the connection row the enquiry arrived on
+    reply_to: str  # where the quotation goes back, fixed at intake (delivery_recipient)
     provider_event_id: str
     sender_external_id: str | None
     received_at: datetime
@@ -121,6 +120,7 @@ class InboundEnvelope:
     def __post_init__(self) -> None:
         require_aware(self.received_at, "received_at")
         require_text(self.connection_id, "connection_id", 100)
+        require_text(self.reply_to, "reply_to", 200)
         validate_idempotency_key(self.provider_event_id)
 
     def to_json(self) -> dict[str, object]:
@@ -128,8 +128,10 @@ class InboundEnvelope:
             "schema_version": ENVELOPE_SCHEMA_VERSION,
             "event_id": str(self.event_id),
             "tenant_id": str(self.tenant_id),
-            "channel": self.channel.value,
+            "channel": self.channel,
             "connection_id": self.connection_id,
+            "connection_ref": str(self.connection_ref),
+            "reply_to": self.reply_to,
             "provider_event_id": self.provider_event_id,
             "sender_external_id": self.sender_external_id,
             "received_at": self.received_at.isoformat(),
@@ -146,3 +148,101 @@ class InboundEnvelope:
             ],
             "correlation_id": str(self.correlation_id),
         }
+
+
+class InboundEventType(StrEnum):
+    """Kinds of normalised events a provider callback can carry (ADR 0018)."""
+
+    CUSTOMER_MESSAGE = "customer_message"
+    MANAGER_ACTION = "manager_action"
+    DELIVERY_STATUS = "delivery_status"
+    CONSENT_CHANGE = "consent_change"
+
+
+@dataclass(frozen=True)
+class CustomerMessage:
+    provider_event_id: str
+    sender_external_id: str
+    text: str
+    occurred_at: datetime | None = None
+    thread_id: str | None = None
+    reply_to_external_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ManagerAction:
+    """A linked manager's enroll code or approval decision from a messaging tool."""
+
+    provider_event_id: str
+    external_user_id: str
+    kind: str  # "enroll" | "decision"
+    code: str | None = None
+    reference: str | None = None
+    action: str | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class DeliveryStatusUpdate:
+    """A provider's later report on a message we sent (named to avoid DeliveryStatus)."""
+
+    provider_event_id: str
+    provider_message_id: str
+    status: str  # "delivered" | "failed"
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class ConsentChange:
+    provider_event_id: str
+    sender_external_id: str
+    opted_in: bool
+
+
+type InboundEvent = CustomerMessage | ManagerAction | DeliveryStatusUpdate | ConsentChange
+
+_EVENT_TYPES: dict[type, InboundEventType] = {
+    CustomerMessage: InboundEventType.CUSTOMER_MESSAGE,
+    ManagerAction: InboundEventType.MANAGER_ACTION,
+    DeliveryStatusUpdate: InboundEventType.DELIVERY_STATUS,
+    ConsentChange: InboundEventType.CONSENT_CHANGE,
+}
+
+
+def event_type(event: InboundEvent) -> InboundEventType:
+    return _EVENT_TYPES[type(event)]
+
+
+MAX_PROVIDER_EVENT_ID = 200
+
+
+def validate_event(event: InboundEvent) -> InboundEvent:
+    """Provider event IDs are the dedupe key: 1-200 printable characters."""
+    key = event.provider_event_id
+    if not isinstance(key, str) or not 0 < len(key) <= MAX_PROVIDER_EVENT_ID:
+        raise ValueError("Provider event IDs are 1-200 characters")
+    if not key.isprintable():
+        raise ValueError("Provider event IDs must be printable")
+    return event
+
+
+def event_to_json(event: InboundEvent) -> dict[str, object]:
+    """Stored form of a non-enquiry event in inbox_events.envelope."""
+    data: dict[str, object] = {"type": event_type(event).value}
+    for name, value in vars(event).items():
+        data[name] = value.isoformat() if isinstance(value, datetime) else value
+    return data
+
+
+def event_from_json(data: dict[str, object]) -> InboundEvent:
+    kind = InboundEventType(str(data["type"]))
+    values = {name: value for name, value in data.items() if name != "type"}
+    if kind is InboundEventType.CUSTOMER_MESSAGE:
+        occurred = values.get("occurred_at")
+        values["occurred_at"] = datetime.fromisoformat(str(occurred)) if occurred else None
+        return CustomerMessage(**values)  # type: ignore[arg-type]
+    if kind is InboundEventType.MANAGER_ACTION:
+        return ManagerAction(**values)  # type: ignore[arg-type]
+    if kind is InboundEventType.DELIVERY_STATUS:
+        return DeliveryStatusUpdate(**values)  # type: ignore[arg-type]
+    return ConsentChange(**values)  # type: ignore[arg-type]

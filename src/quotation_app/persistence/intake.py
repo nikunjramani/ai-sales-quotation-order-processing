@@ -7,9 +7,19 @@ from sqlalchemy import Connection, Engine, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from quotation_app.domain.attachments import AttachmentStatus
-from quotation_app.domain.intake import Channel, EnquiryStatus, InboundEnvelope
+from quotation_app.domain.intake import (
+    EnquiryStatus,
+    InboundEnvelope,
+    InboundEventType,
+)
 from quotation_app.domain.jobs import JobKind, JobStatus
-from quotation_app.persistence.models import Attachment, Enquiry, InboxEvent, Job, WorkflowRun
+from quotation_app.persistence.models import (
+    Attachment,
+    Enquiry,
+    InboxEvent,
+    Job,
+    WorkflowRun,
+)
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.intake import (
     AttachmentView,
@@ -27,8 +37,7 @@ MAX_JOB_ATTEMPTS = 5
 def _receipt(
     connection: Connection,
     tenant_id: UUID,
-    channel: Channel,
-    connection_id: str,
+    connection_ref: UUID,
     provider_event_id: str,
 ) -> Receipt | None:
     row = connection.execute(
@@ -42,9 +51,9 @@ def _receipt(
         .join(Enquiry, Enquiry.inbox_event_id == InboxEvent.id)
         .where(
             InboxEvent.tenant_id == tenant_id,
-            InboxEvent.channel == channel.value,
-            InboxEvent.connection_id == connection_id,
+            InboxEvent.connection_ref == connection_ref,
             InboxEvent.provider_event_id == provider_event_id,
+            InboxEvent.event_type == InboundEventType.CUSTOMER_MESSAGE.value,
         )
     ).one_or_none()
     if row is None:
@@ -63,10 +72,10 @@ class SqlIntakeStore:
         self._engine = engine
 
     def find_receipt(
-        self, tenant_id: UUID, channel: Channel, connection_id: str, provider_event_id: str
+        self, tenant_id: UUID, connection_ref: UUID, provider_event_id: str
     ) -> Receipt | None:
         with tenant_transaction(self._engine, tenant_id) as connection:
-            return _receipt(connection, tenant_id, channel, connection_id, provider_event_id)
+            return _receipt(connection, tenant_id, connection_ref, provider_event_id)
 
     def record(
         self, envelope: InboundEnvelope, payload_sha256: str, enquiry_id: UUID
@@ -80,8 +89,10 @@ class SqlIntakeStore:
                 .values(
                     id=envelope.event_id,
                     tenant_id=tenant_id,
-                    channel=envelope.channel.value,
+                    channel=envelope.channel,
                     connection_id=envelope.connection_id,
+                    connection_ref=envelope.connection_ref,
+                    event_type=InboundEventType.CUSTOMER_MESSAGE.value,
                     provider_event_id=envelope.provider_event_id,
                     payload_sha256=payload_sha256,
                     envelope=envelope.to_json(),
@@ -89,7 +100,12 @@ class SqlIntakeStore:
                     correlation_id=envelope.correlation_id,
                 )
                 .on_conflict_do_nothing(
-                    index_elements=["tenant_id", "channel", "connection_id", "provider_event_id"]
+                    index_elements=[
+                        "tenant_id",
+                        "connection_ref",
+                        "provider_event_id",
+                        "event_type",
+                    ]
                 )
                 .returning(InboxEvent.id)
             ).scalar_one_or_none()
@@ -97,8 +113,7 @@ class SqlIntakeStore:
                 existing = _receipt(
                     connection,
                     tenant_id,
-                    envelope.channel,
-                    envelope.connection_id,
+                    envelope.connection_ref,
                     envelope.provider_event_id,
                 )
                 if existing is None:
@@ -110,7 +125,7 @@ class SqlIntakeStore:
                     id=enquiry_id,
                     tenant_id=tenant_id,
                     inbox_event_id=envelope.event_id,
-                    channel=envelope.channel.value,
+                    channel=envelope.channel,
                     status=EnquiryStatus.RECEIVED.value,
                     customer_reference=envelope.sender_external_id,
                     text=envelope.text,
@@ -192,7 +207,7 @@ class SqlIntakeStore:
             ).one_or_none()
         return EnquiryView(
             enquiry_id=enquiry.id,
-            channel=Channel(enquiry.channel),
+            channel=enquiry.channel,
             status=EnquiryStatus(enquiry.status),
             customer_reference=enquiry.customer_reference,
             received_at=enquiry.received_at,
@@ -328,7 +343,7 @@ class SqlEnquiryListReader:
         return [
             EnquirySummary(
                 enquiry_id=row.id,
-                channel=Channel(row.channel),
+                channel=row.channel,
                 status=EnquiryStatus(row.status),
                 customer_reference=row.customer_reference,
                 received_at=row.received_at,

@@ -42,6 +42,16 @@ class ErpError(Exception):
         return self.code in _RETRYABLE
 
 
+class CatalogueSourceMissing(ErpError):
+    """The business has no active product source (or its provider is not installed).
+
+    Retrying cannot help, so jobs stop at once; the enquiry goes to review (P1-Q3, P1-Q4).
+    """
+
+    def __init__(self, message: str = "No product source is connected for this business") -> None:
+        super().__init__(ErpErrorCode.UNSUPPORTED, message)
+
+
 class ErpReader(Protocol):
     def search_products(
         self, context: TenantContext, query: str, limit: int = 10

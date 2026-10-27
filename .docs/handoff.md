@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-23 (M6).
+Updated: 2026-10-27 (phase 1 connector framework implemented on `feat/phase-1-foundations`, PR #6; M0-M6 complete on main).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -190,6 +190,99 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
 - **AI down or rate-limited:** wait and retry (no fallback to rules).
 - **Not found:** say so and list the business's product **categories** (from the ERP); asking about a category lists its products.
 - **Replies:** stay fixed templates; AI only reads enquiries.
+
+## Phase 1 foundations (in progress, branch `feat/phase-1-foundations`)
+- **User (2026-10-27):** "start implementation as per plan". PR #5 (the plan) is merged. All phase 1 open questions were answered with the recommendations; see [phase 1 plan §3](plan/platform/implementation/phase-1-foundations.md#user-answers-2026-10-27). Claude may commit and push on this branch, one commit per work item, with a draft PR to `main` (never merging).
+- **WI-0 done:** golden tests pin today's behaviour before the refactor:
+  - approval request wording;
+  - accepted and declined notice wording;
+  - simulated outbox file names and JSON keys;
+  - the old simulated route's response bodies and 409;
+  - `"channel": "api"` in the enquiry status and the portal list (PostgreSQL).
+  
+  Checks: ruff, mypy, 392 tests on PostgreSQL.
+- **WI-1 + WI-3 done:**
+  - Domain types and ports: connections, the outbox and templates (wording moved word for word), inbound event types, providers, secrets, `integrations:manage` and new job kinds.
+  - Secret stores `local` (AES-256-GCM) and `none`, chosen by entry point; new settings; `init_local_env.py --add-missing` adds `QUOTATION_SECRET_STORE_KEY`. **Run it once, and `uv sync`, after pulling.**
+  - The old `Channel`/`ApprovalChannel` enums go when the `api` and `simulated` providers exist (WI-5, WI-9).
+- **WI-2 done:** migration `0008_connections` (tables, policies, worker grants, backfill, downgrade) and persistence. API keys create and disable their `api` connection; the seed gives each demo business a `simulated` connection (approvals and catalogue); intake and enrollment link rows to connections; disabled connections get no approval requests. Tests: `test_connections.py` and `test_migrations_0008.py` (upgrade with M6 data, downgrade, upgrade). Checks: `check_database.py --cycle` with 420 tests, twice. One earlier run failed once in `test_versions_and_decisions_are_append_only` and did not repeat in three later runs; watch for flakiness.
+- **After pulling:** `uv run alembic upgrade head` and `uv run python -m quotation_app.persistence.seed` (the demo connections).
+- **WI-4 + WI-5 done:**
+  - **Registry and route:** the provider registry (entry points, `uv sync` registers `api` and `simulated`) and the generic hook route `POST /api/v1/hooks/{connection}/{token}`.
+  - **Inbound handling:** `InboundService` (token, size, signature before parsing, stored once) and the `process_inbound` job (manager actions go through the same ChannelActionService and ApprovalService).
+  - **Providers:** `api` and `simulated`. The old notifier now reuses the provider's outbox writer; it is deleted in WI-8.
+  - **Old route:** now a documented deprecated alias on the new framework, with the same answers.
+  - **Seed:** with the dev secret set, the seed gives the demo phone connection its signing secret (in the secret store) and a webhook token (hash only).
+  - **Scripts:** `scripts/simulated_channel.py --via hooks`.
+  - **Deviation from the plan, on purpose:** `ChannelEvent` keeps the provider key and the connection's legacy key (exactly one connection per business). Decision command IDs therefore stay the same across the upgrade, so the planned "replay after upgrade gets 409" edge case does not happen.
+  - **Checks:** 439 tests on PostgreSQL, including approval through the generic hook. Live: demo page, enquiry, phone, approve (alias), quotation for the customer.
+- **WI-6, WI-7, WI-8 and WI-11 done:**
+  - **Migration `0009_outbound_messages`:** one outbox with forced RLS. Worker grants are column-level, so the worker can advance a message but never rewrite its text or recipient. Backfill gives one message per existing delivery; downgrade re-queues pending work.
+  - **`SqlMessageOutbox`:** each delivery mirrors its message's status, and expiry is queued as before.
+  - **`OutboundService` + `send_message` job:** honest statuses. `unknown` is never resent; a crash while sending becomes `unknown`.
+  - **Send hooks:** `ApprovalRequestHook` creates the single-use token only at send time, so it is never stored. `QuotationDocumentHook` re-checks the PDF hash and attaches it.
+  - **Rebuilt on the outbox:** `deliver_quotation`, `notify_approvers` and `notify_response`. Response notices are no longer repeated on retry.
+  - **Removed (replaced):** `DeliveryChannel` and its errors, `ApprovalNotifier`, `adapters/delivery/api.py` and `adapters/channels/`.
+  - **Composition root:** `composition.build_job_handlers` is shared by the worker and the PostgreSQL tests.
+  - **Bug found in the live run and fixed:**
+    - **Cause:** with several linked phones, the simulated provider reported the file name as the message ID, and that ID is unique per connection. The second "sent" update failed, so the token written to the phone was never marked sent ("Action not accepted").
+    - **Fix:** the ID is now the message's own ID.
+    - **Tests:** a unit test and a PostgreSQL regression test.
+  - **Wording change staff can see:** a refused send now reads "Rejected by the provider: …" (was "…by the channel…"). A tool with no connection reads "No active connection for '<provider>' to send the quotation".
+  - **Checks:** 391 unit tests; `check_database.py --cycle` with 448 tests (450 after the regression test). Live demo: enquiry, phone, approve, PDF, accept, notice.
+  - **Observed, not phase 1:** the Gemini reader once read "2 x IND-FAN-450" as unit "x" and asked a clarification question. The free rules reader does not do this.
+- **WI-9 done:**
+  - **Intake:** API enquiries belong to the caller's `api` connection (business, provider, API key subject). A missing or disabled connection is refused (403); the provider must be installed.
+  - **Envelope schema 2:** adds `connection_ref` and `reply_to`. The reply address is fixed at intake by the provider's delivery mode, and `queue_delivery` uses it.
+  - **Removed:** the `Channel` enum. Stored and returned `channel` values are the provider key (`"api"`), unchanged in the API.
+  - **Checks:** 394 unit tests; 452 tests on PostgreSQL.
+- **WI-10 done:**
+  - **Product source per business:** each business's catalogue connection names its product source. `CatalogueSourceResolver` and `TenantCatalogue` (an `ErpReader`) replace the hardcoded `SimulatedErp` in the API and the worker. Readers are cached for 30 s and keyed by connection and `updated_at`.
+  - **No source (P1-Q3 = b):** the enquiry goes to `needs_review` with "No product source is connected", at once.
+  - **ERP errors that can't succeed on retry (P1-Q4 = a):** they stop the job at once; temporary ones are still retried.
+  - **Drafting edge case:** if a source disappears between extraction and drafting, the draft job stops with that error. This is a small difference from the plan's `pricing_failed` issue, recorded for review.
+  - **Tests:**
+    - The ERP contract suite also runs over `TenantCatalogue`.
+    - New tests for the resolver and the job runner.
+    - A PostgreSQL test with a new business without a source: needs review on attempt 1.
+  - **Checks:** 406 unit tests; 465 tests on PostgreSQL.
+- **WI-12 done:**
+  - **`GET /api/v1/tenants/{t}/connections`:** administrators see all connections, including the last error; approvers see only active approval connections; others get 403. No config, secrets or token hashes are ever returned.
+  - **`POST /connections/{id}/enrollments`:** the code works only on that connection. 404 for an unknown connection or another business's; 422 for a connection that is not for approvals or not active.
+  - **The old `/channel-enrollments`:** now checks the provider registry and the business's active connections (unknown provider or no connection gives 422). The `ApprovalChannel` enum is removed.
+  - **Bindings:** each now shows `connection_ref` and `connection_name`.
+  - **Checks:** 409 unit tests; 468 tests on PostgreSQL.
+- **WI-13 done:**
+  - **Feature:** the portal feature `connections` replaces `channels`. The page is at `#/connections`, and `#/channels` redirects there. The top bar says "Connections".
+  - **Page contents:** a list of tools (status, purposes; last error for administrators only) and "Link my account on <tool>" for each active approval connection. The code is per connection; linked accounts show the tool's name.
+  - **Removed:** the hardcoded `"simulated"` in the portal. Decisions use purposes and status only.
+  - **Checks:** portal typecheck, 46 tests, build.
+- **WI-14 done:**
+  - **`tests/unit/providers/test_provider_contract.py`:** runs every installed provider and a fake third provider (`echo`) through the same checks:
+    - forged or missing signatures are refused;
+    - parsing is stable and never depends on the business;
+    - send outcomes match the delivery mode;
+    - unsupported operations raise errors;
+    - a catalogue reader exists exactly for catalogue providers;
+    - `echo` enrols a manager through the generic services with no core change.
+  - **Samples:** a test fails until a newly installed provider has its contract sample.
+  - **Architecture test:** core code may not name a provider or import a provider package. Four listed exceptions: the API's own routes, the deprecated alias, API keys and the demo seed.
+  - **Checks:** 424 unit tests.
+- **WI-15 done:**
+  - **New documents:** [ADR 0018](adr/0018-connector-framework.md), the [adding providers](development/adding-providers.md) guide (the old channels guide is now a pointer) and [connections](features/connections.md).
+  - **Updated:** "extended by 0018" notes in ADRs 0007, 0011, 0013, 0015 and 0016; integrations, execution flow, code map, testing, portal architecture, configuration, setup ("after pulling phase 1") and the feature documents. All relative links checked.
+- **Deviations from the plan (for review):**
+  1. `ChannelEvent` keeps the provider key and the legacy connection key, so decision IDs are stable across the upgrade.
+  2. If a product source disappears before drafting, the draft job stops with the error; no `pricing_failed` issue is recorded.
+  3. Wording staff can see: "Rejected by the provider", and "No active connection for '<provider>' to send the quotation".
+  4. The portal's link card no longer shows the `simulated_channel.py` command, because provider-specific text is not allowed in the portal.
+- **Final verification (2026-10-27):**
+  - **Automated:** ruff, mypy, and `check_database.py --cycle` with 483 passed and 1 skipped, twice. The evaluation scored 14/14 (rules). The portal passes typecheck, 46 tests and the build.
+  - **Live, demo page:** enquiry, phone, approve, PDF, accept, notice.
+  - **Live, portal API:** the manager sees only the linkable connection; sales staff get 403.
+  - **Live, generic hook:** `--via hooks` enrol gives 200, and the worker enrols the account. A bad token gives 404 and a bad signature 401.
+  - **Cosmetic, dev databases only:** a connection created by the 0008 backfill keeps its generated name (e.g. "simulated simulated-local"), because the seed does not rename existing connections.
+- **Next:** the user reviews PR #6. Phase 2 (accounts) needs its open questions answered first ([phase 2 plan](plan/platform/implementation/phase-2-accounts.md)).
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

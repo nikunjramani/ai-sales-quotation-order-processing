@@ -2,6 +2,7 @@
 Date: 2026-10-22
 Status: accepted; implemented in M4 (commit 21f0ba5, [CI run 39900219005](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39900219005) passed)
 Implements: [0007](0007-channel-independent-approval.md) for the portal and a simulated channel
+Extended by [0018](0018-connector-framework.md) (phase 1): the `ApprovalChannel` enum and notifier map are replaced by connections and the outbox; the old simulated route is a deprecated alias.
 
 ## Context
 M4 needs people (managers, sales operators) to sign in, review exact quotation content and decide, from the portal or from a messaging channel, with the same rules. The user chose (2026-10-22):

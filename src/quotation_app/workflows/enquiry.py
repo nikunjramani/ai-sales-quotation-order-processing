@@ -39,7 +39,7 @@ from quotation_app.domain.requirements import (
     unverified_items,
 )
 from quotation_app.domain.tenancy import Role, TenantContext
-from quotation_app.ports.erp import ErpReader
+from quotation_app.ports.erp import CatalogueSourceMissing, ErpReader
 from quotation_app.ports.interpretation import (
     DocumentReader,
     EnquiryInterpreter,
@@ -53,6 +53,7 @@ GRAPH_VERSION = "enquiry-extraction-v1"
 SYSTEM_SUBJECT = "system:enquiry-workflow"
 SEARCH_LIMIT = 5
 INVALID_MODEL_ANSWER = "The model's answer was not in the required format"
+NO_PRODUCT_SOURCE = "No product source is connected"
 
 
 class EnquiryState(TypedDict, total=False):
@@ -69,6 +70,7 @@ class EnquiryState(TypedDict, total=False):
     lines: list[dict[str, str]]
     questions: list[str]
     review_reasons: list[str]
+    no_source: bool  # the business has no product source connected (P1-Q3)
 
 
 type EnquiryGraph = CompiledStateGraph[EnquiryState, None, EnquiryState, EnquiryState]
@@ -171,7 +173,11 @@ def build_enquiry_graph(
             if index in state["unverified"]:
                 continue
             item = _item_from_state(data)
-            candidates = deps.erp.search_products(context, item.product_text, SEARCH_LIMIT)
+            try:
+                candidates = deps.erp.search_products(context, item.product_text, SEARCH_LIMIT)
+            except CatalogueSourceMissing:
+                # Nothing can be matched until the business connects a product source.
+                return {"matches": [], "products": [], "no_source": True}
             chosen = (
                 deps.interpreter.choose_product(item, candidates) if len(candidates) > 1 else None
             )
@@ -188,6 +194,14 @@ def build_enquiry_graph(
         return {"matches": matches, "products": [_product_to_state(p) for p in products.values()]}
 
     def assess_step(state: EnquiryState) -> EnquiryState:
+        no_source: EnquiryState = {
+            "outcome": ExtractionOutcome.NEEDS_REVIEW.value,
+            "lines": [],
+            "questions": [],
+            "review_reasons": [NO_PRODUCT_SOURCE],
+        }
+        if state.get("no_source"):
+            return no_source
         if state.get("rejected"):
             reasons = [INVALID_MODEL_ANSWER] + [
                 f"Attachment {name!r} could not be read; a person should check it"
@@ -215,7 +229,10 @@ def build_enquiry_graph(
         if needs_categories(requirements, matches, state["unverified"]):
             tenant_id, _ = _ids(state)
             context = TenantContext(tenant_id, SYSTEM_SUBJECT, frozenset({Role.VIEWER}))
-            categories = deps.erp.list_categories(context)
+            try:
+                categories = deps.erp.list_categories(context)
+            except CatalogueSourceMissing:
+                return no_source
         result = assess(
             requirements,
             matches,

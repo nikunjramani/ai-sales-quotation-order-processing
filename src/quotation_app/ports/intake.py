@@ -6,7 +6,7 @@ from typing import Protocol
 from uuid import UUID
 
 from quotation_app.domain.attachments import AttachmentStatus
-from quotation_app.domain.intake import Channel, EnquiryStatus, InboundEnvelope
+from quotation_app.domain.intake import EnquiryStatus, InboundEnvelope
 
 
 class IdempotencyConflict(Exception):
@@ -52,7 +52,7 @@ class ExtractionView:
 @dataclass(frozen=True)
 class EnquiryView:
     enquiry_id: UUID
-    channel: Channel
+    channel: str  # provider key, e.g. "api"
     status: EnquiryStatus
     customer_reference: str | None
     received_at: datetime
@@ -63,7 +63,7 @@ class EnquiryView:
 
 class IntakeStore(Protocol):
     def find_receipt(
-        self, tenant_id: UUID, channel: Channel, connection_id: str, provider_event_id: str
+        self, tenant_id: UUID, connection_ref: UUID, provider_event_id: str
     ) -> Receipt | None: ...
 
     def record(
@@ -114,7 +114,7 @@ class PreparationStore(Protocol):
 @dataclass(frozen=True)
 class EnquirySummary:
     enquiry_id: UUID
-    channel: Channel
+    channel: str  # provider key, e.g. "api"
     status: EnquiryStatus
     customer_reference: str | None
     received_at: datetime

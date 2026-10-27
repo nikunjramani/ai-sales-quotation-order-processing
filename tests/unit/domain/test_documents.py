@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 from quotation_app.adapters.storage.local import LocalObjectStorage
+from quotation_app.domain.connections import DeliveryMode
 from quotation_app.domain.documents import (
     MAX_ERROR_CHARACTERS,
     DocumentKind,
@@ -61,9 +62,9 @@ def test_approval_time_must_be_timezone_aware() -> None:
 
 def test_the_recipient_is_whoever_sent_the_enquiry() -> None:
     # API: the submitting key, never the customer's free-text reference label.
-    assert delivery_recipient("api", "api-key:1", "CUST-42") == "api-key:1"
-    assert delivery_recipient("email", "mailbox-1", "buyer@customer.example") == (
+    assert delivery_recipient(DeliveryMode.PULL, "api-key:1", "CUST-42") == "api-key:1"
+    assert delivery_recipient(DeliveryMode.PUSH, "mailbox-1", "buyer@customer.example") == (
         "buyer@customer.example"
     )
     with pytest.raises(NoDeliveryAddress):
-        delivery_recipient("email", "mailbox-1", None)
+        delivery_recipient(DeliveryMode.PUSH, "mailbox-1", None)

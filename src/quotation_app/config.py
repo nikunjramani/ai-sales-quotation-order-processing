@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     # Shared secret for signed simulated-channel events (dev/test only; unset = disabled).
     simulated_channel_secret: SecretStr | None = None
+    # Where provider secrets live (D8): an entry point name in quotation_app.secret_stores.
+    # Unset = "local" (encrypted files, needs secret_store_key) in development/test and "none"
+    # in production until a cloud store is chosen (D24). Options go to the store as is.
+    secret_store: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    secret_store_key: SecretStr | None = None
+    secret_store_options: dict[str, Any] = Field(default_factory=dict)
+    # Public address of this API, only used to show webhook URLs (logs, portal).
+    public_base_url: str | None = Field(default=None, pattern=r"^https?://\S+$")
     # Built React portal (portal/dist) to serve at /portal; unset = not served by the API.
     portal_dist_dir: Path | None = None
 
@@ -48,7 +56,15 @@ class Settings(BaseSettings):
             self.auth_provider == "dev" or self.simulated_channel_secret is not None
         ):
             raise ValueError("The dev login and simulated channel are not allowed in production")
+        if self.environment == "production" and self.secret_store == "local":
+            raise ValueError("The local secret store is not allowed in production")
         return self
+
+    @property
+    def secret_store_name(self) -> str:
+        if self.secret_store is not None:
+            return self.secret_store
+        return "none" if self.environment == "production" else "local"
 
     @property
     def portal_login(self) -> Literal["dev", "disabled"]:

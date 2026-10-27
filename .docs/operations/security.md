@@ -17,6 +17,22 @@
 - Provider webhook verification is necessary but not sufficient: validate the acting manager, task/version, recipient binding and expiry. Forwarded actions and uncorrelated text must not approve anything.
 - Mobile channel review may expose commercial documents to provider storage; configure permitted channels and disclosure per tenant. Never include reusable action secrets in model input or logs.
 
+## Implemented controls (phase 1, connector framework, in progress)
+- **Provider secrets** live in a secret store (D8), never in the database. `connections.secret_refs` holds references only. The development `local` store encrypts each secret with AES-256-GCM, bound to its tenant and reference, so a copied or renamed file does not decrypt. Production uses `none` until hosting is chosen (D24); `local` is refused there.
+- **Generic webhooks** (`/api/v1/hooks/{connection}/{token}`):
+  - Only the token's SHA-256 is stored. It is compared in constant time, with a dummy hash when the connection does not exist.
+  - Unknown connection, wrong token, inactive connection or missing provider all answer the same 404.
+  - Size limits apply before reading further.
+  - The provider verifies the signature on the raw bytes **before** parsing.
+  - The tenant always comes from the connection; provider bodies cannot name one (the simulated body forbids extra fields).
+  - Events are deduplicated per connection, provider event ID and type.
+- **Development-only providers** (`simulated`) are skipped by the registry in production.
+- **Disabled connections** get no approval requests, and their webhooks answer 404. API keys disable their `api` connection when revoked.
+- **Worker grants (0008):** the worker may record approval decisions, because manager actions arriving on webhooks are routed in the `process_inbound` job. The grants are column-level, and the checks in `ApprovalService` are unchanged.
+- **Known weaknesses, accepted:**
+  - The deprecated `/api/v1/channels/simulated/events` alias still takes the business from the body, signed with the one shared development secret. It is development-only, refused in production, and removed in phase 4/5.
+  - P1-Q9: any API key of a business can read every API enquiry and quotation of that business. This is unchanged; the user decides it in phase 2 with API key management.
+
 ## Implemented controls (M6)
 - **Answers bind to exact content:** the customer names the version and SHA-256 it answers; anything else gets 409. Only `intake_service` API keys of the same business can answer (`quotations:respond`). Staff cannot accept for the customer.
 - **No acceptance at changed prices:** acceptance re-prices from the ERP. Any difference refuses it, and the revised version needs a fresh manager approval. ERP failures record nothing.

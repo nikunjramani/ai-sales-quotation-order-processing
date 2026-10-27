@@ -1,6 +1,7 @@
 # 0011: Durable intake, PostgreSQL job queue, attachment quarantine and API keys
 Date: 2026-10-22
 Status: implemented in M2; verified locally and in CI ([CI run 39741408875](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39741408875))
+Extended by [0018](0018-connector-framework.md) (phase 1): each API key is an `api` connection; the envelope (schema 2) carries `connection_ref` and `reply_to`; inbox events are deduplicated per connection, provider event ID and event type.
 
 ## Context
 M2 must accept enquiries only after durable receipt, recognise replays, survive worker crashes and isolate unsafe attachments. Real identity (OIDC) arrives in M4, but the intake API needs authentication now.

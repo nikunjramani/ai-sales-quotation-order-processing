@@ -1,5 +1,5 @@
 # Implementation plan, phase 1: foundations (refactor, no new features)
-**Status:** planning document (2026-10-23), for the user's review. Nothing here is built. It follows the binding names in [00-shared-contracts.md](00-shared-contracts.md); where this plan needs something the contracts do not have, it is listed in [Proposed changes to shared contracts](#proposed-changes-to-shared-contracts) and must be accepted there first.
+**Status:** implemented on branch `feat/phase-1-foundations` (2026-10-27), recorded in [ADR 0018](../../../adr/0018-connector-framework.md); deviations from this plan are listed in the [handoff](../../../handoff.md). The original planning text follows. planning document (2026-10-23), for the user's review. Nothing here is built. It follows the binding names in [00-shared-contracts.md](00-shared-contracts.md); where this plan needs something the contracts do not have, it is listed in [Proposed changes to shared contracts](#proposed-changes-to-shared-contracts) and must be accepted there first.
 
 Paths are relative to `src/quotation_app/` unless they start with `tests/`, `portal/`, `migrations/`, `scripts/`, `demo/` or `.docs/`. Line numbers are from commit `3b38741`.
 
@@ -38,6 +38,9 @@ Today's API intake + pull delivery become provider `api`; the simulated manager 
 | ADR 0015 | Honest outcomes; `unknown` never resent | Outbox statuses and `send_message` handler |
 | ADR 0013 / 0007 | One approval core for every channel | `ChannelActionService` and `ApprovalService` stay the only decision path |
 | ADR 0011 | Tenant from a verified credential, never from the body | Generic route; API key → connection |
+
+### User answers (2026-10-27)
+The user accepted the recommendation for every question below: P1-Q1 a (also contracts §8 U3), Q2 a, **Q3 b** (needs review + portal note), Q4 a, Q5 a, Q6 a, Q7 a, Q8 a, **Q9 a** (keep; decide with API key management in phase 2), Q10 a, Q11 a, Q12 a, Q13 yes. Work happens on branch `feat/phase-1-foundations`, with one commit per work item.
 
 ### Open questions (ask the user before starting; none are decided by this plan)
 | # | Question | Options | Recommendation | Blocks |

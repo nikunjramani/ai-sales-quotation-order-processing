@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 from datetime import timedelta
 
 from quotation_app.domain.jobs import JobKind, PermanentJobError, retry_delay
+from quotation_app.ports.erp import ErpError
 from quotation_app.ports.jobs import ClaimedJob, JobQueue, LeaseLost
 
 type JobHandler = Callable[[ClaimedJob], None]
@@ -61,13 +62,21 @@ class JobRunner:
         except PermanentJobError as error:
             self._queue.fail(job, f"PermanentJobError: {error}")
             return "dead (permanent error)"
+        except ErpError as error:
+            if error.retryable:
+                return self._retry(job, f"ErpError {error.code}")
+            # Retrying cannot fix it (e.g. no product source, unauthenticated): stop now (P1-Q4).
+            self._queue.fail(job, f"ErpError {error.code}: {error}"[:500])
+            return "dead (ERP error, not retryable)"
         except Exception as error:  # noqa: BLE001 - any other failure is retried with backoff
-            summary = type(error).__name__
-            if job.attempt >= job.max_attempts:
-                self._queue.fail(job, f"{summary} after {job.attempt} attempts")
-                return f"dead ({summary})"
-            delay = retry_delay(job.attempt, jitter=self._jitter)
-            self._queue.retry(job, delay, summary)
-            return f"retry in {delay.total_seconds():.1f}s ({summary})"
+            return self._retry(job, type(error).__name__)
         self._queue.complete(job)
         return "succeeded"
+
+    def _retry(self, job: ClaimedJob, summary: str) -> str:
+        if job.attempt >= job.max_attempts:
+            self._queue.fail(job, f"{summary} after {job.attempt} attempts")
+            return f"dead ({summary})"
+        delay = retry_delay(job.attempt, jitter=self._jitter)
+        self._queue.retry(job, delay, summary)
+        return f"retry in {delay.total_seconds():.1f}s ({summary})"
