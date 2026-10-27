@@ -7,6 +7,7 @@ import pytest
 
 from quotation_app.application.jobs import JobRunner
 from quotation_app.domain.jobs import JobKind, PermanentJobError
+from quotation_app.ports.erp import CatalogueSourceMissing, ErpError, ErpErrorCode
 from quotation_app.ports.jobs import ClaimedJob, LeaseLost
 
 
@@ -92,3 +93,21 @@ def test_lost_lease_is_tolerated(handler: object) -> None:
     queue.lose_lease = True
     assert runner(queue, handler).run_once() is True
     assert queue.events == []
+
+
+def test_erp_errors_that_retrying_cannot_fix_stop_at_once() -> None:
+    queue = FakeQueue(job())
+    runner(queue, failing(CatalogueSourceMissing())).run_once()
+    [(event, detail)] = queue.events
+    assert event == "fail" and "No product source is connected" in str(detail)
+    for code in (ErpErrorCode.UNAUTHENTICATED, ErpErrorCode.FORBIDDEN, ErpErrorCode.NOT_FOUND):
+        queue = FakeQueue(job())
+        runner(queue, failing(ErpError(code, "refused"))).run_once()
+        assert queue.events[0][0] == "fail"
+
+
+def test_temporary_erp_errors_are_retried() -> None:
+    queue = FakeQueue(job())
+    runner(queue, failing(ErpError(ErpErrorCode.RATE_LIMITED, "slow down"))).run_once()
+    [(event, detail)] = queue.events
+    assert event == "retry" and "rate_limited" in str(detail)

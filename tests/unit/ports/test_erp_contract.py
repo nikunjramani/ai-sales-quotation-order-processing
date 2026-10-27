@@ -7,13 +7,18 @@ unless --run-integration is passed.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from uuid import UUID
+from pathlib import Path
+from uuid import UUID, uuid4
 
 import pytest
 
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
+from quotation_app.adapters.providers.simulated import SimulatedProvider
+from quotation_app.application.catalogue_sources import CatalogueSourceResolver, TenantCatalogue
+from quotation_app.application.providers import ProviderRegistry
+from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
 from quotation_app.domain.tenancy import Role, TenantContext
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
 from quotation_app.ports.erp import ErpReader
@@ -42,7 +47,34 @@ def _simulated() -> ContractSetup:
     )
 
 
-ADAPTERS: list[object] = [pytest.param(_simulated, id="simulated")]
+def _tenant_catalogue() -> ContractSetup:
+    """Phase 1: the per-business router over the simulated provider's demo catalogues."""
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def source(tenant_id: UUID, name: str) -> Connection:
+        return Connection(
+            uuid4(), tenant_id, "simulated", "Demo", frozenset({Purpose.CATALOGUE}),
+            {"catalogue": name}, {}, "simulated-local", ConnectionStatus.ACTIVE, None, "test",
+            now, now,
+        )  # fmt: skip
+
+    class Sources:
+        def catalogue_sources(self, tenant_id: UUID) -> list[Connection]:
+            name = {INDUSTRIAL_TENANT: "industrial", OFFICE_TENANT: "office"}[tenant_id]
+            return [source(tenant_id, name)]
+
+    resolver = CatalogueSourceResolver(
+        Sources(),  # type: ignore[arg-type]
+        ProviderRegistry([SimulatedProvider(Path("unused"))]),
+        None,  # type: ignore[arg-type]
+    )
+    return replace(_simulated(), erp=TenantCatalogue(resolver))
+
+
+ADAPTERS: list[object] = [
+    pytest.param(_simulated, id="simulated"),
+    pytest.param(_tenant_catalogue, id="tenant-catalogue"),
+]
 
 
 @pytest.fixture(params=ADAPTERS)

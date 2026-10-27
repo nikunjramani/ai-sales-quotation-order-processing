@@ -236,7 +236,17 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Envelope schema 2:** adds `connection_ref` and `reply_to`. The reply address is fixed at intake by the provider's delivery mode, and `queue_delivery` uses it.
   - **Removed:** the `Channel` enum. Stored and returned `channel` values are the provider key (`"api"`), unchanged in the API.
   - **Checks:** 394 unit tests; 452 tests on PostgreSQL.
-- **Next:** WI-10 (per-business catalogue source), then the portal work items (WI-12, WI-13), contract tests (WI-14) and docs/ADR 0018 (WI-15).
+- **WI-10 done:**
+  - **Product source per business:** each business's catalogue connection names its product source. `CatalogueSourceResolver` and `TenantCatalogue` (an `ErpReader`) replace the hardcoded `SimulatedErp` in the API and the worker. Readers are cached for 30 s and keyed by connection and `updated_at`.
+  - **No source (P1-Q3 = b):** the enquiry goes to `needs_review` with "No product source is connected", at once.
+  - **ERP errors that can't succeed on retry (P1-Q4 = a):** they stop the job at once; temporary ones are still retried.
+  - **Drafting edge case:** if a source disappears between extraction and drafting, the draft job stops with that error. This is a small difference from the plan's `pricing_failed` issue, recorded for review.
+  - **Tests:**
+    - The ERP contract suite also runs over `TenantCatalogue`.
+    - New tests for the resolver and the job runner.
+    - A PostgreSQL test with a new business without a source: needs review on attempt 1.
+  - **Checks:** 406 unit tests; 465 tests on PostgreSQL.
+- **Next:** WI-12 (portal API for connections and linking; `ApprovalChannel` removed), WI-13 (portal "Connections" page), WI-14 (provider contract and architecture tests), WI-15 (ADR 0018, adding-providers guide, docs), then the final live run.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
-from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.identity.dev import DevIdentityProvider
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.auth import PortalAuth, build_auth_router
@@ -30,7 +29,7 @@ from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.sessions import SessionService
 from quotation_app.application.tenancy import TenantContextResolver
-from quotation_app.composition import build_runtime
+from quotation_app.composition import build_catalogue, build_runtime
 from quotation_app.config import Settings
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.api_keys import SqlApiKeyReader
@@ -45,7 +44,7 @@ from quotation_app.persistence.quotations import (
     SqlQuotationReader,
     SqlRevisionStore,
 )
-from quotation_app.persistence.seed import DEMO_MEMBERSHIPS, INDUSTRIAL_TENANT, OFFICE_TENANT
+from quotation_app.persistence.seed import DEMO_MEMBERSHIPS
 from quotation_app.persistence.sessions import SqlSessionStore
 from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
 
@@ -95,8 +94,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     documents = QuotationDocumentService(
         SqlDocumentReader(engine), storage, ReportLabQuotationRenderer()
     )
-    # Only the simulated ERP exists until a pilot ERP is connected (M7).
-    erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
+    # Each business's own product source, through its catalogue connection (ADR 0018).
+    erp = build_catalogue(engine, runtime)
     pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
     # Customer answers (M6): accept/decline through the API, withdrawal in the portal.
     responses = QuotationResponseService(SqlResponseStore(engine), pricing)

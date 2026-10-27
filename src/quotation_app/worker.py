@@ -10,14 +10,12 @@ import argparse
 import logging
 import time
 
-from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.factory import build_interpreter
 from quotation_app.application.jobs import JobRunner
 from quotation_app.composition import build_job_handlers, build_runtime
 from quotation_app.config import Settings
 from quotation_app.persistence.database import build_engine
 from quotation_app.persistence.jobs import SqlJobQueue
-from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
 from quotation_app.persistence.workflow import open_checkpointer
 
 
@@ -35,8 +33,6 @@ def main() -> None:
         settings.model_api_key.get_secret_value() if settings.model_api_key else None,
         settings.model_options,
     )
-    # Only the simulated ERP exists until a pilot ERP is connected (M7).
-    erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
     runtime = build_runtime(settings)
     logging.info("Enquiry interpreter: %s", settings.model or "rules (no AI)")
     logging.info("Providers: %s", ", ".join(p.key for p in runtime.registry.all()) or "none")
@@ -44,7 +40,7 @@ def main() -> None:
         with open_checkpointer(settings.worker_url()) as checkpointer:
             runner = JobRunner(
                 SqlJobQueue(engine),
-                build_job_handlers(settings, engine, runtime, checkpointer, interpreter, erp),
+                build_job_handlers(settings, engine, runtime, checkpointer, interpreter),
             )
             while True:
                 while runner.run_once():

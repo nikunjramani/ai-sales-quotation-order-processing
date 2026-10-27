@@ -903,3 +903,34 @@ def test_every_linked_phone_gets_a_working_request(
     decision = {**common, "event_id": "d-b", "external_user_id": "phone-b", "type": "decision",
                 "action_reference": reference, "action": "approve"}  # fmt: skip
     assert post(decision).json()["result"] == "recorded"
+
+
+def test_a_business_without_a_product_source_gets_a_clear_outcome_at_once(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    owner_engine: Engine,
+    worker_engine: Engine,
+) -> None:
+    """P1-Q3/Q4: no retries; the enquiry goes to review with the reason shown in the portal."""
+    tenant = uuid4()
+    with tenant_transaction(owner_engine, tenant) as db:
+        db.execute(text("INSERT INTO tenants (id, name) VALUES (:id, 'No Source Ltd')"),
+                   {"id": tenant})  # fmt: skip
+    submit(make_client(), make_api_key(tenant, Role.INTAKE_SERVICE), "Please quote 2 x IND-FAN-450")
+    with open_checkpointer(settings.worker_url()) as checkpointer:
+        handlers = build_job_handlers(  # the real per-business catalogue, no fixed reader
+            settings, worker_engine, build_runtime(settings), checkpointer, RulesInterpreter()
+        )
+        runner = JobRunner(SqlJobQueue(worker_engine), handlers)
+        while runner.run_once():
+            pass
+    with tenant_transaction(owner_engine, tenant) as db:
+        status_, outcome = db.execute(
+            text("SELECT e.status, r.outcome FROM enquiries e JOIN workflow_runs r "
+                 "ON r.enquiry_id = e.id")
+        ).one()  # fmt: skip
+        attempts = db.execute(text("SELECT max(attempts) FROM jobs")).scalar_one()
+    assert status_ == "needs_review"
+    assert outcome["review_reasons"] == ["No product source is connected"]
+    assert attempts == 1

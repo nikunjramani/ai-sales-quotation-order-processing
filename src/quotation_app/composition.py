@@ -22,6 +22,7 @@ from quotation_app.application.acceptance import (
     ResponseNotificationHandler,
 )
 from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.catalogue_sources import CatalogueSourceResolver, TenantCatalogue
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.delivery import QuotationDeliveryHandler, QuotationDocumentHook
 from quotation_app.application.inbound import ProcessInboundHandler, routes_for
@@ -133,15 +134,27 @@ def build_runtime(settings: Settings) -> Runtime:
     return Runtime(build_provider_registry(settings), lazy_secret_store(settings))
 
 
+def build_catalogue(engine: Engine, runtime: Runtime) -> ErpReader:
+    """Every business's own product source, through its catalogue connection."""
+    return TenantCatalogue(
+        CatalogueSourceResolver(SqlConnectionStore(engine), runtime.registry, runtime.secrets)
+    )
+
+
 def build_job_handlers(
     settings: Settings,
     engine: Engine,
     runtime: Runtime,
     checkpointer: BaseCheckpointSaver[str],
     interpreter: EnquiryInterpreter,
-    catalogue: ErpReader,
+    catalogue: ErpReader | None = None,
 ) -> dict[JobKind, JobHandler]:
-    """Every job the worker runs, wired to the worker-role engine."""
+    """Every job the worker runs, wired to the worker-role engine.
+
+    `catalogue` defaults to each business's own source; tests may pass a fixed reader.
+    """
+    if catalogue is None:
+        catalogue = build_catalogue(engine, runtime)
     storage = LocalObjectStorage(settings.storage_dir)
     connections = SqlConnectionStore(engine)
     notifications = SqlNotificationStore(engine)
