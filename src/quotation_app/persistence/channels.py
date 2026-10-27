@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from quotation_app.domain.connections import ConnectionStatus
 from quotation_app.domain.quotations import ReviewPacket, TaskStatus
 from quotation_app.domain.tenancy import Role
+from quotation_app.persistence.connections import matches_key
 from quotation_app.persistence.models import (
     ApprovalActionRef,
     ApprovalTask,
@@ -239,8 +240,7 @@ class SqlChannelStore:
             connection_ref = connection.execute(
                 select(ConnectionRow.id).where(
                     ConnectionRow.tenant_id == tenant_id,
-                    ConnectionRow.provider_key == channel,
-                    ConnectionRow.account_ref == connection_id,
+                    matches_key(channel, connection_id),
                     ConnectionRow.status == ConnectionStatus.ACTIVE.value,
                 )
             ).scalar_one_or_none()

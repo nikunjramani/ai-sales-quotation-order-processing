@@ -14,11 +14,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from quotation_app.adapters.channels.simulated import SIGNATURE_HEADER, sign
 from quotation_app.adapters.identity.dev import DevIdentityProvider
+from quotation_app.adapters.providers.simulated.signing import SIGNATURE_HEADER, sign
 from quotation_app.api.auth import CSRF_HEADER, SESSION_COOKIE, PortalAuth, build_auth_router
 from quotation_app.api.channels import build_channel_router
 from quotation_app.api.portal import build_portal_router
+from quotation_app.application.inbound import ManagerActionRoute
 from quotation_app.application.intake import EnquiryListService
 from quotation_app.application.sessions import SessionService
 from quotation_app.application.tenancy import TenantContextResolver
@@ -54,7 +55,11 @@ def build_app(harness: Any, sessions: Any, directory: Any, dev: bool = True) -> 
             clock=harness.clock,
         )
     )
-    app.include_router(build_channel_router(harness.channels, SECRET))
+    app.include_router(
+        build_channel_router(
+            ManagerActionRoute(harness.channels), harness.connections, harness.inbox, SECRET
+        )
+    )
     return app
 
 
@@ -266,7 +271,11 @@ def test_channel_linking_through_portal_and_signed_webhook(
 
 def test_webhook_is_off_without_a_secret(harness: Any) -> None:
     app = FastAPI()
-    app.include_router(build_channel_router(harness.channels, None))
+    app.include_router(
+        build_channel_router(
+            ManagerActionRoute(harness.channels), harness.connections, harness.inbox, None
+        )
+    )
     with TestClient(app) as http:
         assert http.post("/api/v1/channels/simulated/events", content=b"{}").status_code == 404
 

@@ -10,7 +10,7 @@ real SQL implementations follow the same rules.
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -30,6 +30,7 @@ from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.delivery import QuotationDeliveryHandler
 from quotation_app.application.documents import QuotationDocumentService
+from quotation_app.application.inbound import ProcessInboundHandler, routes_for
 from quotation_app.application.notifications import ApprovalNotificationHandler
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
@@ -44,6 +45,7 @@ from quotation_app.domain.acceptance import (
     ResponseOutcome,
     customer_status,
 )
+from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
 from quotation_app.domain.documents import (
     OFFERED_STATUSES,
     DeliveryRecord,
@@ -51,6 +53,7 @@ from quotation_app.domain.documents import (
     DocumentSource,
     StoredDocument,
 )
+from quotation_app.domain.intake import InboundEvent, InboundEventType, event_type
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.pricing import RequestedLine
 from quotation_app.domain.quotations import (
@@ -78,6 +81,7 @@ from quotation_app.ports.documents import (
     ReceiptKind,
 )
 from quotation_app.ports.identity import SessionRecord, VerifiedIdentity
+from quotation_app.ports.inbound import RecordedEvent, StoredEvent
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.quotations import (
     QuotationDetail,
@@ -1126,6 +1130,127 @@ class RecordingNotifier:
         self.notices.append((binding, notice_id, text))
 
 
+class MemoryConnections:
+    """ConnectionStore + HookLookup over a dict; each demo business has its simulated phone."""
+
+    def __init__(self, now: datetime, *tenants: UUID) -> None:
+        self.rows: dict[UUID, Connection] = {}
+        self.token_hashes: dict[UUID, str | None] = {}
+        for tenant_id in tenants:
+            self.add(
+                Connection(
+                    uuid4(),
+                    tenant_id,
+                    "simulated",
+                    "Simulated phone",
+                    frozenset({Purpose.MANAGER_APPROVALS, Purpose.CATALOGUE}),
+                    {"catalogue": "industrial"},
+                    {},
+                    "simulated-local",
+                    ConnectionStatus.ACTIVE,
+                    None,
+                    "seed",
+                    now,
+                    now,
+                )  # fmt: skip
+            )
+
+    def add(self, connection: Connection, token_sha256: str | None = None) -> Connection:
+        self.rows[connection.connection_id] = connection
+        self.token_hashes[connection.connection_id] = token_sha256
+        return connection
+
+    def get(self, tenant_id: UUID, connection_id: UUID) -> Connection | None:
+        row = self.rows.get(connection_id)
+        return row if row is not None and row.tenant_id == tenant_id else None
+
+    def find_by_account(
+        self, tenant_id: UUID, provider_key: str, account_ref: str
+    ) -> Connection | None:
+        wanted = (tenant_id, provider_key, account_ref)
+        return next(
+            (
+                row
+                for row in self.rows.values()
+                if (row.tenant_id, row.provider_key, row.account_ref) == wanted
+            ),
+            None,
+        )
+
+    def list_for(self, tenant_id: UUID, purpose: Purpose | None = None) -> list[Connection]:
+        return [
+            row
+            for row in self.rows.values()
+            if row.tenant_id == tenant_id and (purpose is None or purpose in row.purposes)
+        ]
+
+    def catalogue_sources(self, tenant_id: UUID) -> list[Connection]:
+        return [row for row in self.list_for(tenant_id, Purpose.CATALOGUE) if row.active]
+
+    def find_for_hook(self, connection_id: UUID) -> tuple[Connection, str | None] | None:
+        row = self.rows.get(connection_id)
+        return None if row is None else (row, self.token_hashes[connection_id])
+
+
+@dataclass
+class InboxRow:
+    inbox_event_id: UUID
+    connection_id: UUID
+    event: InboundEvent
+    processed_at: datetime | None = None
+    outcome: str | None = None
+
+
+class MemoryInbox:
+    """InboundStore: dedupe on (connection, provider event ID, type); jobs go to the queue."""
+
+    def __init__(self, connections: MemoryConnections, jobs: list["Job"]) -> None:
+        self.connections = connections
+        self.jobs = jobs
+        self.rows: dict[tuple[UUID, str, InboundEventType], InboxRow] = {}
+
+    def record(
+        self,
+        connection: Connection,
+        events: Sequence[InboundEvent],
+        received_at: datetime,
+        *,
+        queue_jobs: bool,
+    ) -> list[RecordedEvent]:
+        recorded = []
+        for event in events:
+            key = (connection.connection_id, event.provider_event_id, event_type(event))
+            if key in self.rows:
+                recorded.append(RecordedEvent(self.rows[key].inbox_event_id, new=False))
+                continue
+            row = InboxRow(uuid4(), connection.connection_id, event)
+            self.rows[key] = row
+            if queue_jobs:
+                payload = {"inbox_event_id": str(row.inbox_event_id)}
+                self.jobs.append(Job(connection.tenant_id, JobKind.PROCESS_INBOUND, payload))
+            recorded.append(RecordedEvent(row.inbox_event_id, new=True))
+        return recorded
+
+    def _row(self, inbox_event_id: UUID) -> InboxRow | None:
+        return next(
+            (row for row in self.rows.values() if row.inbox_event_id == inbox_event_id), None
+        )
+
+    def load(self, tenant_id: UUID, inbox_event_id: UUID) -> StoredEvent | None:
+        row = self._row(inbox_event_id)
+        if row is None:
+            return None
+        connection = self.connections.get(tenant_id, row.connection_id)
+        if connection is None:
+            return None
+        return StoredEvent(row.inbox_event_id, connection, row.event, row.processed_at, row.outcome)
+
+    def mark_processed(self, tenant_id: UUID, inbox_event_id: UUID, outcome: str) -> None:
+        row = self._row(inbox_event_id)
+        if row is not None and row.processed_at is None:
+            row.processed_at, row.outcome = datetime.now(UTC), outcome
+
+
 @dataclass
 class QuotationHarness:
     """The real M4 services, graph and job handlers over MemoryQuotations."""
@@ -1142,6 +1267,8 @@ class QuotationHarness:
     clock: Callable[[], datetime]
     storage: ObjectStorage
     now: list[datetime]  # mutable "current time" behind `clock`
+    connections: MemoryConnections
+    inbox: MemoryInbox
     renderer: ReportLabQuotationRenderer = field(default_factory=ReportLabQuotationRenderer)
     email: RecordingDeliveryChannel = field(default_factory=RecordingDeliveryChannel)
 
@@ -1199,6 +1326,8 @@ class QuotationHarness:
                 QuotationExpiryHandler(self.responses())(claimed)
             elif job.kind is JobKind.NOTIFY_RESPONSE:
                 ResponseNotificationHandler(self.db, self.db, {"simulated": self.notifier})(claimed)
+            elif job.kind is JobKind.PROCESS_INBOUND:
+                ProcessInboundHandler(self.inbox, routes_for(self.channels))(claimed)
             else:
                 self.handler()(claimed)
             handled += 1
@@ -1245,6 +1374,7 @@ def harness(
     policy_reader: Any,
     now: datetime,
     industrial_tenant: UUID,
+    office_tenant: UUID,
     memory_storage: ObjectStorage,
 ) -> QuotationHarness:
     current = [now]
@@ -1256,6 +1386,7 @@ def harness(
     resolver = TenantContextResolver(quotation_db)
     pricing = QuotationPricingService(simulated_erp, policy_reader, clock=clock)
     approvals = ApprovalService(quotation_db, resolver, clock=clock)
+    connections = MemoryConnections(now, industrial_tenant, office_tenant)
     return QuotationHarness(
         db=quotation_db,
         erp=simulated_erp,
@@ -1269,6 +1400,8 @@ def harness(
         clock=clock,
         storage=memory_storage,
         now=current,
+        connections=connections,
+        inbox=MemoryInbox(connections, quotation_db.jobs),
     )
 
 

@@ -209,3 +209,38 @@ _EVENT_TYPES: dict[type, InboundEventType] = {
 
 def event_type(event: InboundEvent) -> InboundEventType:
     return _EVENT_TYPES[type(event)]
+
+
+MAX_PROVIDER_EVENT_ID = 200
+
+
+def validate_event(event: InboundEvent) -> InboundEvent:
+    """Provider event IDs are the dedupe key: 1-200 printable characters."""
+    key = event.provider_event_id
+    if not isinstance(key, str) or not 0 < len(key) <= MAX_PROVIDER_EVENT_ID:
+        raise ValueError("Provider event IDs are 1-200 characters")
+    if not key.isprintable():
+        raise ValueError("Provider event IDs must be printable")
+    return event
+
+
+def event_to_json(event: InboundEvent) -> dict[str, object]:
+    """Stored form of a non-enquiry event in inbox_events.envelope."""
+    data: dict[str, object] = {"type": event_type(event).value}
+    for name, value in vars(event).items():
+        data[name] = value.isoformat() if isinstance(value, datetime) else value
+    return data
+
+
+def event_from_json(data: dict[str, object]) -> InboundEvent:
+    kind = InboundEventType(str(data["type"]))
+    values = {name: value for name, value in data.items() if name != "type"}
+    if kind is InboundEventType.CUSTOMER_MESSAGE:
+        occurred = values.get("occurred_at")
+        values["occurred_at"] = datetime.fromisoformat(str(occurred)) if occurred else None
+        return CustomerMessage(**values)  # type: ignore[arg-type]
+    if kind is InboundEventType.MANAGER_ACTION:
+        return ManagerAction(**values)  # type: ignore[arg-type]
+    if kind is InboundEventType.DELIVERY_STATUS:
+        return DeliveryStatusUpdate(**values)  # type: ignore[arg-type]
+    return ConsentChange(**values)  # type: ignore[arg-type]

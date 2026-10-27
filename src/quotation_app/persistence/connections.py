@@ -9,8 +9,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID, uuid4
 
+from sqlalchemy import ColumnElement, Engine, Row, String, and_, cast, or_, select, text, update
 from sqlalchemy import Connection as DbConnection
-from sqlalchemy import Engine, Row, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
@@ -49,6 +49,20 @@ def _connection(row: Row[Any]) -> Connection:
         created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def matches_key(provider_key: str, legacy_key: str) -> ColumnElement[bool]:
+    """Find a connection by provider and its legacy key (account_ref, or the ID without one)."""
+    return and_(
+        ConnectionRow.provider_key == provider_key,
+        or_(
+            ConnectionRow.account_ref == legacy_key,
+            and_(
+                ConnectionRow.account_ref.is_(None),
+                cast(ConnectionRow.id, String) == legacy_key,
+            ),
+        ),
     )
 
 

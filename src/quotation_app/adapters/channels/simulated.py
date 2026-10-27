@@ -1,46 +1,20 @@
-"""Simulated messaging provider for manager approvals (development and tests).
+"""Simulated manager phone as an ApprovalNotifier (until phase 1 WI-8 moves notifications to the
+outbox; then this module is deleted). Files, names and signing now live in the `simulated`
+provider package, so there is one implementation of each."""
 
-It behaves like a real provider in the ways that matter for security:
-- Outbound: review messages are "delivered" as JSON files in a local outbox folder (a fake
-  phone), one per bound account and task, including the action reference a button would carry.
-  Information-only notices (M6: customer accepted/declined) are files named notice-<id>.json.
-- Inbound: events are signed with HMAC-SHA256 using a shared secret, the way webhook
-  providers sign callbacks. Unsigned or altered events are rejected before any processing.
-
-The outbox lives under the git-ignored storage folder. It contains live action references, so
-treat it like a mailbox: development only.
-"""
-
-import hashlib
-import hmac
-import json
-import os
-import re
-import tempfile
-from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-from quotation_app.domain.messages import TemplateKey, render_template
-from quotation_app.domain.quotations import ApprovalChannel, ReviewPacket
+from quotation_app.adapters.providers.simulated.outbox import write_message
+from quotation_app.adapters.providers.simulated.provider import PROVIDER_KEY
+from quotation_app.domain.messages import APPROVAL_ACTIONS, TemplateKey, render_template
+from quotation_app.domain.quotations import ReviewPacket
 from quotation_app.ports.channels import ChannelBinding
-
-SIGNATURE_HEADER = "X-Simulated-Signature"
-DEFAULT_CONNECTION_ID = "simulated-local"
-_SAFE_NAME = re.compile(r"[^A-Za-z0-9_.@-]")
-
-
-def sign(secret: str, body: bytes) -> str:
-    return hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-
-
-def signature_valid(secret: str, body: bytes, signature: str | None) -> bool:
-    return signature is not None and hmac.compare_digest(sign(secret, body), signature)
 
 
 class SimulatedChannelNotifier:
-    channel = ApprovalChannel.SIMULATED.value
+    channel = PROVIDER_KEY
 
     def __init__(self, outbox_dir: Path) -> None:
         self._outbox = outbox_dir.resolve()
@@ -60,11 +34,14 @@ class SimulatedChannelNotifier:
             "quotation": packet.number,
             "version": packet.version,
             "text": render_template(TemplateKey.APPROVAL_REQUEST, {"packet": packet}).text,
-            "actions": ["approve", "reject", "request_revision"],
+            "actions": list(APPROVAL_ACTIONS),
             "action_reference": action_reference,
             "expires_at": expires_at.isoformat(),
         }
-        self._write(binding, packet.tenant_id, f"{packet.task_id}.json", message)
+        write_message(
+            self._outbox, packet.tenant_id, binding.external_user_id, f"{packet.task_id}.json",
+            message,
+        )  # fmt: skip
 
     def send_notice(self, binding: ChannelBinding, notice_id: UUID, text: str) -> None:
         message = {
@@ -74,19 +51,7 @@ class SimulatedChannelNotifier:
             "notice_id": str(notice_id),
             "text": text,
         }
-        # Same file name for the same event: a repeated delivery replaces, not duplicates.
-        self._write(binding, binding.tenant_id, f"notice-{notice_id}.json", message)
-
-    def _write(
-        self, binding: ChannelBinding, tenant_id: UUID, name: str, message: Mapping[str, object]
-    ) -> None:
-        folder = self._outbox / str(tenant_id) / _SAFE_NAME.sub("_", binding.external_user_id)
-        folder.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(dir=folder, prefix=".message-")
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump(message, stream, indent=2)
-            os.replace(temporary, folder / name)
-        except BaseException:
-            Path(temporary).unlink(missing_ok=True)
-            raise
+        write_message(
+            self._outbox, binding.tenant_id, binding.external_user_id, f"notice-{notice_id}.json",
+            message,
+        )  # fmt: skip

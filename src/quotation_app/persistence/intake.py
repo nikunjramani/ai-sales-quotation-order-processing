@@ -15,6 +15,7 @@ from quotation_app.domain.intake import (
 )
 from quotation_app.domain.jobs import JobKind, JobStatus
 from quotation_app.domain.tenancy import PermissionDenied
+from quotation_app.persistence.connections import matches_key
 from quotation_app.persistence.models import (
     Attachment,
     ConnectionRow,
@@ -92,8 +93,7 @@ class SqlIntakeStore:
             connection_ref = connection.execute(
                 select(ConnectionRow.id).where(
                     ConnectionRow.tenant_id == tenant_id,
-                    ConnectionRow.provider_key == envelope.channel.value,
-                    ConnectionRow.account_ref == envelope.connection_id,
+                    matches_key(envelope.channel.value, envelope.connection_id),
                 )
             ).scalar_one_or_none()
             if connection_ref is None:

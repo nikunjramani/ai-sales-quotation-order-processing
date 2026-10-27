@@ -154,7 +154,14 @@ See the [phase 1 plan](../plan/platform/implementation/phase-1-foundations.md). 
 | [application/plugins.py](../../src/quotation_app/application/plugins.py) | Load a pluggable part by entry point name, with clear errors |
 | [0008_connections.py](../../migrations/versions/0008_connections.py) | connections, connection_events, inbox/binding/enrollment `connection_ref`, lookup policy, worker grants, backfill and downgrade |
 | [persistence/connections.py](../../src/quotation_app/persistence/connections.py) | SqlConnectionStore, SqlHookLookup, owner-only `ensure_connection`/`set_status` with audit events; API keys and the seed use them |
-| [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests; selects the secret store from settings |
+| [application/providers.py](../../src/quotation_app/application/providers.py) | ProviderRegistry: loads `quotation_app.providers` entry points, checks keys, skips dev-only providers in production |
+| [application/inbound.py](../../src/quotation_app/application/inbound.py) | InboundService (token, size, verify-before-parse, store once), ManagerActionRoute, ProcessInboundHandler (`process_inbound` job), `routes_for` |
+| [ports/inbound.py](../../src/quotation_app/ports/inbound.py), [persistence/inbound.py](../../src/quotation_app/persistence/inbound.py) | InboundStore and SqlInboundStore: inbox rows with dedupe, the job in the same transaction, outcome recording |
+| [api/hooks.py](../../src/quotation_app/api/hooks.py) | `POST /api/v1/hooks/{connection_id}/{webhook_token}` |
+| [api/channels.py](../../src/quotation_app/api/channels.py) | Deprecated simulated route, now finding the business's connection and routing through ManagerActionRoute |
+| [adapters/providers/api/](../../src/quotation_app/adapters/providers/api/__init__.py) | Provider `api` (pull: send = available) |
+| [adapters/providers/simulated/](../../src/quotation_app/adapters/providers/simulated/provider.py) | Provider `simulated` (dev only): outbox files, per-connection HMAC signing, manager actions, demo catalogue reader; `signing.py` (incl. `hook_token`), `outbox.py` |
+| [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests: secret store (built lazily), provider registry |
 
 ## Planned modules
 

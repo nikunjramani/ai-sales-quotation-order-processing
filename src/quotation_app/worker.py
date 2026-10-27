@@ -21,22 +21,27 @@ from quotation_app.application.acceptance import (
     QuotationResponseService,
     ResponseNotificationHandler,
 )
+from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.delivery import QuotationDeliveryHandler
+from quotation_app.application.inbound import ProcessInboundHandler, routes_for
 from quotation_app.application.jobs import JobRunner
 from quotation_app.application.notifications import ApprovalNotificationHandler
 from quotation_app.application.preparation import EnquiryPreparationHandler
 from quotation_app.application.pricing import QuotationPricingService
+from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
 from quotation_app.domain.jobs import JobKind
 from quotation_app.persistence.acceptance import SqlResponseStore
-from quotation_app.persistence.channels import SqlNotificationStore
+from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.database import build_engine
 from quotation_app.persistence.documents import SqlDeliveryStore
+from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlPreparationStore
 from quotation_app.persistence.jobs import SqlJobQueue
-from quotation_app.persistence.quotations import SqlQuotationWorkflowStore
+from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
-from quotation_app.persistence.tenancy import SqlPricingPolicyReader
+from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
 from quotation_app.persistence.workflow import SqlWorkflowStore, open_checkpointer
 from quotation_app.workflows.enquiry import (
     EnquiryWorkflowDeps,
@@ -68,6 +73,7 @@ def main() -> None:
     # Only the simulated ERP exists until a pilot ERP is connected (M7).
     erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
     workflow_store = SqlWorkflowStore(engine)
+    memberships = SqlMembershipReader(engine)
     quotation_store = SqlQuotationWorkflowStore(engine)
     pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
     # Manager channels: only the simulated one exists (dev/test), enabled with its secret.
@@ -89,6 +95,16 @@ def main() -> None:
     expiry = QuotationExpiryHandler(QuotationResponseService(responses, pricing))
     response_notices = ResponseNotificationHandler(
         responses, SqlNotificationStore(engine), notifiers
+    )
+    # Provider callbacks stored by the API are routed here, through the same approval core.
+    inbound = ProcessInboundHandler(
+        SqlInboundStore(engine),
+        routes_for(
+            ChannelActionService(
+                SqlChannelStore(engine),
+                ApprovalService(SqlApprovalStore(engine), TenantContextResolver(memberships)),
+            )
+        ),
     )
     logging.info("Enquiry interpreter: %s", settings.model or "rules (no AI)")
     try:
@@ -118,6 +134,7 @@ def main() -> None:
                     JobKind.DELIVER_QUOTATION: deliveries,
                     JobKind.EXPIRE_QUOTATION: expiry,
                     JobKind.NOTIFY_RESPONSE: response_notices,
+                    JobKind.PROCESS_INBOUND: inbound,
                 },
             )
             while True:

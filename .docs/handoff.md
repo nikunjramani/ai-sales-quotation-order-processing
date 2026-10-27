@@ -207,7 +207,16 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - The old `Channel`/`ApprovalChannel` enums go when the `api` and `simulated` providers exist (WI-5, WI-9).
 - **WI-2 done:** migration `0008_connections` (tables, policies, worker grants, backfill, downgrade) and persistence. API keys create and disable their `api` connection; the seed gives each demo business a `simulated` connection (approvals and catalogue); intake and enrollment link rows to connections; disabled connections get no approval requests. Tests: `test_connections.py` and `test_migrations_0008.py` (upgrade with M6 data, downgrade, upgrade). Checks: `check_database.py --cycle` with 420 tests, twice. One earlier run failed once in `test_versions_and_decisions_are_append_only` and did not repeat in three later runs; watch for flakiness.
 - **After pulling:** `uv run alembic upgrade head` and `uv run python -m quotation_app.persistence.seed` (the demo connections).
-- **Next:** WI-4 + WI-5 (provider registry, generic hook route, the `api` and `simulated` providers).
+- **WI-4 + WI-5 done:**
+  - **Registry and route:** the provider registry (entry points, `uv sync` registers `api` and `simulated`) and the generic hook route `POST /api/v1/hooks/{connection}/{token}`.
+  - **Inbound handling:** `InboundService` (token, size, signature before parsing, stored once) and the `process_inbound` job (manager actions go through the same ChannelActionService and ApprovalService).
+  - **Providers:** `api` and `simulated`. The old notifier now reuses the provider's outbox writer; it is deleted in WI-8.
+  - **Old route:** now a documented deprecated alias on the new framework, with the same answers.
+  - **Seed:** with the dev secret set, the seed gives the demo phone connection its signing secret (in the secret store) and a webhook token (hash only).
+  - **Scripts:** `scripts/simulated_channel.py --via hooks`.
+  - **Deviation from the plan, on purpose:** `ChannelEvent` keeps the provider key and the connection's legacy key (exactly one connection per business). Decision command IDs therefore stay the same across the upgrade, so the planned "replay after upgrade gets 409" edge case does not happen.
+  - **Checks:** 439 tests on PostgreSQL, including approval through the generic hook. Live: demo page, enquiry, phone, approve (alias), quotation for the customer.
+- **Next:** WI-6 + WI-7 (outbox table and `send_message` job).
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

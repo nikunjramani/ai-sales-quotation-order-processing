@@ -26,16 +26,14 @@ from pypdf import PdfReader
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
-from quotation_app.adapters.channels.simulated import (
-    SIGNATURE_HEADER,
-    SimulatedChannelNotifier,
-    sign,
-)
+from quotation_app.adapters.channels.simulated import SimulatedChannelNotifier
 from quotation_app.adapters.delivery.api import ApiPullDelivery
 from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.documents.text import PdfAndTextReader
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.rules import RulesInterpreter
+from quotation_app.adapters.providers.simulated.signing import SIGNATURE_HEADER, hook_token, sign
+from quotation_app.adapters.secrets.local import new_key
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.app import create_app
 from quotation_app.api.auth import CSRF_HEADER
@@ -45,7 +43,9 @@ from quotation_app.application.acceptance import (
     ResponseNotificationHandler,
 )
 from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.delivery import QuotationDeliveryHandler
+from quotation_app.application.inbound import ProcessInboundHandler, routes_for
 from quotation_app.application.jobs import JobRunner
 from quotation_app.application.notifications import ApprovalNotificationHandler
 from quotation_app.application.preparation import EnquiryPreparationHandler
@@ -59,16 +59,19 @@ from quotation_app.domain.acceptance import (
     ResponseOutcome,
     ResponseRequest,
 )
+from quotation_app.domain.connections import ConnectionStatus
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.quotations import ApprovalAction, DecisionCommand, DecisionConflict
 from quotation_app.domain.tenancy import Role, TenantContext
 from quotation_app.persistence.acceptance import SqlResponseStore
-from quotation_app.persistence.channels import SqlNotificationStore
+from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
+from quotation_app.persistence.connections import SqlConnectionStore, set_status
 from quotation_app.persistence.documents import SqlDeliveryStore
+from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlPreparationStore
 from quotation_app.persistence.jobs import SqlJobQueue
 from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
-from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
+from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT, seed_demo_tenants
 from quotation_app.persistence.tenancy import (
     SqlMembershipReader,
     SqlPricingPolicyReader,
@@ -155,6 +158,18 @@ def running_worker(settings: Settings, engine: Engine) -> Iterator[JobRunner]:
                     responses,
                     SqlNotificationStore(engine),
                     {"simulated": SimulatedChannelNotifier(settings.storage_dir / "outbox")},
+                ),
+                JobKind.PROCESS_INBOUND: ProcessInboundHandler(
+                    SqlInboundStore(engine),
+                    routes_for(
+                        ChannelActionService(
+                            SqlChannelStore(engine),
+                            ApprovalService(
+                                SqlApprovalStore(engine),
+                                TenantContextResolver(SqlMembershipReader(engine)),
+                            ),
+                        )
+                    ),
                 ),
                 JobKind.DELIVER_QUOTATION: QuotationDeliveryHandler(
                     SqlDeliveryStore(engine),
@@ -352,6 +367,73 @@ def test_manager_approves_from_the_simulated_channel(
     assert run_status(owner_engine, listed[0]["quotation_id"]) == APPROVED_WAITING
     detail = manager.get(f"{base()}/quotations/{listed[0]['quotation_id']}").json()
     assert detail["decisions"][0]["transport"] == "simulated"
+
+
+def test_manager_approves_through_the_generic_hook(
+    make_client: Callable[[], TestClient],
+    make_api_key: ApiKeyFactory,
+    settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+) -> None:
+    """Phase 1 (ADR 0018): the same approval, through /api/v1/hooks and the process_inbound job."""
+    keyed = settings.model_copy(update={"secret_store_key": SecretStr(new_key())})
+    seed_demo_tenants(keyed)
+    connection = SqlConnectionStore(owner_engine).find_by_account(
+        INDUSTRIAL_TENANT, "simulated", "simulated-local"
+    )
+    assert connection is not None
+    url = f"/api/v1/hooks/{connection.connection_id}/{hook_token(SECRET, connection.connection_id)}"
+    client = TestClient(create_app(keyed))
+    client.__enter__()
+    manager = make_client()
+    code = manager.post(
+        f"{base()}/channel-enrollments", json={"channel": "simulated"},
+        headers=login(manager, MANAGER),
+    ).json()["code"]  # fmt: skip
+
+    def post(event: dict[str, Any], secret: str = SECRET, to: str = url) -> Any:
+        raw = json.dumps(event).encode()
+        return client.post(to, content=raw, headers={SIGNATURE_HEADER: sign(secret, raw)})
+
+    try:
+        enroll = {"event_id": "h1", "external_user_id": "phone-9", "type": "enroll", "code": code}
+        assert post(enroll).json() == {"received": 1, "duplicates": 0}
+        assert post(enroll).json() == {"received": 1, "duplicates": 1}
+        assert post(enroll, secret="forged").status_code == 401
+        assert post(enroll, to=url.rsplit("/", 1)[0] + "/wrong-token").status_code == 404
+        drain(keyed, worker_engine)
+        bindings = manager.get(f"{base()}/channel-bindings").json()
+        assert [b["external_user_id"] for b in bindings] == ["phone-9"]
+
+        submit(make_client(), make_api_key(INDUSTRIAL_TENANT, Role.INTAKE_SERVICE), ENQUIRY)
+        drain(keyed, worker_engine)
+        [message_file] = list(Path(keyed.storage_dir / "outbox").rglob("*.json"))
+        reference = json.loads(message_file.read_text(encoding="utf-8"))["action_reference"]
+        decision = {"event_id": "h2", "external_user_id": "phone-9", "type": "decision",
+                    "action_reference": reference, "action": "approve"}  # fmt: skip
+        assert post(decision).status_code == 200
+        drain(keyed, worker_engine)
+        listed = manager.get(f"{base()}/quotations").json()
+        detail = manager.get(f"{base()}/quotations/{listed[0]['quotation_id']}").json()
+        assert detail["decisions"][0]["transport"] == "simulated"
+        assert run_status(owner_engine, listed[0]["quotation_id"]) == APPROVED_WAITING
+        with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as db:
+            outcomes = db.execute(
+                text("SELECT outcome FROM inbox_events WHERE event_type = 'manager_action' "
+                     "ORDER BY received_at")
+            ).scalars().all()  # fmt: skip
+        assert outcomes == ["enrolled", "recorded"]
+
+        with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as db:
+            set_status(db, INDUSTRIAL_TENANT, connection.connection_id,
+                       ConnectionStatus.DISABLED, "test")  # fmt: skip
+        assert post({**enroll, "event_id": "h3"}).status_code == 404
+    finally:
+        with tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as db:
+            set_status(db, INDUSTRIAL_TENANT, connection.connection_id,
+                       ConnectionStatus.ACTIVE, "test")  # fmt: skip
+        client.__exit__(None, None, None)
 
 
 def test_concurrent_decisions_record_exactly_one(

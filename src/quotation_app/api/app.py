@@ -17,23 +17,28 @@ from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.auth import PortalAuth, build_auth_router
 from quotation_app.api.channels import build_channel_router
 from quotation_app.api.enquiries import build_enquiry_router
+from quotation_app.api.hooks import build_hook_router
 from quotation_app.api.portal import build_portal_router
 from quotation_app.application.acceptance import QuotationResponseService
 from quotation_app.application.api_keys import ApiKeyAuthenticator
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.documents import QuotationDocumentService
+from quotation_app.application.inbound import InboundService, ManagerActionRoute
 from quotation_app.application.intake import EnquiryIntakeService, EnquiryListService
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.sessions import SessionService
 from quotation_app.application.tenancy import TenantContextResolver
+from quotation_app.composition import build_provider_registry, lazy_secret_store
 from quotation_app.config import Settings
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.api_keys import SqlApiKeyReader
 from quotation_app.persistence.channels import SqlChannelStore
+from quotation_app.persistence.connections import SqlConnectionStore, SqlHookLookup
 from quotation_app.persistence.database import build_engine, database_ready
 from quotation_app.persistence.documents import SqlDocumentReader
+from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlEnquiryListReader, SqlIntakeStore
 from quotation_app.persistence.quotations import (
     SqlApprovalStore,
@@ -133,9 +138,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             responses,
         )
     )
+    # Provider callbacks (ADR 0018): one generic route for every provider with webhooks.
+    registry = build_provider_registry(configuration)
+    connections = SqlConnectionStore(engine)
+    inbox = SqlInboundStore(engine)
+    app.include_router(
+        build_hook_router(
+            InboundService(SqlHookLookup(engine), registry, lazy_secret_store(configuration), inbox)
+        )
+    )
+    # Deprecated alias for the demo page and scripts (removed in phase 4/5).
     secret = configuration.simulated_channel_secret
     app.include_router(
-        build_channel_router(channels, None if secret is None else secret.get_secret_value())
+        build_channel_router(
+            ManagerActionRoute(channels),
+            connections,
+            inbox,
+            None if secret is None else secret.get_secret_value(),
+        )
     )
     if configuration.portal_dist_dir is not None and configuration.portal_dist_dir.is_dir():
         app.mount(

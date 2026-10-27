@@ -167,8 +167,19 @@ class SimulatedErp:
 _PRICES_FROM = datetime(2026, 1, 1, tzinfo=UTC)
 
 
+DEMO_CATALOGUES = ("industrial", "office")
+
+
 def demo_catalogues(industrial_tenant: UUID, office_tenant: UUID) -> dict[UUID, SimulatedCatalogue]:
     """Two fictional businesses whose items exercise each pricing and stock rule."""
+    return {
+        industrial_tenant: demo_catalogue("industrial"),
+        office_tenant: demo_catalogue("office"),
+    }
+
+
+def demo_catalogue(name: str) -> SimulatedCatalogue:
+    """A fresh copy of one named demo catalogue ("industrial" or "office"); KeyError otherwise."""
 
     def each(sku: str, description: str, category: str) -> Product:
         return Product(sku, description, "each", Decimal(1), Decimal(1), category)
@@ -238,4 +249,4 @@ def demo_catalogues(industrial_tenant: UUID, office_tenant: UUID) -> dict[UUID, 
         stock={"OFF-CHAIR-ERG": Decimal(0), "OFF-DESK-160": Decimal(3)},
         warehouse="BERLIN",
     )
-    return {industrial_tenant: industrial, office_tenant: office}
+    return {"industrial": industrial, "office": office}[name]
