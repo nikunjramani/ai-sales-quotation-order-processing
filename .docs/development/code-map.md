@@ -152,6 +152,8 @@ See the [phase 1 plan](../plan/platform/implementation/phase-1-foundations.md). 
 | [ports/connections.py](../../src/quotation_app/ports/connections.py), [ports/secrets.py](../../src/quotation_app/ports/secrets.py), [ports/messages.py](../../src/quotation_app/ports/messages.py) | ConnectionStore and HookLookup; SecretStore; MessageOutbox and SendHook |
 | [adapters/secrets/](../../src/quotation_app/adapters/secrets/local.py) | `local` (AES-256-GCM files bound to tenant and reference) and `none` secret stores, registered as entry points |
 | [application/plugins.py](../../src/quotation_app/application/plugins.py) | Load a pluggable part by entry point name, with clear errors |
+| [0008_connections.py](../../migrations/versions/0008_connections.py) | connections, connection_events, inbox/binding/enrollment `connection_ref`, lookup policy, worker grants, backfill and downgrade |
+| [persistence/connections.py](../../src/quotation_app/persistence/connections.py) | SqlConnectionStore, SqlHookLookup, owner-only `ensure_connection`/`set_status` with audit events; API keys and the seed use them |
 | [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests; selects the secret store from settings |
 
 ## Planned modules

@@ -63,6 +63,17 @@ The PDF bytes live in private object storage (`tenants/<t>/documents/<id>`), not
 
 Quotation and workflow-run statuses gain `accepted`, `declined`, `expired` and `withdrawn`.
 
+### Added in phase 1 (migration 0008, ADR 0018)
+| Table / column | Contents and rules |
+|---|---|
+| connections | One business's configured tool: provider key, name, purposes (`customer_messages`, `manager_approvals`, `catalogue`; later `payments`, `orders`), non-secret `config`, `secret_refs` (references into the secret store, never values), provider-side `account_ref` (unique per tenant and provider; `api-key:<id>` for API keys, `simulated-local` for the demo phone), webhook token SHA-256 (NULL = no webhook), status (`setting_up`, `active`, `error`, `disabled`), last error. Forced RLS. At most one active catalogue source per business (partial unique index). The API may read one row by ID for the webhook route (`connection_hook_lookup`, like `api_key_lookup`). Only the owner writes in phase 1 (API keys, seed) |
+| connection_events | Append-only audit (`created`, `migrated`, `status_changed`, ...), actor, detail without secrets |
+| inbox_events | Gains `event_type` (`customer_message`, `manager_action`, `delivery_status`, `consent_change`), `connection_ref` (composite FK, NOT NULL), `processed_at`, `outcome`. The dedupe key becomes (tenant, connection_ref, provider event ID, event type). `channel`/`connection_id` stay filled (deprecated). Envelopes gained `reply_to` |
+| channel_bindings | Gains `connection_ref` (NOT NULL); one active binding per (tenant, connection, external user). Bindings on a connection that is not active get no approval requests |
+| channel_enrollments | Gains `connection_ref` (NULL: any connection of the provider; set: only that one) |
+
+Backfill: one `api` connection per API key (disabled if the key is revoked), one `simulated` connection per (tenant, connection) used by bindings, a disabled safety-net connection for any other inbox source. Creating an API key also creates its connection; revoking it disables the connection. The demo seed gives each demo business one `simulated` connection for manager approvals and its demo catalogue.
+
 ## Planned entities
 | Entity | Important contents |
 |---|---|

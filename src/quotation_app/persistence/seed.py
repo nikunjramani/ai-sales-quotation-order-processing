@@ -1,6 +1,7 @@
-"""Idempotently insert fictional tenants, memberships and policies, using owner access.
+"""Idempotently insert fictional tenants, memberships, policies and connections (owner access).
 
-Existing rows are left unchanged. Subjects use the reserved .example domain.
+Existing rows are left unchanged. Subjects use the reserved .example domain. Each demo business
+gets one `simulated` connection (ADR 0018): the fake manager phone and its demo catalogue.
 """
 
 from decimal import Decimal
@@ -10,8 +11,10 @@ from sqlalchemy import Connection, text
 from sqlalchemy.dialects.postgresql import insert
 
 from quotation_app.config import Settings
+from quotation_app.domain.connections import Purpose
 from quotation_app.domain.money import RoundingMode
 from quotation_app.domain.tenancy import Role
+from quotation_app.persistence.connections import ensure_connection
 from quotation_app.persistence.database import build_engine
 from quotation_app.persistence.models import Membership, Tenant, TenantPricingPolicy
 
@@ -35,6 +38,15 @@ DEMO_MEMBERSHIPS = (
 DEMO_POLICIES = (
     (INDUSTRIAL_TENANT, "INR", 2, RoundingMode.HALF_UP, Decimal("0.18")),
     (OFFICE_TENANT, "EUR", 2, RoundingMode.HALF_EVEN, Decimal("0.19")),
+)
+
+
+# The development provider (dev-only, refused in production) and its demo catalogue names.
+SIMULATED_PROVIDER = "simulated"
+SIMULATED_ACCOUNT = "simulated-local"
+DEMO_CONNECTIONS = (
+    (INDUSTRIAL_TENANT, "industrial"),
+    (OFFICE_TENANT, "office"),
 )
 
 
@@ -82,13 +94,28 @@ def seed_demo_tenants(settings: Settings) -> None:
                     )
                     .on_conflict_do_nothing(index_elements=["tenant_id"])
                 )
+            for tenant_id, catalogue in DEMO_CONNECTIONS:
+                _set_tenant(connection, tenant_id)
+                ensure_connection(
+                    connection,
+                    tenant_id=tenant_id,
+                    provider_key=SIMULATED_PROVIDER,
+                    account_ref=SIMULATED_ACCOUNT,
+                    display_name="Simulated phone and demo catalogue",
+                    purposes=[Purpose.MANAGER_APPROVALS, Purpose.CATALOGUE],
+                    created_by="seed",
+                    config={"catalogue": catalogue},
+                )
     finally:
         engine.dispose()
 
 
 def main() -> None:
     seed_demo_tenants(Settings())
-    print("Synthetic tenants, memberships and policies are present. Existing rows unchanged.")
+    print(
+        "Synthetic tenants, memberships, policies and connections are present. "
+        "Existing rows unchanged."
+    )
 
 
 if __name__ == "__main__":

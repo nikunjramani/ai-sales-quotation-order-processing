@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import Engine, Row, and_, exists, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
+from quotation_app.domain.connections import ConnectionStatus
 from quotation_app.domain.quotations import ReviewPacket, TaskStatus
 from quotation_app.domain.tenancy import Role
 from quotation_app.persistence.models import (
@@ -18,6 +19,7 @@ from quotation_app.persistence.models import (
     ApprovalTask,
     ChannelBindingRow,
     ChannelEnrollment,
+    ConnectionRow,
     Enquiry,
     Membership,
     Quotation,
@@ -109,6 +111,12 @@ class SqlNotificationStore:
             Membership.subject == ChannelBindingRow.subject,
             Membership.role == Role.APPROVER.value,
         )
+        # A disabled or broken connection gets no approval requests (P1-Q10).
+        usable = exists().where(
+            ConnectionRow.tenant_id == ChannelBindingRow.tenant_id,
+            ConnectionRow.id == ChannelBindingRow.connection_ref,
+            ConnectionRow.status == ConnectionStatus.ACTIVE.value,
+        )
         with tenant_transaction(self._engine, tenant_id) as connection:
             rows = connection.execute(
                 select(*_BINDING_COLUMNS)
@@ -116,6 +124,7 @@ class SqlNotificationStore:
                     ChannelBindingRow.tenant_id == tenant_id,
                     ChannelBindingRow.revoked_at.is_(None),
                     is_approver,
+                    usable,
                 )
                 .order_by(ChannelBindingRow.created_at, ChannelBindingRow.id)
             ).all()
@@ -213,6 +222,7 @@ class SqlChannelStore:
                     ChannelEnrollment.id,
                     ChannelEnrollment.subject,
                     ChannelEnrollment.channel,
+                    ChannelEnrollment.connection_ref,
                     ChannelEnrollment.expires_at,
                     ChannelEnrollment.consumed_at,
                 )
@@ -224,10 +234,21 @@ class SqlChannelStore:
             ).one_or_none()
             if enrollment is None or enrollment.channel != channel:
                 return None
+            # The account must belong to an active connection of this business (ADR 0018);
+            # a code issued for one connection works only there.
+            connection_ref = connection.execute(
+                select(ConnectionRow.id).where(
+                    ConnectionRow.tenant_id == tenant_id,
+                    ConnectionRow.provider_key == channel,
+                    ConnectionRow.account_ref == connection_id,
+                    ConnectionRow.status == ConnectionStatus.ACTIVE.value,
+                )
+            ).scalar_one_or_none()
+            if connection_ref is None or enrollment.connection_ref not in (None, connection_ref):
+                return None
             same_account = and_(
                 ChannelBindingRow.tenant_id == tenant_id,
-                ChannelBindingRow.channel == channel,
-                ChannelBindingRow.connection_id == connection_id,
+                ChannelBindingRow.connection_ref == connection_ref,
                 ChannelBindingRow.external_user_id == external_user_id,
             )
             if enrollment.consumed_at is not None:
@@ -255,6 +276,7 @@ class SqlChannelStore:
                     subject=enrollment.subject,
                     channel=channel,
                     connection_id=connection_id,
+                    connection_ref=connection_ref,
                     external_user_id=external_user_id,
                     enrollment_id=enrollment.id,
                 )

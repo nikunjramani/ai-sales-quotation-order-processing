@@ -20,7 +20,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -122,6 +122,61 @@ class ApiKey(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ConnectionRow(Base):
+    """One business's configured tool (ADR 0018). Secrets are references only."""
+
+    __tablename__ = "connections"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_connections_tenant_id_id"),
+        UniqueConstraint("tenant_id", "provider_key", "account_ref", name="uq_connections_account"),
+        Index("ix_connections_tenant_status", "tenant_id", "status"),
+        # At most one active product source per business (P1-Q7).
+        Index(
+            "uq_connections_one_catalogue",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("status = 'active' AND purposes @> ARRAY['catalogue']::text[]"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    provider_key: Mapped[str] = mapped_column(String(32))
+    display_name: Mapped[str] = mapped_column(String(100))
+    purposes: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    config: Mapped[dict[str, object]] = mapped_column(JSONB, server_default=text("'{}'"))
+    secret_refs: Mapped[dict[str, str]] = mapped_column(JSONB, server_default=text("'{}'"))
+    account_ref: Mapped[str | None] = mapped_column(String(200))
+    webhook_token_sha256: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16))
+    last_error: Mapped[str | None] = mapped_column(String(300))
+    created_by: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConnectionEventRow(Base):
+    """Append-only audit of connection changes; never contains secrets."""
+
+    __tablename__ = "connection_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_id"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_connection_events_connection",
+        ),
+        Index("ix_connection_events_connection", "tenant_id", "connection_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column()
+    connection_id: Mapped[UUID] = mapped_column()
+    kind: Mapped[str] = mapped_column(String(32))
+    actor: Mapped[str] = mapped_column(String(200))
+    detail: Mapped[dict[str, object]] = mapped_column(JSONB, server_default=text("'{}'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class InboxEvent(Base):
     """Durable receipt of one provider event; the unique key makes replays detectable."""
 
@@ -129,23 +184,33 @@ class InboxEvent(Base):
     __table_args__ = (
         UniqueConstraint(
             "tenant_id",
-            "channel",
-            "connection_id",
+            "connection_ref",
             "provider_event_id",
+            "event_type",
             name="uq_inbox_events_provider_event",
         ),
         UniqueConstraint("tenant_id", "id", name="uq_inbox_events_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_ref"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_inbox_events_connection",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    # Deprecated since 0008 (still filled): the provider key and the legacy connection string.
     channel: Mapped[str] = mapped_column(String(32))
     connection_id: Mapped[str] = mapped_column(String(100))
+    connection_ref: Mapped[UUID] = mapped_column()
+    event_type: Mapped[str] = mapped_column(String(32), server_default="customer_message")
     provider_event_id: Mapped[str] = mapped_column(String(200))
     payload_sha256: Mapped[str] = mapped_column(String(64))
     envelope: Mapped[dict[str, object]] = mapped_column(JSONB)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     correlation_id: Mapped[UUID] = mapped_column()
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str | None] = mapped_column(String(300))
 
 
 class Enquiry(Base):
@@ -422,12 +487,19 @@ class ChannelEnrollment(Base):
     __tablename__ = "channel_enrollments"
     __table_args__ = (
         UniqueConstraint("tenant_id", "code_sha256", name="uq_channel_enrollments_code"),
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_ref"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_channel_enrollments_connection",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
     subject: Mapped[str] = mapped_column(String(200))
     channel: Mapped[str] = mapped_column(String(32))
+    # NULL: any connection of that provider (old endpoint); set: only that connection.
+    connection_ref: Mapped[UUID | None] = mapped_column()
     code_sha256: Mapped[str] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -442,20 +514,25 @@ class ChannelBindingRow(Base):
         Index(
             "uq_channel_bindings_active_account",
             "tenant_id",
-            "channel",
-            "connection_id",
+            "connection_ref",
             "external_user_id",
             unique=True,
             postgresql_where=text("revoked_at IS NULL"),
         ),
         UniqueConstraint("tenant_id", "id", name="uq_channel_bindings_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_ref"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_channel_bindings_connection",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
     subject: Mapped[str] = mapped_column(String(200))
     channel: Mapped[str] = mapped_column(String(32))
-    connection_id: Mapped[str] = mapped_column(String(100))
+    connection_id: Mapped[str] = mapped_column(String(100))  # legacy key, for display
+    connection_ref: Mapped[UUID] = mapped_column()
     external_user_id: Mapped[str] = mapped_column(String(200))
     enrollment_id: Mapped[UUID] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

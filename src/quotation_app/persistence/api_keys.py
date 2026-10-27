@@ -1,13 +1,27 @@
-"""API key lookup and creation."""
+"""API key lookup and creation.
+
+Each key is also an `api` connection (account_ref "api-key:<id>", ADR 0018), created and
+disabled together with the key, so enquiries through the API belong to a real connection.
+"""
 
 from uuid import UUID
 
 from sqlalchemy import Engine, insert, select, text
 
+from quotation_app.domain.connections import ConnectionStatus, Purpose
 from quotation_app.domain.tenancy import Role
-from quotation_app.persistence.models import ApiKey
+from quotation_app.persistence.connections import ensure_connection, set_status
+from quotation_app.persistence.models import ApiKey, ConnectionRow
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.api_keys import ApiKeyRecord
+
+# The `api` provider's key; the provider package owns it from WI-5 on.
+API_PROVIDER_KEY = "api"
+
+
+def api_key_account(key_id: UUID) -> str:
+    """The subject an API key acts as, which is also its connection's account_ref."""
+    return f"api-key:{key_id}"
 
 
 class SqlApiKeyReader:
@@ -55,6 +69,15 @@ def insert_api_key(
                 secret_sha256=secret_sha256,
             )
         )
+        ensure_connection(
+            connection,
+            tenant_id=tenant_id,
+            provider_key=API_PROVIDER_KEY,
+            account_ref=api_key_account(key_id),
+            display_name=name,
+            purposes=[Purpose.CUSTOMER_MESSAGES],
+            created_by="api-key",
+        )
 
 
 def revoke_api_key(owner_engine: Engine, tenant_id: UUID, key_id: UUID) -> bool:
@@ -66,4 +89,15 @@ def revoke_api_key(owner_engine: Engine, tenant_id: UUID, key_id: UUID) -> bool:
             ),
             {"id": key_id, "tenant": tenant_id},
         )
-        return result.rowcount == 1
+        if result.rowcount != 1:
+            return False
+        connection_id = connection.execute(
+            select(ConnectionRow.id).where(
+                ConnectionRow.tenant_id == tenant_id,
+                ConnectionRow.provider_key == API_PROVIDER_KEY,
+                ConnectionRow.account_ref == api_key_account(key_id),
+            )
+        ).scalar_one_or_none()
+        if connection_id is not None:
+            set_status(connection, tenant_id, connection_id, ConnectionStatus.DISABLED, "api-key")
+        return True

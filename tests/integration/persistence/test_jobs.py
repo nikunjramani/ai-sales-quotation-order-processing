@@ -106,9 +106,10 @@ def test_worker_role_sees_only_the_queue_across_tenants(
         connection.execute(
             text(
                 "INSERT INTO inbox_events (id, tenant_id, channel, connection_id, "
-                "provider_event_id, payload_sha256, envelope, received_at, correlation_id) "
-                "VALUES (gen_random_uuid(), :tenant, 'api', 'c', 'event-000001', :hash, '{}', "
-                "now(), gen_random_uuid())"
+                "connection_ref, provider_event_id, payload_sha256, envelope, received_at, "
+                "correlation_id) SELECT gen_random_uuid(), :tenant, 'simulated', 'c', id, "
+                "'event-000001', :hash, '{}', now(), gen_random_uuid() FROM connections "
+                "WHERE provider_key = 'simulated'"
             ),
             {"tenant": industrial_tenant, "hash": "0" * 64},
         )

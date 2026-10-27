@@ -205,7 +205,9 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - Domain types and ports: connections, the outbox and templates (wording moved word for word), inbound event types, providers, secrets, `integrations:manage` and new job kinds.
   - Secret stores `local` (AES-256-GCM) and `none`, chosen by entry point; new settings; `init_local_env.py --add-missing` adds `QUOTATION_SECRET_STORE_KEY`. **Run it once, and `uv sync`, after pulling.**
   - The old `Channel`/`ApprovalChannel` enums go when the `api` and `simulated` providers exist (WI-5, WI-9).
-- **Next:** WI-2 (migration 0008 and connection persistence).
+- **WI-2 done:** migration `0008_connections` (tables, policies, worker grants, backfill, downgrade) and persistence. API keys create and disable their `api` connection; the seed gives each demo business a `simulated` connection (approvals and catalogue); intake and enrollment link rows to connections; disabled connections get no approval requests. Tests: `test_connections.py` and `test_migrations_0008.py` (upgrade with M6 data, downgrade, upgrade). Checks: `check_database.py --cycle` with 420 tests, twice. One earlier run failed once in `test_versions_and_decisions_are_append_only` and did not repeat in three later runs; watch for flakiness.
+- **After pulling:** `uv run alembic upgrade head` and `uv run python -m quotation_app.persistence.seed` (the demo connections).
+- **Next:** WI-4 + WI-5 (provider registry, generic hook route, the `api` and `simulated` providers).
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

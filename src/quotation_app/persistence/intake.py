@@ -7,9 +7,22 @@ from sqlalchemy import Connection, Engine, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from quotation_app.domain.attachments import AttachmentStatus
-from quotation_app.domain.intake import Channel, EnquiryStatus, InboundEnvelope
+from quotation_app.domain.intake import (
+    Channel,
+    EnquiryStatus,
+    InboundEnvelope,
+    InboundEventType,
+)
 from quotation_app.domain.jobs import JobKind, JobStatus
-from quotation_app.persistence.models import Attachment, Enquiry, InboxEvent, Job, WorkflowRun
+from quotation_app.domain.tenancy import PermissionDenied
+from quotation_app.persistence.models import (
+    Attachment,
+    ConnectionRow,
+    Enquiry,
+    InboxEvent,
+    Job,
+    WorkflowRun,
+)
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.intake import (
     AttachmentView,
@@ -45,6 +58,7 @@ def _receipt(
             InboxEvent.channel == channel.value,
             InboxEvent.connection_id == connection_id,
             InboxEvent.provider_event_id == provider_event_id,
+            InboxEvent.event_type == InboundEventType.CUSTOMER_MESSAGE.value,
         )
     ).one_or_none()
     if row is None:
@@ -75,6 +89,15 @@ class SqlIntakeStore:
         with tenant_transaction(self._engine, tenant_id) as connection:
             # If a concurrent request holds the same key, PostgreSQL waits for it to finish;
             # DO NOTHING then returns no row and we read the winner's receipt instead.
+            connection_ref = connection.execute(
+                select(ConnectionRow.id).where(
+                    ConnectionRow.tenant_id == tenant_id,
+                    ConnectionRow.provider_key == envelope.channel.value,
+                    ConnectionRow.account_ref == envelope.connection_id,
+                )
+            ).scalar_one_or_none()
+            if connection_ref is None:
+                raise PermissionDenied("The sending connection is not configured")
             inserted = connection.execute(
                 insert(InboxEvent)
                 .values(
@@ -82,6 +105,8 @@ class SqlIntakeStore:
                     tenant_id=tenant_id,
                     channel=envelope.channel.value,
                     connection_id=envelope.connection_id,
+                    connection_ref=connection_ref,
+                    event_type=InboundEventType.CUSTOMER_MESSAGE.value,
                     provider_event_id=envelope.provider_event_id,
                     payload_sha256=payload_sha256,
                     envelope=envelope.to_json(),
@@ -89,7 +114,12 @@ class SqlIntakeStore:
                     correlation_id=envelope.correlation_id,
                 )
                 .on_conflict_do_nothing(
-                    index_elements=["tenant_id", "channel", "connection_id", "provider_event_id"]
+                    index_elements=[
+                        "tenant_id",
+                        "connection_ref",
+                        "provider_event_id",
+                        "event_type",
+                    ]
                 )
                 .returning(InboxEvent.id)
             ).scalar_one_or_none()
