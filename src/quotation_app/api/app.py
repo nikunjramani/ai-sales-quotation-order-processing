@@ -15,6 +15,7 @@ from quotation_app.adapters.identity.dev import DevIdentityProvider
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.auth import PortalAuth, build_auth_router
 from quotation_app.api.channels import build_channel_router
+from quotation_app.api.connections import build_connection_router
 from quotation_app.api.enquiries import build_enquiry_router
 from quotation_app.api.hooks import build_hook_router
 from quotation_app.api.portal import build_portal_router
@@ -22,6 +23,7 @@ from quotation_app.application.acceptance import QuotationResponseService
 from quotation_app.application.api_keys import ApiKeyAuthenticator
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.connections import ConnectionService
 from quotation_app.application.documents import QuotationDocumentService
 from quotation_app.application.inbound import InboundService, ManagerActionRoute
 from quotation_app.application.intake import EnquiryIntakeService, EnquiryListService
@@ -123,7 +125,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     approvals = ApprovalService(SqlApprovalStore(engine), resolver)
-    channels = ChannelActionService(SqlChannelStore(engine), approvals)
+    channels = ChannelActionService(
+        SqlChannelStore(engine), approvals, connections, runtime.registry
+    )
     app.include_router(
         build_portal_router(
             auth,
@@ -137,7 +141,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             EnquiryListService(SqlEnquiryListReader(engine)),
             documents,
             responses,
+            connections,
         )
+    )
+    app.include_router(
+        build_connection_router(auth, ConnectionService(connections, runtime.registry), channels)
     )
     # Provider callbacks (ADR 0018): one generic route for every provider with webhooks.
     inbox = SqlInboundStore(engine)

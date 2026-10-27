@@ -66,13 +66,6 @@ QUOTATION_STATUS_AFTER: Mapping[ApprovalAction, QuotationStatus] = {
 }
 
 
-class ApprovalChannel(StrEnum):
-    """Manager approval channels. Real providers (email, Telegram...) are added as adapters;
-    see .docs/development/adding-channels.md."""
-
-    SIMULATED = "simulated"
-
-
 PORTAL_TRANSPORT = "portal"
 
 

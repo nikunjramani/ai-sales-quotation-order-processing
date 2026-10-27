@@ -205,6 +205,10 @@ def build_job_handlers(
         ),
         JobKind.PROCESS_INBOUND: ProcessInboundHandler(
             SqlInboundStore(engine),
-            routes_for(ChannelActionService(SqlChannelStore(engine), approvals)),
+            routes_for(
+                ChannelActionService(
+                    SqlChannelStore(engine), approvals, connections, runtime.registry
+                )
+            ),
         ),
     }

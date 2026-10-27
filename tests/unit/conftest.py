@@ -561,7 +561,13 @@ class MemoryQuotations:
 
     # --- ChannelStore ---------------------------------------------------------------------
     def create_enrollment(
-        self, tenant_id: UUID, subject: str, channel: str, code_sha256: str, expires_at: datetime
+        self,
+        tenant_id: UUID,
+        subject: str,
+        channel: str,
+        code_sha256: str,
+        expires_at: datetime,
+        connection_ref: UUID | None = None,
     ) -> None:
         enrollment_id = uuid4()
         self.enrollments[enrollment_id] = EnrollmentRow(
@@ -1598,15 +1604,23 @@ def harness(
     pricing = QuotationPricingService(simulated_erp, policy_reader, clock=clock)
     approvals = ApprovalService(quotation_db, resolver, clock=clock)
     connections = MemoryConnections(now, industrial_tenant, office_tenant)
+    notifier = RecordingProvider("simulated", Purpose.MANAGER_APPROVALS)
+    email = RecordingProvider("email", Purpose.CUSTOMER_MESSAGES)
     return QuotationHarness(
         db=quotation_db,
         erp=simulated_erp,
         pricing=pricing,
         checkpointer=InMemorySaver(),
-        notifier=RecordingProvider("simulated", Purpose.MANAGER_APPROVALS),
+        notifier=notifier,
         approvals=approvals,
         quotations=QuotationService(quotation_db, quotation_db, pricing),
-        channels=ChannelActionService(quotation_db, approvals, clock=clock),
+        channels=ChannelActionService(
+            quotation_db,
+            approvals,
+            connections,
+            ProviderRegistry([ApiProvider(), email, notifier]),
+            clock=clock,
+        ),
         tenant_id=industrial_tenant,
         clock=clock,
         storage=memory_storage,
@@ -1614,7 +1628,7 @@ def harness(
         connections=connections,
         inbox=MemoryInbox(connections, quotation_db.jobs),
         outbox=MemoryOutbox(quotation_db),
-        email=RecordingProvider("email", Purpose.CUSTOMER_MESSAGES),
+        email=email,
     )
 
 

@@ -246,7 +246,13 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
     - New tests for the resolver and the job runner.
     - A PostgreSQL test with a new business without a source: needs review on attempt 1.
   - **Checks:** 406 unit tests; 465 tests on PostgreSQL.
-- **Next:** WI-12 (portal API for connections and linking; `ApprovalChannel` removed), WI-13 (portal "Connections" page), WI-14 (provider contract and architecture tests), WI-15 (ADR 0018, adding-providers guide, docs), then the final live run.
+- **WI-12 done:**
+  - **`GET /api/v1/tenants/{t}/connections`:** administrators see all connections, including the last error; approvers see only active approval connections; others get 403. No config, secrets or token hashes are ever returned.
+  - **`POST /connections/{id}/enrollments`:** the code works only on that connection. 404 for an unknown connection or another business's; 422 for a connection that is not for approvals or not active.
+  - **The old `/channel-enrollments`:** now checks the provider registry and the business's active connections (unknown provider or no connection gives 422). The `ApprovalChannel` enum is removed.
+  - **Bindings:** each now shows `connection_ref` and `connection_name`.
+  - **Checks:** 409 unit tests; 468 tests on PostgreSQL.
+- **Next:** WI-13 (portal "Connections" page), WI-14 (provider contract and architecture tests), WI-15 (ADR 0018, adding-providers guide, docs), then the final live run.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

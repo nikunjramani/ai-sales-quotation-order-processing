@@ -52,6 +52,7 @@ def build_app(harness: Any, sessions: Any, directory: Any, dev: bool = True) -> 
             EnquiryListService(NoEnquiries()),
             harness.documents(),
             harness.responses(),
+            harness.connections,
             clock=harness.clock,
         )
     )

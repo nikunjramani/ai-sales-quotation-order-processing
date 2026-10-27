@@ -15,9 +15,12 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from quotation_app.application.api_keys import hash_secret
 from quotation_app.application.approvals import ApprovalService, DecisionResult
+from quotation_app.application.providers import ProviderRegistry
+from quotation_app.domain.connections import Purpose
 from quotation_app.domain.quotations import ApprovalAction, DecisionCommand
 from quotation_app.domain.tenancy import Permission, TenantContext
 from quotation_app.ports.channels import ChannelBinding, ChannelStore
+from quotation_app.ports.connections import ConnectionStore
 
 ENROLLMENT_LIFETIME = timedelta(minutes=10)
 
@@ -55,6 +58,12 @@ class ChannelEvent:
 class NewEnrollment:
     code: str
     expires_at: datetime
+    provider_key: str
+    connection_id: UUID | None  # set: the code works only on that connection
+
+
+class ConnectionNotFound(Exception):
+    """No such connection in this business (same message for another business's)."""
 
 
 class ChannelActionService:
@@ -62,21 +71,55 @@ class ChannelActionService:
         self,
         store: ChannelStore,
         approvals: ApprovalService,
+        connections: ConnectionStore,
+        registry: ProviderRegistry,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._store = store
         self._approvals = approvals
+        self._connections = connections
+        self._registry = registry
         self._clock = clock
 
-    def start_enrollment(self, context: TenantContext, channel: str) -> NewEnrollment:
-        """A signed-in approver asks to link a channel account; the code proves control."""
+    def start_enrollment(
+        self, context: TenantContext, provider_key: str, connection_id: UUID | None = None
+    ) -> NewEnrollment:
+        """A signed-in approver asks to link an account; the one-time code proves control.
+
+        With connection_id the code works only on that connection (raises ConnectionNotFound,
+        or ValueError if it is not an active manager-approval connection). Without it, any of
+        the business's active connections of that provider (the older portal request).
+        """
         context.require(Permission.APPROVE_QUOTATIONS)
+        if connection_id is not None:
+            connection = self._connections.get(context.tenant_id, connection_id)
+            if connection is None:
+                raise ConnectionNotFound("Not found")
+            if not connection.active or not connection.serves(Purpose.MANAGER_APPROVALS):
+                raise ValueError("This connection cannot be used for approvals")
+            provider_key = connection.provider_key
+        else:
+            provider = self._registry.find(provider_key)
+            linkable = [
+                row
+                for row in self._connections.list_for(context.tenant_id, Purpose.MANAGER_APPROVALS)
+                if row.active and row.provider_key == provider_key
+            ]
+            if provider is None or Purpose.MANAGER_APPROVALS not in provider.purposes:
+                raise ValueError(f"Unknown approval channel '{provider_key}'")
+            if not linkable:
+                raise ValueError(f"This business has no active '{provider_key}' connection")
         code = secrets.token_hex(5).upper()
         expires_at = self._clock() + ENROLLMENT_LIFETIME
         self._store.create_enrollment(
-            context.tenant_id, context.subject, channel, hash_secret(code), expires_at
+            context.tenant_id,
+            context.subject,
+            provider_key,
+            hash_secret(code),
+            expires_at,
+            connection_id,
         )
-        return NewEnrollment(code, expires_at)
+        return NewEnrollment(code, expires_at, provider_key, connection_id)
 
     def bindings(self, context: TenantContext) -> list[ChannelBinding]:
         subject = None if Permission.MANAGE_TENANT in context.permissions else context.subject

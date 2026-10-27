@@ -63,7 +63,6 @@ from quotation_app.domain.quotations import (
     PORTAL_TRANSPORT,
     REVISABLE,
     ApprovalAction,
-    ApprovalChannel,
     DecisionCommand,
     DecisionConflict,
     QuotationNotFound,
@@ -77,6 +76,7 @@ from quotation_app.domain.quotations import (
 )
 from quotation_app.domain.tenancy import Permission, PermissionDenied, TenantContext
 from quotation_app.ports.channels import ChannelBinding
+from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.quotations import QuotationDetail, QuotationSummary
 from quotation_app.ports.storage import ObjectNotFound
 
@@ -188,12 +188,15 @@ class EnquirySummaryOut(BaseModel):
 
 
 class EnrollmentIn(BaseModel):
+    """Deprecated (phase 1): link on any active connection of this provider. New clients use
+    POST /connections/{id}/enrollments."""
+
     model_config = ConfigDict(extra="forbid")
-    channel: ApprovalChannel
+    channel: str = Field(min_length=1, max_length=32)
 
 
 class EnrollmentOut(BaseModel):
-    channel: ApprovalChannel
+    channel: str
     code: str
     expires_at: datetime
 
@@ -202,7 +205,9 @@ class BindingOut(BaseModel):
     binding_id: UUID
     subject: str
     channel: str
-    connection_id: str
+    connection_id: str  # the connection's legacy key, as before
+    connection_ref: UUID
+    connection_name: str
     external_user_id: str
     created_at: datetime
     revoked_at: datetime | None
@@ -375,12 +380,14 @@ def _detail(item: QuotationDetail, context: TenantContext) -> QuotationDetailOut
     )
 
 
-def _binding(item: ChannelBinding) -> BindingOut:
+def _binding(item: ChannelBinding, names: dict[UUID, str]) -> BindingOut:
     return BindingOut(
         binding_id=item.binding_id,
         subject=item.subject,
         channel=item.channel,
         connection_id=item.connection_id,
+        connection_ref=item.connection_ref,
+        connection_name=names.get(item.connection_ref, item.connection_id),
         external_user_id=item.external_user_id,
         created_at=item.created_at,
         revoked_at=item.revoked_at,
@@ -405,6 +412,7 @@ def build_portal_router(
     enquiries: EnquiryListService,
     documents: QuotationDocumentService,
     responses: QuotationResponseService,
+    connections: ConnectionStore,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/tenants/{tenant_id}", tags=["portal"])
@@ -594,12 +602,20 @@ def build_portal_router(
         "/channel-enrollments", response_model=EnrollmentOut, status_code=status.HTTP_201_CREATED
     )
     def enroll(body: EnrollmentIn, context: Context) -> EnrollmentOut:
-        new = guarded(lambda: channels.start_enrollment(context, body.channel.value))
+        new = guarded(lambda: channels.start_enrollment(context, body.channel))
         return EnrollmentOut(channel=body.channel, code=new.code, expires_at=new.expires_at)
 
     @router.get("/channel-bindings", response_model=list[BindingOut])
     def list_bindings(context: Context) -> list[BindingOut]:
-        return [_binding(item) for item in guarded(lambda: channels.bindings(context))]
+        def load() -> tuple[list[ChannelBinding], dict[UUID, str]]:
+            names = {
+                row.connection_id: row.display_name
+                for row in connections.list_for(context.tenant_id)
+            }
+            return channels.bindings(context), names
+
+        items, names = guarded(load)
+        return [_binding(item, names) for item in items]
 
     @router.delete(
         "/channel-bindings/{binding_id}",

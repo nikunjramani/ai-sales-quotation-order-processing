@@ -196,7 +196,13 @@ class SqlChannelStore:
         self._engine = engine
 
     def create_enrollment(
-        self, tenant_id: UUID, subject: str, channel: str, code_sha256: str, expires_at: datetime
+        self,
+        tenant_id: UUID,
+        subject: str,
+        channel: str,
+        code_sha256: str,
+        expires_at: datetime,
+        connection_ref: UUID | None = None,
     ) -> None:
         with tenant_transaction(self._engine, tenant_id) as connection:
             connection.execute(
@@ -207,6 +213,7 @@ class SqlChannelStore:
                     channel=channel,
                     code_sha256=code_sha256,
                     expires_at=expires_at,
+                    connection_ref=connection_ref,
                 )
             )
 

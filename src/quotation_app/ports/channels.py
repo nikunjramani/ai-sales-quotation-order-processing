@@ -66,8 +66,16 @@ class NotificationStore(Protocol):
 
 class ChannelStore(Protocol):
     def create_enrollment(
-        self, tenant_id: UUID, subject: str, channel: str, code_sha256: str, expires_at: datetime
-    ) -> None: ...
+        self,
+        tenant_id: UUID,
+        subject: str,
+        channel: str,
+        code_sha256: str,
+        expires_at: datetime,
+        connection_ref: UUID | None = None,
+    ) -> None:
+        """connection_ref set: the code can only bind an account on that connection."""
+        ...
 
     def enroll(
         self,
