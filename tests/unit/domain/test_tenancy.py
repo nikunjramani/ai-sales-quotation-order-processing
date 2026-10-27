@@ -3,7 +3,18 @@ from uuid import UUID
 
 import pytest
 
-from quotation_app.domain.tenancy import Permission, PermissionDenied, Role, TenantContext
+from quotation_app.domain.tenancy import (
+    PEOPLE_ROLES,
+    Permission,
+    PermissionDenied,
+    Role,
+    TenantContext,
+    TenantStatus,
+    accepts_intake,
+    allows_api_pull,
+    allows_changes,
+    may_contact_customers,
+)
 
 type ContextFactory = Callable[[UUID, Role], TenantContext]
 
@@ -41,3 +52,32 @@ def test_only_administrators_manage_integrations(
         if Permission.MANAGE_INTEGRATIONS in make_context(industrial_tenant, role).permissions
     }
     assert holders == {Role.ADMINISTRATOR}
+
+
+def test_only_administrators_manage_members(
+    make_context: ContextFactory, industrial_tenant: UUID
+) -> None:
+    holders = {
+        role
+        for role in Role
+        if Permission.MANAGE_MEMBERS in make_context(industrial_tenant, role).permissions
+    }
+    assert holders == {Role.ADMINISTRATOR}
+    assert Role.INTAKE_SERVICE not in PEOPLE_ROLES
+
+
+@pytest.mark.parametrize(
+    ("status", "intake", "customers", "pull", "changes"),
+    [
+        (TenantStatus.SETTING_UP, True, False, True, True),
+        (TenantStatus.ACTIVE, True, True, True, True),
+        (TenantStatus.SUSPENDED, False, False, False, False),
+    ],
+)
+def test_status_gates(
+    status: TenantStatus, intake: bool, customers: bool, pull: bool, changes: bool
+) -> None:
+    assert accepts_intake(status) is intake
+    assert may_contact_customers(status) is customers
+    assert allows_api_pull(status) is pull
+    assert allows_changes(status) is changes

@@ -27,21 +27,14 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from quotation_app.domain.documents import RENDERER_VERSION, DocumentSource, UnrenderableContent
+from quotation_app.domain.documents import (
+    RENDERER_VERSION,
+    DocumentSource,
+    UnrenderableContent,
+)
+from quotation_app.domain.documents import printable_text as _text
 
-_ENCODING = "cp1252"  # what the standard PDF fonts can show
 _PREVIEW_MARK = "PREVIEW - NOT AN OFFER"
-
-
-def _text(value: object, field: str) -> str:
-    text = " ".join(str(value).split())
-    try:
-        text.encode(_ENCODING)
-    except UnicodeEncodeError:
-        raise UnrenderableContent(
-            f"{field} contains characters the PDF fonts cannot show"
-        ) from None
-    return text
 
 
 def _percent(rate: str) -> str:

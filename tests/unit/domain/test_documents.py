@@ -13,11 +13,13 @@ from quotation_app.domain.documents import (
     DocumentKind,
     DocumentSource,
     NoDeliveryAddress,
+    UnrenderableContent,
     clean_error,
     delivery_recipient,
     document_filename,
     document_id,
     document_key,
+    printable_text,
 )
 
 
@@ -68,3 +70,10 @@ def test_the_recipient_is_whoever_sent_the_enquiry() -> None:
     )
     with pytest.raises(NoDeliveryAddress):
         delivery_recipient(DeliveryMode.PUSH, "mailbox-1", None)
+
+
+def test_printable_text_is_one_line_and_refuses_what_the_pdf_cannot_show() -> None:
+    assert printable_text("  Acme \n Pvt  Ltd ", "legal name") == "Acme Pvt Ltd"
+    assert printable_text("Müller & Söhne", "legal name") == "Müller & Söhne"
+    with pytest.raises(UnrenderableContent, match="legal name"):
+        printable_text("株式会社", "legal name")

@@ -33,6 +33,8 @@ class Permission(StrEnum):
     RESPOND_QUOTATIONS = "quotations:respond"
     # See and (from phase 5) enable or disable the business's tools (connections).
     MANAGE_INTEGRATIONS = "integrations:manage"
+    # See colleagues, invite people, change their roles and remove them (phase 2).
+    MANAGE_MEMBERS = "members:manage"
 
 
 # Administrators do not approve by default: approval is a separate, explicitly granted role.
@@ -44,6 +46,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.DRAFT_QUOTATIONS,
                 Permission.MANAGE_TENANT,
                 Permission.MANAGE_INTEGRATIONS,
+                Permission.MANAGE_MEMBERS,
                 Permission.SUBMIT_ENQUIRIES,
                 Permission.VIEW_ENQUIRIES,
             }
@@ -69,6 +72,46 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
         ),
     }
 )
+
+
+# The roles a person can hold (invitations, role changes). Never intake_service.
+PEOPLE_ROLES: frozenset[Role] = frozenset(
+    {Role.ADMINISTRATOR, Role.SALES_OPERATOR, Role.APPROVER, Role.VIEWER}
+)
+
+
+class TenantStatus(StrEnum):
+    """Where a business is in its life (phase 2, user answers Q11-Q13, 2026-10-27).
+
+    - setting_up: just created. Everything can be tried end to end, but nothing is sent to
+      customers through messaging tools (D3: "nothing is sent to customers before Go live").
+    - active:     went live. One-way: a live business never goes back to setting_up (Q12).
+    - suspended:  stopped by the platform operator (owner-credential script only, Q13).
+    """
+
+    SETTING_UP = "setting_up"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+
+
+def accepts_intake(status: TenantStatus) -> bool:
+    """New enquiries (and customer answers) are taken while setting up, for the test step."""
+    return status is not TenantStatus.SUSPENDED
+
+
+def may_contact_customers(status: TenantStatus) -> bool:
+    """Messages to customers through messaging tools: only once live."""
+    return status is TenantStatus.ACTIVE
+
+
+def allows_api_pull(status: TenantStatus) -> bool:
+    """The business's own system may fetch approved quotations while setting up (Q27)."""
+    return status is not TenantStatus.SUSPENDED
+
+
+def allows_changes(status: TenantStatus) -> bool:
+    """Settings, members, invitations and API keys: read-only while suspended."""
+    return status is not TenantStatus.SUSPENDED
 
 
 class AuthorizationError(Exception):

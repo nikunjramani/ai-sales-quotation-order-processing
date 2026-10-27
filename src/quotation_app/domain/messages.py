@@ -23,6 +23,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from quotation_app.domain.acceptance import Offer, RecordedResponse, ResponseOutcome
+from quotation_app.domain.accounts import TOKEN_LIFETIME, AccountEmailPurpose
 from quotation_app.domain.connections import Purpose
 from quotation_app.domain.quotations import ReviewPacket, quotation_number
 
@@ -53,6 +54,21 @@ class TemplateKey(StrEnum):
     APPROVAL_REQUEST = "approval_request"
     RESPONSE_NOTICE = "response_notice"
     QUOTATION_DOCUMENT = "quotation_document"
+    # Phase 2 account emails (to people using the portal, not to customers):
+    ACCOUNT_VERIFY_EMAIL = "account_verify_email"
+    ACCOUNT_PASSWORD_RESET = "account_password_reset"
+    ACCOUNT_INVITATION = "account_invitation"
+    ACCOUNT_EXISTS = "account_exists"
+    ACCOUNT_PASSWORD_CHANGED = "account_password_changed"
+
+
+ACCOUNT_TEMPLATES: Mapping[AccountEmailPurpose, TemplateKey] = {
+    AccountEmailPurpose.VERIFY_EMAIL: TemplateKey.ACCOUNT_VERIFY_EMAIL,
+    AccountEmailPurpose.PASSWORD_RESET: TemplateKey.ACCOUNT_PASSWORD_RESET,
+    AccountEmailPurpose.INVITATION: TemplateKey.ACCOUNT_INVITATION,
+    AccountEmailPurpose.ACCOUNT_EXISTS: TemplateKey.ACCOUNT_EXISTS,
+    AccountEmailPurpose.PASSWORD_CHANGED: TemplateKey.ACCOUNT_PASSWORD_CHANGED,
+}
 
 
 # The buttons an approval request offers (a provider without buttons may ignore them).
@@ -116,7 +132,73 @@ def render_template(key: TemplateKey, params: Mapping[str, object]) -> Rendered:
         quotation_id, version = params["quotation_id"], params["version"]
         assert isinstance(quotation_id, UUID) and isinstance(version, int)
         return Rendered("", {"quotation": quotation_number(quotation_id), "version": str(version)})
+    if key in _ACCOUNT_WORDING:
+        return _account_email(key, params)
     raise ValueError(f"Unknown template {key}")
+
+
+def _lifetime(purpose: AccountEmailPurpose) -> str:
+    seconds = int(TOKEN_LIFETIME[purpose].total_seconds())
+    if seconds % 86400 == 0:
+        days = seconds // 86400
+        return f"{days} day{'s' if days != 1 else ''}"
+    if seconds % 3600 == 0:
+        hours = seconds // 3600
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    return f"{seconds // 60} minutes"
+
+
+# Subject and body per account email. {link} is the portal link (with the single-use token for
+# purposes that have one), {business} the business name, {roles} the invited roles.
+_ACCOUNT_WORDING: Mapping[TemplateKey, tuple[str, str]] = {
+    TemplateKey.ACCOUNT_VERIFY_EMAIL: (
+        "Confirm your email address",
+        "Please confirm your email address by opening this link within "
+        + _lifetime(AccountEmailPurpose.VERIFY_EMAIL)
+        + ":\n{link}\n\nIf you did not sign up, you can ignore this email.",
+    ),
+    TemplateKey.ACCOUNT_PASSWORD_RESET: (
+        "Reset your password",
+        "Open this link within "
+        + _lifetime(AccountEmailPurpose.PASSWORD_RESET)
+        + " to choose a new password:\n{link}\n\n"
+        "If you did not ask for this, you can ignore this email; your password stays the same.",
+    ),
+    TemplateKey.ACCOUNT_INVITATION: (
+        "You are invited to {business}",
+        "You are invited to join {business} as {roles}. Open this link within "
+        + _lifetime(AccountEmailPurpose.INVITATION)
+        + " to accept:\n{link}\n\n"
+        "You need to sign in, or sign up, with this email address.",
+    ),
+    TemplateKey.ACCOUNT_EXISTS: (
+        "Someone tried to sign up with your email address",
+        "Someone tried to create an account with this email address, but it already has one. "
+        "If it was you, sign in or reset your password here:\n{link}\n\n"
+        "Otherwise you can ignore this email.",
+    ),
+    TemplateKey.ACCOUNT_PASSWORD_CHANGED: (
+        "Your password was changed",
+        "The password of your account was changed and your other sessions were signed out. "
+        "If you did not do this, reset your password here:\n{link}",
+    ),
+}
+
+
+def _single_line(value: str) -> str:
+    """No line breaks in anything that goes into an email subject (header injection)."""
+    return " ".join(value.split())
+
+
+def _account_email(key: TemplateKey, params: Mapping[str, object]) -> Rendered:
+    values = {
+        name: _single_line(str(params.get(name, ""))) for name in ("link", "business", "roles")
+    }
+    subject, body = _ACCOUNT_WORDING[key]
+    return Rendered(
+        body.format(**values),
+        {"subject": _single_line(subject.format(**values))},
+    )
 
 
 def _review_text(packet: ReviewPacket) -> str:
