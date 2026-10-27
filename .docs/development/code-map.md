@@ -99,7 +99,7 @@ See [quotation approval](../features/quotation-approval.md).
 | [application/sessions.py](../../src/quotation_app/application/sessions.py) | Session tokens, expiry, CSRF |
 | [workflows/quotation.py](../../src/quotation_app/workflows/quotation.py) | Approval graph with interrupts; QuotationJobHandler (run lock, stale-resume protection) |
 | [adapters/identity/dev.py](../../src/quotation_app/adapters/identity/dev.py) | Development login (the OIDC adapter goes next to it) |
-| [adapters/channels/simulated.py](../../src/quotation_app/adapters/channels/simulated.py) | Simulated provider: outbox files, HMAC signatures |
+| [adapters/providers/simulated/](../../src/quotation_app/adapters/providers/simulated/provider.py) | Simulated provider (phase 1): outbox files, HMAC signatures |
 | [api/auth.py](../../src/quotation_app/api/auth.py), [api/portal.py](../../src/quotation_app/api/portal.py), [api/channels.py](../../src/quotation_app/api/channels.py) | Sign-in and session dependencies, tenant routes, signed webhook |
 | [persistence/quotations.py](../../src/quotation_app/persistence/quotations.py), [channels.py](../../src/quotation_app/persistence/channels.py), [sessions.py](../../src/quotation_app/persistence/sessions.py) | SQL stores, advisory run lock, job queuing in the same transaction |
 | [0005_approvals.py](../../migrations/versions/0005_approvals.py) | M4 tables, append-only triggers, column grants, narrow RLS policies |
@@ -113,16 +113,16 @@ Entry points:
 - the `deliver_quotation` job in the worker;
 - PDF and delivery routes in the portal API and the enquiry API.
 
-See [quotation delivery](../features/quotation-delivery.md) and [adding channels](adding-channels.md).
+See [quotation delivery](../features/quotation-delivery.md) and [adding providers](adding-providers.md).
 
 | Actual file | Responsibility |
 |---|---|
 | [domain/documents.py](../../src/quotation_app/domain/documents.py) | Delivery statuses, DocumentSource, recipient rule, document IDs/keys, document errors |
-| [ports/documents.py](../../src/quotation_app/ports/documents.py) | QuotationRenderer, DeliveryChannel (+ outcomes), DeliveryStore, DocumentReader |
+| [ports/documents.py](../../src/quotation_app/ports/documents.py) | QuotationRenderer, DeliveryStore, DocumentReader (sending moved to the outbox in phase 1) |
 | [application/delivery.py](../../src/quotation_app/application/delivery.py) | QuotationDeliveryHandler: render once, compare-and-set, record honest outcomes |
 | [application/documents.py](../../src/quotation_app/application/documents.py) | QuotationDocumentService: previews, verified approved files, customer view and downloads |
 | [adapters/documents/pdf.py](../../src/quotation_app/adapters/documents/pdf.py) | ReportLab renderer: deterministic, escaped, refuses unsupported characters |
-| [adapters/delivery/api.py](../../src/quotation_app/adapters/delivery/api.py) | API pull channel (makes the document available) |
+| [adapters/providers/api/](../../src/quotation_app/adapters/providers/api/__init__.py) | API provider (pull: makes the document available) |
 | [api/pdf.py](../../src/quotation_app/api/pdf.py) | Download response headers, integrity-failure response |
 | [persistence/documents.py](../../src/quotation_app/persistence/documents.py) | `queue_delivery` (outbox row + job), SqlDeliveryStore, SqlDocumentReader |
 | [0006_documents.py](../../migrations/versions/0006_documents.py) | quotation_documents (append-only) and quotation_deliveries, RLS, column grants |

@@ -23,7 +23,7 @@
 
 ## Source files
 - **Domain:** [domain/acceptance.py](../../src/quotation_app/domain/acceptance.py) holds statuses, outcomes, `price_differences`, `valid_until`, `customer_status` and the errors.
-- **Ports:** [ports/acceptance.py](../../src/quotation_app/ports/acceptance.py) (`ResponseStore`). [ports/channels.py](../../src/quotation_app/ports/channels.py) gains `send_notice`.
+- **Ports:** [ports/acceptance.py](../../src/quotation_app/ports/acceptance.py) (`ResponseStore`). Notices to managers are outbox messages (template `response_notice`, one per response and account; phase 1, [connections](connections.md)).
 - **Application:** [application/acceptance.py](../../src/quotation_app/application/acceptance.py) holds `QuotationResponseService` (respond, withdraw, expire), `QuotationExpiryHandler` and `ResponseNotificationHandler`.
 - **Workflow:** the `await_customer` and `apply_customer` steps in [workflows/quotation.py](../../src/quotation_app/workflows/quotation.py).
 - **Persistence:** [persistence/acceptance.py](../../src/quotation_app/persistence/acceptance.py) and [0007_acceptance.py](../../migrations/versions/0007_acceptance.py). The expiry job is queued in [persistence/documents.py](../../src/quotation_app/persistence/documents.py).

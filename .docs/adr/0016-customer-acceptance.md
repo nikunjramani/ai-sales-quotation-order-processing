@@ -2,6 +2,7 @@
 Date: 2026-10-23
 Status: accepted; implemented in M6 (commit f545201, [CI run 39907493342](https://github.com/nikunjramani/ai-sales-quotation-order-processing/actions/runs/39907493342) passed)
 Changes the M6 scope in the [roadmap](../plan/roadmap.md); builds on [0013](0013-portal-identity-and-approval-core.md) and [0015](0015-quotation-documents-and-delivery.md)
+Extended by [0018](0018-connector-framework.md) (phase 1): notices to managers go through the outbox (one per response and account, never repeated on retry); prices come from each business's own product source.
 
 ## Context
 After M5, an approved quotation is delivered to the API client that sent the enquiry. M6 lets that customer answer it. The user answered every open point on 2026-10-23, using the [clarify-before-building](../../.claude/skills/clarify-before-building/SKILL.md) procedure. Each decision below is the user's, not an assumption.

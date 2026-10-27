@@ -37,7 +37,7 @@ Current features:
 | `tenant` | Selected business (Zustand), permission helper, switcher |
 | `quotations` | List, review, decide, revise |
 | `enquiries` | Exception list |
-| `channels` | Link and revoke manager accounts |
+| `connections` | The business's tools (phase 1) and linking/revoking manager accounts; replaced `channels` (`#/channels` redirects) |
 
 ## Layers and who may import whom
 Within a feature:

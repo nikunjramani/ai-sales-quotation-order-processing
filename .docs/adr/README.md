@@ -18,5 +18,6 @@ Accepted denotes intended design, not implemented code. Date: 2026-10-22.
 - [0015: Approved quotation PDFs and an honest delivery outbox; email approval deferred](0015-quotation-documents-and-delivery.md) — implemented in M5; verified locally and in CI
 - [0016: Customer acceptance through the API, with validity, price re-check and automatic revision](0016-customer-acceptance.md) — implemented in M6 (user decisions 2026-10-23); verified locally and in CI
 - [0017: A generic AI enquiry reader (first model: Gemini free tier), and category-based "not found" replies](0017-gemini-reader-and-category-replies.md) — user decisions 2026-10-23; implemented, live Gemini evaluation pending the user's key
+- [0018: Connector framework: providers, connections, secrets, one webhook route, one outbox](0018-connector-framework.md) — phase 1, user decisions 2026-10-27; implemented on `feat/phase-1-foundations`, verified locally
 
 New decisions get sequential IDs. Preserve history and explicitly link superseding records.

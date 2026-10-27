@@ -1,5 +1,5 @@
 # Implementation plan, phase 1: foundations (refactor, no new features)
-**Status:** planning document (2026-10-23), for the user's review. Nothing here is built. It follows the binding names in [00-shared-contracts.md](00-shared-contracts.md); where this plan needs something the contracts do not have, it is listed in [Proposed changes to shared contracts](#proposed-changes-to-shared-contracts) and must be accepted there first.
+**Status:** implemented on branch `feat/phase-1-foundations` (2026-10-27), recorded in [ADR 0018](../../../adr/0018-connector-framework.md); deviations from this plan are listed in the [handoff](../../../handoff.md). The original planning text follows. planning document (2026-10-23), for the user's review. Nothing here is built. It follows the binding names in [00-shared-contracts.md](00-shared-contracts.md); where this plan needs something the contracts do not have, it is listed in [Proposed changes to shared contracts](#proposed-changes-to-shared-contracts) and must be accepted there first.
 
 Paths are relative to `src/quotation_app/` unless they start with `tests/`, `portal/`, `migrations/`, `scripts/`, `demo/` or `.docs/`. Line numbers are from commit `3b38741`.
 

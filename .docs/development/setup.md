@@ -127,6 +127,7 @@ Alternatively, run `npm run build` once and start the API with `$env:QUOTATION_P
    - As the manager, open Channels and choose "Link a simulated channel account". Then run:
    ```powershell
    uv run python scripts/simulated_channel.py enroll --code <CODE> --user manager-phone
+   # add --via hooks (before the command) to use the generic webhook route instead (ADR 0018)
    uv run python scripts/simulated_channel.py inbox --user manager-phone     # after the worker ran
    uv run python scripts/simulated_channel.py decide --user manager-phone --task <TASK> --action approve
    ```
@@ -198,3 +199,13 @@ Migrate first (`check_database.py` or `uv run alembic upgrade head`). Each busin
 - **Missing URL:** generate `.env` from the root, or run `--add-missing`.
 - **Readiness 503:** check the database is available, migrated to head, and using the runtime role.
 - **Integration failure:** fix it. Never substitute SQLite or silently skip required checks.
+
+## After pulling phase 1 (connector framework)
+Run once:
+```
+uv sync --all-extras                                   # registers the providers and secret stores
+uv run python scripts/init_local_env.py --add-missing  # adds QUOTATION_SECRET_STORE_KEY
+uv run alembic upgrade head                            # 0008 connections, 0009 outbound messages
+uv run python -m quotation_app.persistence.seed        # demo connections (phone, catalogue, webhook)
+```
+The VS Code "Run all" task migrates and seeds for you; `uv sync` and the key are still manual.

@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-23 (M6).
+Updated: 2026-10-27 (phase 1 connector framework implemented on `feat/phase-1-foundations`, PR #6; M0-M6 complete on main).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -268,7 +268,21 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Samples:** a test fails until a newly installed provider has its contract sample.
   - **Architecture test:** core code may not name a provider or import a provider package. Four listed exceptions: the API's own routes, the deprecated alias, API keys and the demo seed.
   - **Checks:** 424 unit tests.
-- **Next:** WI-15 (ADR 0018, adding-providers guide, docs pass), then the final live run.
+- **WI-15 done:**
+  - **New documents:** [ADR 0018](adr/0018-connector-framework.md), the [adding providers](development/adding-providers.md) guide (the old channels guide is now a pointer) and [connections](features/connections.md).
+  - **Updated:** "extended by 0018" notes in ADRs 0007, 0011, 0013, 0015 and 0016; integrations, execution flow, code map, testing, portal architecture, configuration, setup ("after pulling phase 1") and the feature documents. All relative links checked.
+- **Deviations from the plan (for review):**
+  1. `ChannelEvent` keeps the provider key and the legacy connection key, so decision IDs are stable across the upgrade.
+  2. If a product source disappears before drafting, the draft job stops with the error; no `pricing_failed` issue is recorded.
+  3. Wording staff can see: "Rejected by the provider", and "No active connection for '<provider>' to send the quotation".
+  4. The portal's link card no longer shows the `simulated_channel.py` command, because provider-specific text is not allowed in the portal.
+- **Final verification (2026-10-27):**
+  - **Automated:** ruff, mypy, and `check_database.py --cycle` with 483 passed and 1 skipped, twice. The evaluation scored 14/14 (rules). The portal passes typecheck, 46 tests and the build.
+  - **Live, demo page:** enquiry, phone, approve, PDF, accept, notice.
+  - **Live, portal API:** the manager sees only the linkable connection; sales staff get 403.
+  - **Live, generic hook:** `--via hooks` enrol gives 200, and the worker enrols the account. A bad token gives 404 and a bad signature 401.
+  - **Cosmetic, dev databases only:** a connection created by the 0008 backfill keeps its generated name (e.g. "simulated simulated-local"), because the seed does not rename existing connections.
+- **Next:** the user reviews PR #6. Phase 2 (accounts) needs its open questions answered first ([phase 2 plan](plan/platform/implementation/phase-2-accounts.md)).
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

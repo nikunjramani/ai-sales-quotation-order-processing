@@ -32,7 +32,7 @@
   - [0005_approvals.py](../../migrations/versions/0005_approvals.py)
 - **Adapters:**
   - [adapters/identity/dev.py](../../src/quotation_app/adapters/identity/dev.py)
-  - [adapters/channels/simulated.py](../../src/quotation_app/adapters/channels/simulated.py)
+  - [adapters/providers/simulated/](../../src/quotation_app/adapters/providers/simulated/provider.py) (phase 1: a provider; approval requests go through the outbox, the action token is created at send time; see [connections](connections.md))
 - **Portal:** [portal/](../../portal/src/app/App.tsx) (React; see [portal architecture](../development/portal-architecture.md)).
 - **Dev helper:** [scripts/simulated_channel.py](../../scripts/simulated_channel.py).
 
@@ -71,8 +71,11 @@
 | `POST .../approval-tasks/{task}/decision` | `quotations:approve` | `{command_id, action, content_sha256, reason?}`; replay 200, conflict/stale 409 |
 | `POST .../quotations/{id}/revisions` | `quotations:draft` | `{command_id, base_version, lines, reason}`; 201, replay 200, 422 with pricing issues, 409 if changed |
 | `GET .../enquiries[?status=]` | `enquiries:view` | Exception list (needs review/clarification) |
-| `POST .../channel-enrollments`, `GET`/`DELETE .../channel-bindings` | approver / own (admin: all) | Link and revoke accounts |
-| `POST /api/v1/channels/simulated/events` | signed by provider | `X-Simulated-Signature`; enroll or decision |
+| `GET .../connections[?purpose=]` | admin: all; approver: linkable | The business's tools (phase 1) |
+| `POST .../connections/{id}/enrollments` | `quotations:approve` | Code that links only on that connection; 404 / 422 |
+| `POST .../channel-enrollments` (deprecated), `GET`/`DELETE .../channel-bindings` | approver / own (admin: all) | Link and revoke accounts; bindings show `connection_ref` and `connection_name` |
+| `POST /api/v1/hooks/{connection_id}/{webhook_token}` | token + provider signature | Generic callbacks (phase 1); 200 `{received, duplicates}`, routed by the `process_inbound` job |
+| `POST /api/v1/channels/simulated/events` (deprecated, dev only) | signed with the dev secret | `X-Simulated-Signature`; enroll or decision; synchronous answers; removed in phase 4/5 |
 
 Non-members get 404 for any tenant URL. Missing or invalid CSRF gets 403, and no session gets 401.
 
