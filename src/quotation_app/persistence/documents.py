@@ -20,7 +20,6 @@ from quotation_app.domain.documents import (
     DocumentKind,
     DocumentSource,
     StoredDocument,
-    delivery_recipient,
 )
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.quotations import ApprovalAction, QuotationStatus
@@ -167,9 +166,11 @@ def _source(row: Row[Any], quotation_id: UUID, version: int) -> DocumentSource:
 def queue_delivery(
     connection: Connection, tenant_id: UUID, quotation_id: UUID, version: int
 ) -> bool:
-    """Queue delivery of an approved version to whoever sent the enquiry, on its channel.
+    """Queue delivery of an approved version to whoever sent the enquiry, on its connection.
 
-    The recipient comes from domain.documents.delivery_recipient. Safe to repeat: one delivery
+    The recipient is the envelope's reply_to, fixed at intake by
+    domain.documents.delivery_recipient (and backfilled by migration 0008). Safe to repeat: one
+    delivery
     per target. Returns False (and queues nothing) unless this version is the approved current
     version.
     """
@@ -179,8 +180,7 @@ def queue_delivery(
             Quotation.current_version,
             Enquiry.channel,
             Enquiry.correlation_id,
-            InboxEvent.connection_id,
-            InboxEvent.envelope["sender_external_id"].astext.label("sender_external_id"),
+            InboxEvent.envelope["reply_to"].astext.label("reply_to"),
         )
         .join(
             Enquiry,
@@ -207,7 +207,7 @@ def queue_delivery(
             quotation_id=quotation_id,
             version=version,
             channel=row.channel,
-            recipient=delivery_recipient(row.channel, row.connection_id, row.sender_external_id),
+            recipient=row.reply_to,
             status=DeliveryStatus.PENDING.value,
         )
         .on_conflict_do_nothing(constraint="uq_quotation_deliveries_target")

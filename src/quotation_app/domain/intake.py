@@ -1,7 +1,7 @@
-"""Enquiry intake: what a channel submits, its limits, and the canonical envelope we store.
+"""Enquiry intake: what a provider submits, its limits, and the canonical envelope we store.
 
-Every channel (API now; email and Telegram later) is translated into the same envelope, so the
-rest of the system never depends on a particular provider's message format.
+Every provider (the API now; email and chat tools later) is translated into the same envelope,
+so the rest of the system never depends on a particular provider's message format.
 """
 
 import hashlib
@@ -17,11 +17,8 @@ MAX_TEXT_CHARACTERS = 20_000
 MAX_ATTACHMENTS = 5
 MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024
-ENVELOPE_SCHEMA_VERSION = 1
-
-
-class Channel(StrEnum):
-    API = "api"
+# 2 (phase 1): the connection row (connection_ref) and the reply address (reply_to).
+ENVELOPE_SCHEMA_VERSION = 2
 
 
 class EnquiryStatus(StrEnum):
@@ -109,8 +106,10 @@ class InboundEnvelope:
 
     event_id: UUID
     tenant_id: UUID
-    channel: Channel
-    connection_id: str
+    channel: str  # the provider key, e.g. "api"
+    connection_id: str  # the connection's legacy key (kept for old readers)
+    connection_ref: UUID  # the connection row the enquiry arrived on
+    reply_to: str  # where the quotation goes back, fixed at intake (delivery_recipient)
     provider_event_id: str
     sender_external_id: str | None
     received_at: datetime
@@ -121,6 +120,7 @@ class InboundEnvelope:
     def __post_init__(self) -> None:
         require_aware(self.received_at, "received_at")
         require_text(self.connection_id, "connection_id", 100)
+        require_text(self.reply_to, "reply_to", 200)
         validate_idempotency_key(self.provider_event_id)
 
     def to_json(self) -> dict[str, object]:
@@ -128,8 +128,10 @@ class InboundEnvelope:
             "schema_version": ENVELOPE_SCHEMA_VERSION,
             "event_id": str(self.event_id),
             "tenant_id": str(self.tenant_id),
-            "channel": self.channel.value,
+            "channel": self.channel,
             "connection_id": self.connection_id,
+            "connection_ref": str(self.connection_ref),
+            "reply_to": self.reply_to,
             "provider_event_id": self.provider_event_id,
             "sender_external_id": self.sender_external_id,
             "received_at": self.received_at.isoformat(),

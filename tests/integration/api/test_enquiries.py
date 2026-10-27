@@ -11,18 +11,21 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import ProgrammingError
 
+from quotation_app.adapters.providers.api import ApiProvider
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.app import create_app
 from quotation_app.application.api_keys import ApiKeyAuthenticator, parse_token
 from quotation_app.application.intake import EnquiryIntakeService
 from quotation_app.application.jobs import JobRunner
 from quotation_app.application.preparation import EnquiryPreparationHandler
+from quotation_app.application.providers import ProviderRegistry
 from quotation_app.config import Settings
 from quotation_app.domain.intake import AttachmentUpload, EnquirySubmission
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.tenancy import Role
 from quotation_app.persistence import intake as intake_persistence
 from quotation_app.persistence.api_keys import SqlApiKeyReader, revoke_api_key
+from quotation_app.persistence.connections import SqlConnectionStore
 from quotation_app.persistence.intake import SqlIntakeStore, SqlPreparationStore
 from quotation_app.persistence.jobs import SqlJobQueue
 from quotation_app.persistence.tenancy import tenant_transaction
@@ -139,13 +142,18 @@ def test_concurrent_duplicates_create_exactly_one_enquiry(
     context = ApiKeyAuthenticator(SqlApiKeyReader(runtime_engine)).authenticate(
         make_api_key(industrial_tenant, Role.INTAKE_SERVICE)
     )
-    service = EnquiryIntakeService(SqlIntakeStore(runtime_engine), storage)
+    service = EnquiryIntakeService(
+        SqlIntakeStore(runtime_engine),
+        storage,
+        SqlConnectionStore(runtime_engine),
+        ProviderRegistry([ApiProvider()]),
+    )
     submission = EnquirySubmission(
         "Quote 5 pumps", None, (AttachmentUpload("a.txt", "text/plain", b"spec"),)
     )
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(
-            pool.map(lambda _: service.submit(context, submission, "race-000001"), range(8))
+            pool.map(lambda _: service.submit(context, submission, "race-000001", "api"), range(8))
         )
     assert sum(not result.duplicate for result in results) == 1
     assert len({result.receipt.enquiry_id for result in results}) == 1

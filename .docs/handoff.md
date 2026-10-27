@@ -231,7 +231,12 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Wording change staff can see:** a refused send now reads "Rejected by the provider: …" (was "…by the channel…"). A tool with no connection reads "No active connection for '<provider>' to send the quotation".
   - **Checks:** 391 unit tests; `check_database.py --cycle` with 448 tests (450 after the regression test). Live demo: enquiry, phone, approve, PDF, accept, notice.
   - **Observed, not phase 1:** the Gemini reader once read "2 x IND-FAN-450" as unit "x" and asked a clarification question. The free rules reader does not do this.
-- **Next:** WI-9 (API intake on its `api` connection; `reply_to` at intake), WI-10 (per-business catalogue source), then the portal work items (WI-12, WI-13), contract tests (WI-14) and docs/ADR 0018 (WI-15).
+- **WI-9 done:**
+  - **Intake:** API enquiries belong to the caller's `api` connection (business, provider, API key subject). A missing or disabled connection is refused (403); the provider must be installed.
+  - **Envelope schema 2:** adds `connection_ref` and `reply_to`. The reply address is fixed at intake by the provider's delivery mode, and `queue_delivery` uses it.
+  - **Removed:** the `Channel` enum. Stored and returned `channel` values are the provider key (`"api"`), unchanged in the API.
+  - **Checks:** 394 unit tests; 452 tests on PostgreSQL.
+- **Next:** WI-10 (per-business catalogue source), then the portal work items (WI-12, WI-13), contract tests (WI-14) and docs/ADR 0018 (WI-15).
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -8,7 +8,6 @@ from quotation_app.domain.intake import (
     MAX_ATTACHMENTS,
     MAX_TEXT_CHARACTERS,
     AttachmentUpload,
-    Channel,
     ConsentChange,
     CustomerMessage,
     DeliveryStatusUpdate,
@@ -77,8 +76,10 @@ def test_envelope_serializes_without_attachment_bytes() -> None:
     envelope = InboundEnvelope(
         event_id=uuid4(),
         tenant_id=uuid4(),
-        channel=Channel.API,
+        channel="api",
         connection_id="api-key:1",
+        connection_ref=UUID("00000000-0000-4000-8000-000000000001"),
+        reply_to="api-key:1",
         provider_event_id="request-0001",
         sender_external_id="CUST-1",
         received_at=datetime(2026, 10, 22, tzinfo=UTC),
@@ -87,7 +88,11 @@ def test_envelope_serializes_without_attachment_bytes() -> None:
         correlation_id=uuid4(),
     )
     data = envelope.to_json()
-    assert data["schema_version"] == 1
+    assert data["schema_version"] == 2
+    assert (data["connection_ref"], data["reply_to"]) == (
+        "00000000-0000-4000-8000-000000000001",
+        "api-key:1",
+    )
     assert data["channel"] == "api"
     assert data["received_at"] == "2026-10-22T00:00:00+00:00"
     with pytest.raises(ValueError, match="timezone"):

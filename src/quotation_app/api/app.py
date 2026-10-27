@@ -88,7 +88,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Composition root: wire adapters to application services. Nothing connects until used.
     storage = LocalObjectStorage(configuration.storage_dir)
-    intake = EnquiryIntakeService(SqlIntakeStore(engine), storage)
+    runtime = build_runtime(configuration)
+    connections = SqlConnectionStore(engine)
+    intake = EnquiryIntakeService(SqlIntakeStore(engine), storage, connections, runtime.registry)
     # Quotation PDFs (M5): previews for staff, approved documents for staff and customers.
     documents = QuotationDocumentService(
         SqlDocumentReader(engine), storage, ReportLabQuotationRenderer()
@@ -139,8 +141,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     # Provider callbacks (ADR 0018): one generic route for every provider with webhooks.
-    runtime = build_runtime(configuration)
-    connections = SqlConnectionStore(engine)
     inbox = SqlInboundStore(engine)
     app.include_router(
         build_hook_router(

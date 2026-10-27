@@ -581,7 +581,7 @@ def build_portal_router(
         return [
             EnquirySummaryOut(
                 enquiry_id=item.enquiry_id,
-                channel=item.channel.value,
+                channel=item.channel,
                 status=item.status,
                 customer_reference=item.customer_reference,
                 received_at=item.received_at,

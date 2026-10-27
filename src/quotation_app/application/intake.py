@@ -10,16 +10,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from quotation_app.application.providers import ProviderRegistry
 from quotation_app.domain.attachments import StorageArea, attachment_key
+from quotation_app.domain.documents import delivery_recipient
 from quotation_app.domain.intake import (
     AttachmentRecord,
-    Channel,
     EnquiryStatus,
     EnquirySubmission,
     InboundEnvelope,
     validate_idempotency_key,
 )
-from quotation_app.domain.tenancy import Permission, TenantContext
+from quotation_app.domain.tenancy import Permission, PermissionDenied, TenantContext
+from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.intake import (
     EnquiryListReader,
     EnquirySummary,
@@ -46,10 +48,14 @@ class EnquiryIntakeService:
         self,
         store: IntakeStore,
         storage: ObjectStorage,
+        connections: ConnectionStore,
+        registry: ProviderRegistry,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._store = store
         self._storage = storage
+        self._connections = connections
+        self._registry = registry
         self._clock = clock
 
     def submit(
@@ -57,17 +63,26 @@ class EnquiryIntakeService:
         context: TenantContext,
         submission: EnquirySubmission,
         idempotency_key: str,
-        channel: Channel = Channel.API,
+        provider_key: str,
     ) -> IntakeResult:
-        """Raises PermissionDenied, ValueError (invalid key) or IdempotencyConflict."""
+        """Raises PermissionDenied, ValueError (invalid key) or IdempotencyConflict.
+
+        The authenticated credential is the connection (ADR 0018): the business's connection
+        of this provider whose account is the caller's subject (an API key's "api-key:<id>").
+        A missing or disabled connection is refused. Two connections never share keys.
+        """
         context.require(Permission.SUBMIT_ENQUIRIES)
         validate_idempotency_key(idempotency_key)
-        # The authenticated credential is the connection, so two API keys never share keys.
-        connection_id = context.subject
+        connection = self._connections.find_by_account(
+            context.tenant_id, provider_key, context.subject
+        )
+        provider = None if connection is None else self._registry.find(provider_key)
+        if connection is None or not connection.active or provider is None:
+            raise PermissionDenied("This credential cannot submit enquiries")
         fingerprint = submission.fingerprint()
 
         existing = self._store.find_receipt(
-            context.tenant_id, channel, connection_id, idempotency_key
+            context.tenant_id, connection.connection_id, idempotency_key
         )
         if existing is not None:
             return self._replay(existing, fingerprint)
@@ -88,8 +103,14 @@ class EnquiryIntakeService:
         envelope = InboundEnvelope(
             event_id=uuid4(),
             tenant_id=context.tenant_id,
-            channel=channel,
-            connection_id=connection_id,
+            channel=connection.provider_key,
+            connection_id=connection.legacy_key,
+            connection_ref=connection.connection_id,
+            reply_to=delivery_recipient(
+                provider.capabilities.delivery_mode,
+                connection.legacy_key,
+                submission.customer_reference,
+            ),
             provider_event_id=idempotency_key,
             sender_external_id=submission.customer_reference,
             received_at=self._clock(),
