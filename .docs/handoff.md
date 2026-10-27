@@ -257,7 +257,18 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Page contents:** a list of tools (status, purposes; last error for administrators only) and "Link my account on <tool>" for each active approval connection. The code is per connection; linked accounts show the tool's name.
   - **Removed:** the hardcoded `"simulated"` in the portal. Decisions use purposes and status only.
   - **Checks:** portal typecheck, 46 tests, build.
-- **Next:** WI-14 (provider contract tests and architecture rules), WI-15 (ADR 0018, adding-providers guide, docs pass), then the final live run.
+- **WI-14 done:**
+  - **`tests/unit/providers/test_provider_contract.py`:** runs every installed provider and a fake third provider (`echo`) through the same checks:
+    - forged or missing signatures are refused;
+    - parsing is stable and never depends on the business;
+    - send outcomes match the delivery mode;
+    - unsupported operations raise errors;
+    - a catalogue reader exists exactly for catalogue providers;
+    - `echo` enrols a manager through the generic services with no core change.
+  - **Samples:** a test fails until a newly installed provider has its contract sample.
+  - **Architecture test:** core code may not name a provider or import a provider package. Four listed exceptions: the API's own routes, the deprecated alias, API keys and the demo seed.
+  - **Checks:** 424 unit tests.
+- **Next:** WI-15 (ADR 0018, adding-providers guide, docs pass), then the final live run.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

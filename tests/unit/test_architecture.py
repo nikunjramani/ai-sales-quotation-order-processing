@@ -58,3 +58,35 @@ def test_layer_imports_respect_boundaries(layer: str) -> None:
             if not allowed:
                 violations.append(f"{path.relative_to(PACKAGE)} imports {name}")
     assert violations == []
+
+
+# Provider names may appear in core code only here (ADR 0018): everything else decides by
+# purposes and capabilities, so adding a provider needs no core change.
+PROVIDER_NAME_EXCEPTIONS = {
+    "api/enquiries.py": "the API provider's own routes",
+    "api/channels.py": "the deprecated simulated route (removed in phase 4/5)",
+    "persistence/api_keys.py": "API keys are the api provider's accounts",
+    "persistence/seed.py": "synthetic demo data for development",
+}
+
+
+def test_core_code_never_names_a_provider() -> None:
+    from importlib.metadata import entry_points
+
+    keys = {entry.name for entry in entry_points(group="quotation_app.providers")}
+    assert {"api", "simulated"} <= keys, "run `uv sync` to register the providers"
+    violations = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        relative = path.relative_to(PACKAGE).as_posix()
+        if relative.startswith("adapters/providers/") or relative in PROVIDER_NAME_EXCEPTIONS:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and node.value in keys:
+                violations.append(f"{relative}:{node.lineno} names provider {node.value!r}")
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith("quotation_app.adapters.providers.")
+            ):
+                violations.append(f"{relative}:{node.lineno} imports {node.module}")
+    assert violations == []

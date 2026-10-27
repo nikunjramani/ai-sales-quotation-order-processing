@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy import Engine, insert, select, text
 
+from quotation_app.adapters.providers.api import PROVIDER_KEY
 from quotation_app.domain.connections import ConnectionStatus, Purpose
 from quotation_app.domain.tenancy import Role
 from quotation_app.persistence.connections import ensure_connection, set_status
@@ -15,8 +16,8 @@ from quotation_app.persistence.models import ApiKey, ConnectionRow
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.api_keys import ApiKeyRecord
 
-# The `api` provider's key; the provider package owns it from WI-5 on.
-API_PROVIDER_KEY = "api"
+# API keys are the `api` provider's accounts: each key is one `api` connection.
+API_PROVIDER_KEY = PROVIDER_KEY
 
 
 def api_key_account(key_id: UUID) -> str:

@@ -6,6 +6,11 @@ from quotation_app.composition import build_secret_store
 from quotation_app.config import Settings
 
 
+def test_providers_are_registered() -> None:
+    names = {entry.name for entry in entry_points(group="quotation_app.providers")}
+    assert {"api", "simulated"} <= names
+
+
 def test_secret_stores_are_registered() -> None:
     names = {entry.name for entry in entry_points(group="quotation_app.secret_stores")}
     assert {"local", "none"} <= names

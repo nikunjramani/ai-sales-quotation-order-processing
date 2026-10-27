@@ -76,6 +76,9 @@ class SendReceipt:
 
 @dataclass(frozen=True)
 class TestResult:
+    """Outcome of a provider's connection test (not a pytest test class)."""
+
+    __test__ = False
     ok: bool
     detail: str | None = None
 
