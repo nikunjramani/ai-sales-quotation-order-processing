@@ -35,6 +35,7 @@ from quotation_app.domain.acceptance import (
 from quotation_app.domain.documents import DocumentNotAvailable
 from quotation_app.domain.intake import validate_idempotency_key
 from quotation_app.domain.jobs import PermanentJobError
+from quotation_app.domain.messages import TemplateKey, render_template
 from quotation_app.domain.pricing import PricingRejected, RequestedLine
 from quotation_app.domain.quotations import (
     QuotationNotFound,
@@ -43,7 +44,6 @@ from quotation_app.domain.quotations import (
     content_sha256,
     pricing_issues_content,
     quotation_content,
-    quotation_number,
 )
 from quotation_app.domain.tenancy import Permission, PermissionDenied, Role, TenantContext
 from quotation_app.ports.acceptance import NewResponse, ResponseStore, RevisedContent
@@ -263,21 +263,6 @@ class QuotationExpiryHandler:
         self._service.expire(job.tenant_id, quotation_id, version)
 
 
-def notice_text(offer: Offer, response: RecordedResponse) -> str:
-    total = f"{offer.content['total']} {offer.content['currency']}"
-    what = {
-        ResponseOutcome.ACCEPTED: "accepted",
-        ResponseOutcome.DECLINED: "declined",
-    }[response.outcome]
-    text = (
-        f"{offer.tenant_name}: the customer {what} quotation "
-        f"{quotation_number(response.quotation_id)} version {response.version} (total {total})."
-    )
-    if response.reason:
-        text += f" Reason: {response.reason}"
-    return text
-
-
 class ResponseNotificationHandler:
     """Job handler for notify_response: tell managers' linked channels about an answer.
 
@@ -306,7 +291,9 @@ class ResponseNotificationHandler:
         offer = self._responses.offer_for_quotation(job.tenant_id, response.quotation_id)
         if offer is None:
             raise QuotationNotFound("Quotation not found")
-        text = notice_text(offer, response)
+        text = render_template(
+            TemplateKey.RESPONSE_NOTICE, {"offer": offer, "response": response}
+        ).text
         for binding in self._bindings.approver_bindings(job.tenant_id):
             notifier = self._notifiers.get(binding.channel)
             if notifier is None:

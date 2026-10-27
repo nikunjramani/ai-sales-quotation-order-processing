@@ -20,6 +20,7 @@ ALLOWED = {
 # so business rules never depend on a framework, database or AI provider.
 THIRD_PARTY = {
     "adapters": {
+        "cryptography",
         "pypdf",
         "reportlab",
         "langchain",

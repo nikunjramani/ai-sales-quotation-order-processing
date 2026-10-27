@@ -43,7 +43,7 @@ All acceptance rules (validity, price re-check, one closing answer, replays) alr
 Resolve the open decision "Direct email approval verification" first. It decides what counts as trusted inbound evidence (provider signature, SPF/DKIM/DMARC results) and how a reply is tied to one task and version.
 1. Add the channel to `ApprovalChannel` in [domain/quotations.py](../../src/quotation_app/domain/quotations.py). The portal's "link an account" (enrollment) then accepts it automatically.
 2. **Outbound:** write an `ApprovalNotifier` (`send_review(binding, packet, action_reference, expires_at)`).
-   - Use `render_review_text(packet)` for the body.
+   - Use `render_template(TemplateKey.APPROVAL_REQUEST, {"packet": packet}).text` (domain/messages.py) for the body.
    - Carry the opaque `action_reference` where the reply brings it back (e.g. a per-task reply address or token). Never put the tenant or task ID in a form a person could edit and have trusted.
    - Register it in the worker's `notifiers` map.
 3. **Inbound:** add a route next to the simulated one in [api/channels.py](../../src/quotation_app/api/channels.py).

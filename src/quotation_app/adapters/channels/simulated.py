@@ -22,7 +22,8 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-from quotation_app.domain.quotations import ApprovalChannel, ReviewPacket, render_review_text
+from quotation_app.domain.messages import TemplateKey, render_template
+from quotation_app.domain.quotations import ApprovalChannel, ReviewPacket
 from quotation_app.ports.channels import ChannelBinding
 
 SIGNATURE_HEADER = "X-Simulated-Signature"
@@ -58,7 +59,7 @@ class SimulatedChannelNotifier:
             "task_id": str(packet.task_id),
             "quotation": packet.number,
             "version": packet.version,
-            "text": render_review_text(packet),
+            "text": render_template(TemplateKey.APPROVAL_REQUEST, {"packet": packet}).text,
             "actions": ["approve", "reject", "request_revision"],
             "action_reference": action_reference,
             "expires_at": expires_at.isoformat(),

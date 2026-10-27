@@ -13,7 +13,7 @@
 - **Action reference:** the hidden token behind a message's buttons. It works once, for one task, from that one account, for 24 hours.
 
 ## Source files
-- **Domain:** [domain/quotations.py](../../src/quotation_app/domain/quotations.py) holds statuses, `DecisionCommand`, `quotation_content`, `content_sha256` and `render_review_text`.
+- **Domain:** [domain/quotations.py](../../src/quotation_app/domain/quotations.py) holds statuses, `DecisionCommand`, `quotation_content`, `content_sha256`; the review wording is `render_template(TemplateKey.APPROVAL_REQUEST, ...)` in [domain/messages.py](../../src/quotation_app/domain/messages.py).
 - **Application:**
   - [application/approvals.py](../../src/quotation_app/application/approvals.py) (`ApprovalService`)
   - [application/quotations.py](../../src/quotation_app/application/quotations.py) (list, get, revise)

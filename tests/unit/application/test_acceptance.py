@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from quotation_app.adapters.erp.simulated import SimulatedPrice
-from quotation_app.application.acceptance import NotDueYet, NotIssued, notice_text
+from quotation_app.application.acceptance import NotDueYet, NotIssued
 from quotation_app.application.channel_actions import ChannelEvent, ChannelEventKind
 from quotation_app.domain.acceptance import (
     CustomerStatus,
@@ -25,6 +25,7 @@ from quotation_app.domain.acceptance import (
 )
 from quotation_app.domain.documents import DocumentNotAvailable
 from quotation_app.domain.jobs import JobKind
+from quotation_app.domain.messages import TemplateKey, render_template
 from quotation_app.domain.quotations import ApprovalAction, QuotationStatus
 from quotation_app.domain.tenancy import PermissionDenied, Role, TenantContext
 from quotation_app.ports.erp import ErpError, ErpErrorCode
@@ -306,4 +307,6 @@ def test_notice_golden_wording(outcome: ResponseOutcome, reason: str | None, exp
     response = RecordedResponse(
         uuid4(), quotation_id, 2, "a" * 64, outcome, "api-key:x", reason, (), None, now
     )
-    assert notice_text(offer, response) == expected
+    rendered = render_template(TemplateKey.RESPONSE_NOTICE, {"offer": offer, "response": response})
+    assert rendered.text == expected
+    assert rendered.metadata == {"notice_id": str(response.response_id)}

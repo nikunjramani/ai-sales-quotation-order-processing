@@ -140,6 +140,20 @@ See [customer acceptance](../features/customer-acceptance.md).
 | [0007_acceptance.py](../../migrations/versions/0007_acceptance.py) | Validity setting and column, quotation_responses (append-only), new statuses |
 | portal `features/quotations` | `CustomerPanel`, `customerService.ts`, `useCustomerAnswer.ts`, list filters |
 
+## Phase 1 connector framework (in progress)
+See the [phase 1 plan](../plan/platform/implementation/phase-1-foundations.md). This list grows with each work item.
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/connections.py](../../src/quotation_app/domain/connections.py) | Purpose, ConnectionStatus, DeliveryMode, Capabilities, Connection (with `legacy_key`), name and purpose checks |
+| [domain/messages.py](../../src/quotation_app/domain/messages.py) | Outbox MessageStatus, TemplateKey, OutboundMessage, `render_template` (the fixed approval-request and notice wording moved here word for word) |
+| [domain/intake.py](../../src/quotation_app/domain/intake.py) | Also the inbound event types: CustomerMessage, ManagerAction, DeliveryStatusUpdate, ConsentChange, `event_type` |
+| [ports/providers.py](../../src/quotation_app/ports/providers.py) | The Provider contract, InboundRequest, RenderedMessage, SendReceipt, provider errors, ProviderEnvironment/Factory |
+| [ports/connections.py](../../src/quotation_app/ports/connections.py), [ports/secrets.py](../../src/quotation_app/ports/secrets.py), [ports/messages.py](../../src/quotation_app/ports/messages.py) | ConnectionStore and HookLookup; SecretStore; MessageOutbox and SendHook |
+| [adapters/secrets/](../../src/quotation_app/adapters/secrets/local.py) | `local` (AES-256-GCM files bound to tenant and reference) and `none` secret stores, registered as entry points |
+| [application/plugins.py](../../src/quotation_app/application/plugins.py) | Load a pluggable part by entry point name, with clear errors |
+| [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests; selects the secret store from settings |
+
 ## Planned modules
 
 | Proposed location | Responsibility |

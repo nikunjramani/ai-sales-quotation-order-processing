@@ -201,7 +201,11 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - `"channel": "api"` in the enquiry status and the portal list (PostgreSQL).
   
   Checks: ruff, mypy, 392 tests on PostgreSQL.
-- **Next:** WI-1 (domain and ports), then WI-2 and the following work items in the order of the plan.
+- **WI-1 + WI-3 done:**
+  - Domain types and ports: connections, the outbox and templates (wording moved word for word), inbound event types, providers, secrets, `integrations:manage` and new job kinds.
+  - Secret stores `local` (AES-256-GCM) and `none`, chosen by entry point; new settings; `init_local_env.py --add-missing` adds `QUOTATION_SECRET_STORE_KEY`. **Run it once, and `uv sync`, after pulling.**
+  - The old `Channel`/`ApprovalChannel` enums go when the `api` and `simulated` providers exist (WI-5, WI-9).
+- **Next:** WI-2 (migration 0008 and connection persistence).
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

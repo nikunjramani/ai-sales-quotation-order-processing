@@ -9,8 +9,15 @@ from quotation_app.domain.intake import (
     MAX_TEXT_CHARACTERS,
     AttachmentUpload,
     Channel,
+    ConsentChange,
+    CustomerMessage,
+    DeliveryStatusUpdate,
     EnquirySubmission,
     InboundEnvelope,
+    InboundEvent,
+    InboundEventType,
+    ManagerAction,
+    event_type,
     validate_idempotency_key,
 )
 
@@ -85,3 +92,13 @@ def test_envelope_serializes_without_attachment_bytes() -> None:
     assert data["received_at"] == "2026-10-22T00:00:00+00:00"
     with pytest.raises(ValueError, match="timezone"):
         InboundEnvelope(**{**envelope.__dict__, "received_at": datetime(2026, 10, 22)})
+
+
+def test_every_inbound_event_has_a_type() -> None:
+    events: list[InboundEvent] = [
+        CustomerMessage("evt-1", "+911234", "2 fans"),
+        ManagerAction("evt-2", "manager-phone", "decision", action="approve"),
+        DeliveryStatusUpdate("evt-3", "msg-1", "delivered"),
+        ConsentChange("evt-4", "+911234", opted_in=False),
+    ]
+    assert [event_type(event) for event in events] == list(InboundEventType)

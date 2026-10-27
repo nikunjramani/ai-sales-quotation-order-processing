@@ -146,3 +146,66 @@ class InboundEnvelope:
             ],
             "correlation_id": str(self.correlation_id),
         }
+
+
+class InboundEventType(StrEnum):
+    """Kinds of normalised events a provider callback can carry (ADR 0018)."""
+
+    CUSTOMER_MESSAGE = "customer_message"
+    MANAGER_ACTION = "manager_action"
+    DELIVERY_STATUS = "delivery_status"
+    CONSENT_CHANGE = "consent_change"
+
+
+@dataclass(frozen=True)
+class CustomerMessage:
+    provider_event_id: str
+    sender_external_id: str
+    text: str
+    occurred_at: datetime | None = None
+    thread_id: str | None = None
+    reply_to_external_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ManagerAction:
+    """A linked manager's enroll code or approval decision from a messaging tool."""
+
+    provider_event_id: str
+    external_user_id: str
+    kind: str  # "enroll" | "decision"
+    code: str | None = None
+    reference: str | None = None
+    action: str | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class DeliveryStatusUpdate:
+    """A provider's later report on a message we sent (named to avoid DeliveryStatus)."""
+
+    provider_event_id: str
+    provider_message_id: str
+    status: str  # "delivered" | "failed"
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class ConsentChange:
+    provider_event_id: str
+    sender_external_id: str
+    opted_in: bool
+
+
+type InboundEvent = CustomerMessage | ManagerAction | DeliveryStatusUpdate | ConsentChange
+
+_EVENT_TYPES: dict[type, InboundEventType] = {
+    CustomerMessage: InboundEventType.CUSTOMER_MESSAGE,
+    ManagerAction: InboundEventType.MANAGER_ACTION,
+    DeliveryStatusUpdate: InboundEventType.DELIVERY_STATUS,
+    ConsentChange: InboundEventType.CONSENT_CHANGE,
+}
+
+
+def event_type(event: InboundEvent) -> InboundEventType:
+    return _EVENT_TYPES[type(event)]

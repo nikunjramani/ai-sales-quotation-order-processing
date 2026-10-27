@@ -1,12 +1,14 @@
 """Create local-only credentials without printing them or changing existing values.
 
 Default: create .env, refusing to overwrite it. With --add-missing: append only the settings an
-older .env lacks (e.g. the M2 worker role or the M4 channel secret), leaving existing lines as is.
+older .env lacks (e.g. the M2 worker role or the phase 1 secret store key), leaving existing
+lines as is.
 """
 
 import argparse
+from base64 import urlsafe_b64encode
 from pathlib import Path
-from secrets import token_hex
+from secrets import token_bytes, token_hex
 
 DATABASE = "@127.0.0.1:55432/quotation_dev"
 
@@ -40,6 +42,9 @@ def _wanted(existing: dict[str, str]) -> dict[str, str]:
         "QUOTATION_WORKER_DATABASE_URL": f"postgresql+psycopg://quotation_worker:{worker}{DATABASE}",
         # Signs simulated manager-channel events (M4); development only.
         "QUOTATION_SIMULATED_CHANNEL_SECRET": secret("QUOTATION_SIMULATED_CHANNEL_SECRET"),
+        # Encrypts provider secrets in the local secret store (phase 1, ADR 0018); 32 bytes.
+        "QUOTATION_SECRET_STORE_KEY": existing.get("QUOTATION_SECRET_STORE_KEY")
+        or urlsafe_b64encode(token_bytes(32)).decode("ascii"),
     }
 
 

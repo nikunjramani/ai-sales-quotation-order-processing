@@ -31,3 +31,18 @@ def test_ai_model_is_generic_and_its_key_stays_hidden() -> None:
     assert Settings(_env_file=None, database_url=RUNTIME_URL).model is None  # rules, no AI
     with pytest.raises(ValidationError, match="model"):
         Settings(_env_file=None, database_url=RUNTIME_URL, model="gemini-3.5-flash-lite")
+
+
+def test_secret_store_defaults_and_production_rule() -> None:
+    development = Settings(_env_file=None, database_url=RUNTIME_URL)
+    assert development.secret_store_name == "local"
+    production = Settings(_env_file=None, database_url=RUNTIME_URL, environment="production")
+    assert production.secret_store_name == "none"
+    with pytest.raises(ValidationError, match="local secret store"):
+        Settings(
+            _env_file=None, database_url=RUNTIME_URL, environment="production", secret_store="local"
+        )
+    keyed = Settings(
+        _env_file=None, database_url=RUNTIME_URL, secret_store_key=SecretStr("synthetic-key")
+    )
+    assert "synthetic-key" not in repr(keyed)

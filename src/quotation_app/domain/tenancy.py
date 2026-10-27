@@ -31,6 +31,8 @@ class Permission(StrEnum):
     VIEW_ENQUIRIES = "enquiries:view"
     # Accept or decline an issued quotation (customer systems only, through their API key).
     RESPOND_QUOTATIONS = "quotations:respond"
+    # See and (from phase 5) enable or disable the business's tools (connections).
+    MANAGE_INTEGRATIONS = "integrations:manage"
 
 
 # Administrators do not approve by default: approval is a separate, explicitly granted role.
@@ -41,6 +43,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_QUOTATIONS,
                 Permission.DRAFT_QUOTATIONS,
                 Permission.MANAGE_TENANT,
+                Permission.MANAGE_INTEGRATIONS,
                 Permission.SUBMIT_ENQUIRIES,
                 Permission.VIEW_ENQUIRIES,
             }
