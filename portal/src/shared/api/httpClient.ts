@@ -34,7 +34,7 @@ function messageFrom(data: unknown, status: number): string {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   query?: Record<string, string | string[] | undefined>;
 }

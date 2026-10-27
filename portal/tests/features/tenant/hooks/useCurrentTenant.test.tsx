@@ -13,7 +13,13 @@ const TWO_TENANTS = {
   ...TEST_SESSION,
   tenants: [
     ...TEST_SESSION.tenants,
-    { tenant_id: "t2", name: "Demo Office", roles: ["viewer"], permissions: ["quotations:view"] },
+    {
+      tenant_id: "t2",
+      name: "Demo Office",
+      status: "active" as const,
+      roles: ["viewer"],
+      permissions: ["quotations:view"],
+    },
   ],
 };
 

@@ -12,10 +12,12 @@ export const TEST_SESSION: Session = {
   provider: "dev",
   expires_at: "2026-10-23T18:00:00Z",
   csrf_token: "csrf-test",
+  user: null,
   tenants: [
     {
       tenant_id: "t1",
       name: "Demo Industrial",
+      status: "active",
       roles: ["approver"],
       permissions: ["quotations:view", "quotations:approve", "enquiries:view"],
     },

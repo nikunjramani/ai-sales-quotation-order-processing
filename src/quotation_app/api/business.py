@@ -242,7 +242,9 @@ def build_business_router(
             currency=settings.currency,
             minor_units=settings.minor_units,
             rounding_mode=settings.rounding_mode,
-            tax_rate=None if settings.tax_rate is None else str(settings.tax_rate.normalize()),
+            tax_rate=None
+            if settings.tax_rate is None
+            else format(settings.tax_rate.normalize(), "f"),
             max_price_age_seconds=settings.max_price_age_seconds,
             max_stock_age_seconds=settings.max_stock_age_seconds,
             quote_validity_days=settings.quote_validity_days,

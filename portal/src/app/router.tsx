@@ -1,11 +1,12 @@
-import { createHashRouter, Navigate } from "react-router";
+import { createHashRouter } from "react-router";
 
-import { authRoutes } from "@/features/auth";
+import { accountPublicRoutes, accountRoutes } from "@/features/account";
+import { businessRoutes, businessStartRoutes } from "@/features/business";
 import { connectionRoutes } from "@/features/connections";
 import { enquiryRoutes } from "@/features/enquiries";
 import { quotationRoutes } from "@/features/quotations";
 
-import { AppLayout } from "./layout/AppLayout";
+import { AppLayout, HomeRedirect, SignedInLayout } from "./layout/AppLayout";
 import { NotFoundPage } from "./layout/NotFoundPage";
 
 // The route table only combines what each feature exports. Adding a screen to an existing
@@ -15,15 +16,20 @@ import { NotFoundPage } from "./layout/NotFoundPage";
 // whether served by the API at /portal/ or from static hosting later.
 export function createRouter() {
   return createHashRouter([
-    ...authRoutes,
+    // No session needed (sign-in, sign-up and the pages email links open).
+    ...accountPublicRoutes,
+    // Signed in, with or without a business (profile, create a business).
+    { element: <SignedInLayout />, children: [...accountRoutes, ...businessStartRoutes] },
+    // Inside the current business.
     {
       path: "/",
       element: <AppLayout />,
       children: [
-        { index: true, element: <Navigate to="/quotations" replace /> },
+        { index: true, element: <HomeRedirect /> },
         ...quotationRoutes,
         ...enquiryRoutes,
         ...connectionRoutes,
+        ...businessRoutes,
         { path: "*", element: <NotFoundPage /> },
       ],
     },
