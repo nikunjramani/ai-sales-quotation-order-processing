@@ -55,7 +55,9 @@ _EXTRACT = ChatPromptTemplate.from_messages(
             "system",
             _RULES + "\nList each requested item. source_quote must be copied character for "
             "character from the content and must contain product_text and the quantity. Use "
-            "null for a missing quantity or unit.",
+            "null for a missing quantity or unit. Also list products or product groups the "
+            "customer asks about without a quantity (e.g. 'which pumps do you have?' gives "
+            "product_text 'pumps' with quantity null).",
         ),
         ("human", "<{tag}>\n{content}\n</{tag}>"),
     ]
