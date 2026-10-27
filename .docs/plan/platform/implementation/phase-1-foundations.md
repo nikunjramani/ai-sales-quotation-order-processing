@@ -39,6 +39,9 @@ Today's API intake + pull delivery become provider `api`; the simulated manager 
 | ADR 0013 / 0007 | One approval core for every channel | `ChannelActionService` and `ApprovalService` stay the only decision path |
 | ADR 0011 | Tenant from a verified credential, never from the body | Generic route; API key → connection |
 
+### User answers (2026-10-27)
+The user accepted the recommendation for every question below: P1-Q1 a (also contracts §8 U3), Q2 a, **Q3 b** (needs review + portal note), Q4 a, Q5 a, Q6 a, Q7 a, Q8 a, **Q9 a** (keep; decide with API key management in phase 2), Q10 a, Q11 a, Q12 a, Q13 yes. Work happens on branch `feat/phase-1-foundations`, with one commit per work item.
+
 ### Open questions (ask the user before starting; none are decided by this plan)
 | # | Question | Options | Recommendation | Blocks |
 |---|---|---|---|---|

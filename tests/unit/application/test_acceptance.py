@@ -1,7 +1,7 @@
 """Customer answers (M6, ADR 0016): accept, decline, price re-check with automatic revision,
 expiry, withdrawal, notifications, replays and tenant boundaries."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from quotation_app.adapters.erp.simulated import SimulatedPrice
-from quotation_app.application.acceptance import NotDueYet, NotIssued
+from quotation_app.application.acceptance import NotDueYet, NotIssued, notice_text
 from quotation_app.application.channel_actions import ChannelEvent, ChannelEventKind
 from quotation_app.domain.acceptance import (
     CustomerStatus,
@@ -17,6 +17,7 @@ from quotation_app.domain.acceptance import (
     Offer,
     OfferNotOpen,
     PricesChanged,
+    RecordedResponse,
     ResponseAction,
     ResponseConflict,
     ResponseOutcome,
@@ -275,3 +276,34 @@ def test_only_customer_systems_of_the_same_business_can_answer(
         harness.responses().respond(
             customer(harness, office_tenant), enquiry, "api", "k-000002", request
         )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "reason", "expected"),
+    [
+        (
+            ResponseOutcome.ACCEPTED,
+            None,
+            "Demo Industrial: the customer accepted quotation Q-1A2B3C4D version 2"
+            " (total 10596.40 INR).",
+        ),
+        (
+            ResponseOutcome.DECLINED,
+            "Found a cheaper offer",
+            "Demo Industrial: the customer declined quotation Q-1A2B3C4D version 2"
+            " (total 10596.40 INR). Reason: Found a cheaper offer",
+        ),
+    ],
+)
+def test_notice_golden_wording(outcome: ResponseOutcome, reason: str | None, expected: str) -> None:
+    """Pins the exact manager notice wording before the phase 1 outbox moves it."""
+    quotation_id = UUID("1a2b3c4d-0000-4000-8000-000000000000")
+    now = datetime(2026, 10, 27, tzinfo=UTC)
+    offer = Offer(
+        uuid4(), "Demo Industrial", quotation_id, uuid4(), QuotationStatus.ACCEPTED, 2, 2,
+        {"total": "10596.40", "currency": "INR"}, "a" * 64, now, now,
+    )  # fmt: skip
+    response = RecordedResponse(
+        uuid4(), quotation_id, 2, "a" * 64, outcome, "api-key:x", reason, (), None, now
+    )
+    assert notice_text(offer, response) == expected

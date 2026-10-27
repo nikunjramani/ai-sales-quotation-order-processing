@@ -87,6 +87,7 @@ def test_status_lookup_is_tenant_scoped(
     url = f"/api/v1/enquiries/{created['enquiry_id']}"
     own = client.get(url, headers=make_headers(industrial_tenant, Role.VIEWER))
     assert own.status_code == 200
+    assert own.json()["channel"] == "api"  # pinned: phase 1 keeps the provider key here
     assert own.json()["attachments"][0]["status"] == "quarantined"
     assert client.get(url, headers=make_headers(office_tenant, Role.VIEWER)).status_code == 404
 

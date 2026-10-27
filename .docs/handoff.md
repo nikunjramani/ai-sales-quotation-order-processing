@@ -191,6 +191,18 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
 - **Not found:** say so and list the business's product **categories** (from the ERP); asking about a category lists its products.
 - **Replies:** stay fixed templates; AI only reads enquiries.
 
+## Phase 1 foundations (in progress, branch `feat/phase-1-foundations`)
+- **User (2026-10-27):** "start implementation as per plan". PR #5 (the plan) is merged. All phase 1 open questions were answered with the recommendations; see [phase 1 plan §3](plan/platform/implementation/phase-1-foundations.md#user-answers-2026-10-27). Claude may commit and push on this branch, one commit per work item, with a draft PR to `main` (never merging).
+- **WI-0 done:** golden tests pin today's behaviour before the refactor:
+  - approval request wording;
+  - accepted and declined notice wording;
+  - simulated outbox file names and JSON keys;
+  - the old simulated route's response bodies and 409;
+  - `"channel": "api"` in the enquiry status and the portal list (PostgreSQL).
+  
+  Checks: ruff, mypy, 392 tests on PostgreSQL.
+- **Next:** WI-1 (domain and ports), then WI-2 and the following work items in the order of the plan.
+
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).
 - Follow-up messages that continue the customer's open enquiry: planned, waiting for the user's confirmation ([plan/conversation-follow-ups.md](plan/conversation-follow-ups.md)).

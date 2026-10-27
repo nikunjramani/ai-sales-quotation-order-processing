@@ -264,6 +264,8 @@ def test_enquiry_is_drafted_approved_in_the_portal_and_the_run_resumes(
 
     manager = make_client()
     headers = login(manager, MANAGER)
+    [listed] = manager.get(f"{base()}/enquiries").json()  # pinned before phase 1
+    assert (listed["channel"], listed["customer_reference"]) == ("api", "CUST-42")
     response = decide(manager, headers, quoted, "approve")
     assert response.status_code == 200, response.text
     assert run_status(owner_engine, summary["quotation_id"]) == ("approved", "running")

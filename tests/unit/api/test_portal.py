@@ -228,6 +228,8 @@ def test_channel_linking_through_portal_and_signed_webhook(
     )
     enrolled = client.post(url, content=raw, headers={SIGNATURE_HEADER: sign(SECRET, raw)})
     assert enrolled.status_code == 200 and enrolled.json()["result"] == "enrolled"
+    assert set(enrolled.json()) == {"result", "binding_id", "decision_id", "action"}
+    assert enrolled.json()["decision_id"] is None and enrolled.json()["action"] is None
     bindings = client.get(f"{base(harness)}/channel-bindings").json()
     assert [item["external_user_id"] for item in bindings] == ["phone-manager"]
 
@@ -239,8 +241,14 @@ def test_channel_linking_through_portal_and_signed_webhook(
     raw = json.dumps(decision).encode()
     recorded = client.post(url, content=raw, headers={SIGNATURE_HEADER: sign(SECRET, raw)})
     assert recorded.json()["result"] == "recorded"
+    assert recorded.json()["action"] == "approve" and recorded.json()["binding_id"] is None
     replay = client.post(url, content=raw, headers={SIGNATURE_HEADER: sign(SECRET, raw)})
     assert replay.json()["result"] == "replayed"
+    assert replay.json()["decision_id"] == recorded.json()["decision_id"]
+    conflict = json.dumps({**decision, "event_id": "evt-2b", "action": "reject",
+                           "reason": "Too expensive"}).encode()  # fmt: skip
+    answer = client.post(url, content=conflict, headers={SIGNATURE_HEADER: sign(SECRET, conflict)})
+    assert (answer.status_code, answer.json()) == (409, {"detail": "Already decided"})
     forged = json.dumps({**decision, "event_id": "evt-3", "external_user_id": "other"}).encode()
     assert (
         client.post(

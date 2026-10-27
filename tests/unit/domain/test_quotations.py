@@ -119,3 +119,24 @@ def test_review_text_shows_what_is_being_approved(priced: PricedQuotation) -> No
     assert "total 10596.40 INR" in text
     assert "not confirmed as in stock" in text
     assert "Customer reference: not given" in text
+
+
+def test_review_text_golden_wording(priced: PricedQuotation) -> None:
+    """Pins the exact approval-request wording before the phase 1 outbox moves it."""
+    content = quotation_content(priced)
+    packet = ReviewPacket(
+        uuid4(), "Demo Industrial", uuid4(), UUID("1a2b3c4d-0000-4000-8000-000000000000"), 2,
+        "0123456789abcdef" * 4, None, content,
+    )  # fmt: skip
+    assert render_review_text(packet) == (
+        "Demo Industrial: approval needed for quotation Q-1A2B3C4D version 2\n"
+        "Customer reference: not given\n"
+        "\n"
+        "- IND-FAN-450 Industrial exhaust fan 450 mm: 2 each x 4250.00 = 8500.00 INR"
+        " (stock: available)\n"
+        "- IND-CABLE-2C 2-core power cable: 12.5 metre x 38.40 = 480.00 INR (stock: unknown)\n"
+        "\n"
+        "Subtotal 8980.00 INR; tax 1616.40 INR; total 10596.40 INR\n"
+        "Attention: at least one line is not confirmed as in stock.\n"
+        "Content hash: 0123456789ab"
+    )
