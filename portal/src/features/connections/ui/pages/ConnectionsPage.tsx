@@ -4,10 +4,11 @@ import { QueryState } from "@/shared/ui/QueryState";
 import { useBindings, useConnections } from "../../hooks/useConnections";
 import { BindingList } from "../components/BindingList";
 import { ConnectionList } from "../components/ConnectionList";
+import { HostedChatCard } from "../components/HostedChatCard";
 import { LinkAccountCard } from "../components/LinkAccountCard";
 
 /**
- * The business's tools (phase 1: a list; enabling new tools comes later) and the accounts
+ * The business's tools (website chat can be enabled here; other tools later) and the accounts
  * managers have linked. Administrators see every tool; approvers see the ones they can link.
  */
 export function ConnectionsPage() {
@@ -29,6 +30,7 @@ export function ConnectionsPage() {
           <ConnectionList connections={connections.data ?? []} />
         </QueryState>
       )}
+      {admin && <HostedChatCard connections={connections.data ?? []} />}
       <h2>Linked accounts</h2>
       {approver ? (
         <LinkAccountCard connections={connections.data ?? []} />

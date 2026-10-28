@@ -41,4 +41,7 @@ export type Permission =
   | "integrations:manage"
   | "members:manage"
   | "catalogue:view"
-  | "catalogue:manage";
+  | "catalogue:manage"
+  | "conversations:view"
+  | "contacts:details"
+  | "contacts:merge";

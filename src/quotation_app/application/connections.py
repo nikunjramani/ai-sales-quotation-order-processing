@@ -60,6 +60,15 @@ class ConnectionService:
         return provider.display_name if provider is not None else connection.provider_key
 
     # --- hosted chat (phase 4) ------------------------------------------------------------
+    def enablable(self, context: TenantContext) -> Sequence[tuple[str, str]]:
+        """(provider key, name) of the installed tools an administrator can enable here."""
+        context.require(Permission.MANAGE_INTEGRATIONS)
+        return [
+            (provider.key, provider.display_name)
+            for provider in self._registry.all()
+            if provider.capabilities.hosted_chat and self._chats is not None
+        ]
+
     def enable_hosted_chat(self, context: TenantContext, provider_key: str) -> Connection:
         """One click: an active connection with its public address. Enabling again returns
         the business's existing active one."""

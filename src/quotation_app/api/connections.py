@@ -7,6 +7,7 @@ POST /api/v1/tenants/{t}/connections/{connection_id}/enrollments
   An approver starts linking their own account on that connection: a one-time code that works
   only there. 404 unknown (or another business's); 422 not an active approval connection.
 Hosted chat (website chat, phase 4), administrators only:
+GET  /connections/available                       tools that can be enabled here
 POST /connections/hosted-chat {provider_key}       enable with one click (or return the
                                                    active one); gives chat_link and snippet
 PATCH /connections/{id}/chat {allowed_origins?, greeting?}
@@ -55,6 +56,11 @@ class HostedChatOut(BaseModel):
     allowed_origins: list[str]
     greeting: str
     address_changed: bool  # the address can be changed once
+
+
+class AvailableToolOut(BaseModel):
+    provider_key: str
+    provider_name: str
 
 
 class EnableChatIn(BaseModel):
@@ -152,6 +158,13 @@ def build_connection_router(
 
     def admin_view(row: Connection) -> ConnectionOut:
         return _view(ConnectionView(row, connections.provider_name(row), True), base_url)
+
+    @router.get("/connections/available", response_model=list[AvailableToolOut])
+    def available(context: Context) -> list[AvailableToolOut]:
+        return [
+            AvailableToolOut(provider_key=key, provider_name=name)
+            for key, name in guarded(lambda: connections.enablable(context))
+        ]
 
     @router.post(
         "/connections/hosted-chat", response_model=ConnectionOut, responses={403: {}, 422: {}}

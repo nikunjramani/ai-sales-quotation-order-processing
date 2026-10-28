@@ -34,3 +34,11 @@ export function purposeText(connection: Connection): string {
     .map((purpose) => PURPOSE_LABEL[purpose] ?? purpose)
     .join(", ");
 }
+
+/** "https://a.example\n\n https://b.example " -> ["https://a.example", "https://b.example"]. */
+export function originsFromText(text: string): string[] {
+  return text
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}

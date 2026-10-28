@@ -46,3 +46,43 @@ export function useRevokeBinding() {
       client.invalidateQueries({ queryKey: connectionKeys.bindings(tenantId) }),
   });
 }
+
+export function useAvailableTools(enabled: boolean) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: [...connectionKeys.list(tenantId), "available"] as const,
+    queryFn: () => connectionRepository.available(tenantId),
+    enabled,
+  });
+}
+
+/** Enable, configure, re-address and switch a hosted chat; the list reloads after each. */
+export function useHostedChat() {
+  const tenantId = useTenantId();
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: connectionKeys.list(tenantId) });
+  return {
+    enable: useMutation({
+      mutationFn: (providerKey: string) => connectionRepository.enableChat(tenantId, providerKey),
+      onSettled: refresh,
+    }),
+    settings: useMutation({
+      mutationFn: (input: { id: string; allowed_origins: string[]; greeting: string }) =>
+        connectionRepository.chatSettings(tenantId, input.id, {
+          allowed_origins: input.allowed_origins,
+          greeting: input.greeting,
+        }),
+      onSettled: refresh,
+    }),
+    address: useMutation({
+      mutationFn: (input: { id: string; handle: string }) =>
+        connectionRepository.chatAddress(tenantId, input.id, input.handle),
+      onSettled: refresh,
+    }),
+    active: useMutation({
+      mutationFn: (input: { id: string; active: boolean }) =>
+        connectionRepository.chatActive(tenantId, input.id, input.active),
+      onSettled: refresh,
+    }),
+  };
+}
