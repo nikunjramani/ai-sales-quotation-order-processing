@@ -2,8 +2,9 @@ import { http, isApiError, setCsrfToken } from "@/shared/api/httpClient";
 
 import type { AuthConfig, Session } from "../model/types";
 
-// Repository: HTTP calls for sign-in and sessions. It also keeps the CSRF token in sync,
-// because every session the server returns carries the token for later changes.
+// Repository: HTTP calls for the current session. It also keeps the CSRF token in sync,
+// because every session the server returns carries the token for later changes. Signing in
+// (password or dev login) lives in the account feature.
 export const authRepository = {
   config: () => http<AuthConfig>("/auth/config"),
 
@@ -20,12 +21,6 @@ export const authRepository = {
       }
       throw error;
     }
-  },
-
-  async devLogin(subject: string): Promise<Session> {
-    const session = await http<Session>("/auth/dev-login", { method: "POST", body: { subject } });
-    setCsrfToken(session.csrf_token);
-    return session;
   },
 
   async logout(): Promise<void> {

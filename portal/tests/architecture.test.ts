@@ -64,6 +64,11 @@ function violations(): string[] {
     if (/\bfetch\(/.test(source) && label !== "shared/api/httpClient.ts") {
       problems.push(`${label} calls fetch directly; use a repository and shared/api/httpClient`);
     }
+    // Phase 2: tokens (API keys, email links) must never end up in browser storage. Only the
+    // selected business is remembered, in the tenant store.
+    if (/\b(localStorage|sessionStorage|indexedDB)\b/.test(source) && !label.startsWith("features/tenant/store/")) {
+      problems.push(`${label} uses browser storage; only features/tenant/store may`);
+    }
     for (const specifier of imports(source)) {
       const to = target(file, specifier);
       if (to === null) {

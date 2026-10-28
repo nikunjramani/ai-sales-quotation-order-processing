@@ -80,6 +80,24 @@ Quotation and workflow-run statuses gain `accepted`, `declined`, `expired` and `
 
 Backfill (0008): one `api` connection per API key (disabled if the key is revoked), one `simulated` connection per (tenant, connection) used by bindings, a disabled safety-net connection for any other inbox source. Creating an API key also creates its connection; revoking it disables the connection. The demo seed gives each demo business one `simulated` connection for manager approvals and its demo catalogue.
 
+### Added in phase 2 (migration 0010, ADR 0019)
+| Table / column | Contents and rules |
+|---|---|
+| users | A person: `subject` (unique; `user:<uuid>` for sign-ups, the email for demo people), email as typed and normalised (unique when set), display name, verified and disabled times. Global (no tenant); narrow policies by `app.subject`, `app.user_email`, `app.user_id` or membership of the current business. `memberships.subject` references it |
+| user_credentials | Argon2id hash per person. API role only for `app.user_id`; the worker has no access |
+| email_verifications, password_resets | One open link per person: address, token SHA-256 (set by the worker when sending), email status, expiry, sent/consumed/revoked times |
+| account_notices | Emails without a link ("account exists", "password changed") with their send status |
+| invitations | Business, address, roles (people roles only), inviter, token SHA-256, email status, expiry, accepted/revoked; one open invitation per address and business |
+| admin_events | Append-only audit of administration: actor, action, target, old/new values (never secrets) |
+| tenant_profiles | PDF details: legal name, address, tax ID label and value, logo key and hash, version (optimistic locking) |
+| rate_limit_counters | Rule, SHA-256 of the key, window start, hits, expiry |
+| tenants (new columns) | `status` (`setting_up`, `active`, `suspended`; trigger: the API may only go live), country, time zone, created_by, went_live_at, updated_at |
+| tenant_pricing_policies (changed) | The six commercial values may be NULL until saved ("set later"); `updated_by` |
+| api_keys (new columns) | created_by, revoked_by |
+| jobs.tenant_id | NULL allowed only for `send_account_email` |
+
+Backfill (0010): one person per existing membership subject (never verified), existing businesses `active` with `went_live_at = created_at`, an empty profile each.
+
 ## Planned entities
 | Entity | Important contents |
 |---|---|

@@ -33,7 +33,9 @@ Current features:
 
 | Feature | Purpose |
 |---|---|
-| `auth` | Session, dev login, route guard |
+| `auth` | Session state (with the person and each business's status), route guard |
+| `account` | Sign-up, password and dev login, email links, profile, accepting invitations (phase 2) |
+| `business` | Create a business, setup checklist and Go live, settings, pricing, people, API keys (phase 2) |
 | `tenant` | Selected business (Zustand), permission helper, switcher |
 | `quotations` | List, review, decide, revise |
 | `enquiries` | Exception list |

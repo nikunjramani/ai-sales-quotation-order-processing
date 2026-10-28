@@ -59,7 +59,6 @@ Entry points: the HTTP API ([api/app.py](../../src/quotation_app/api/app.py)) an
 | [persistence/api_keys.py](../../src/quotation_app/persistence/api_keys.py) | Key lookup via the narrow RLS policy; owner-only create/revoke |
 | [adapters/storage/local.py](../../src/quotation_app/adapters/storage/local.py) | Local disk storage with strict keys and atomic writes |
 | [0003_intake.py](../../migrations/versions/0003_intake.py) | Intake/job tables, composite tenant FKs, RLS, worker/API grants |
-| [create_api_key.py](../../scripts/create_api_key.py) | Create (token shown once) or revoke API keys |
 | [tests/unit/application/](../../tests/unit/application/test_intake.py), [tests/unit/api/test_enquiries.py](../../tests/unit/api/test_enquiries.py) | Use-case and HTTP contract tests over in-memory fakes |
 | [tests/integration/api/test_enquiries.py](../../tests/integration/api/test_enquiries.py), [test_jobs.py](../../tests/integration/persistence/test_jobs.py) | End-to-end intake, races, durability, crash recovery and role isolation on PostgreSQL |
 
@@ -98,7 +97,7 @@ See [quotation approval](../features/quotation-approval.md).
 | [application/channel_actions.py](../../src/quotation_app/application/channel_actions.py) / [notifications.py](../../src/quotation_app/application/notifications.py) | Enrollment and channel decisions / review delivery job |
 | [application/sessions.py](../../src/quotation_app/application/sessions.py) | Session tokens, expiry, CSRF |
 | [workflows/quotation.py](../../src/quotation_app/workflows/quotation.py) | Approval graph with interrupts; QuotationJobHandler (run lock, stale-resume protection) |
-| [adapters/identity/dev.py](../../src/quotation_app/adapters/identity/dev.py) | Development login (the OIDC adapter goes next to it) |
+| [adapters/identity/dev.py](../../src/quotation_app/adapters/identity/dev.py) | Development login (development/test only; password login is in phase 2 below) |
 | [adapters/providers/simulated/](../../src/quotation_app/adapters/providers/simulated/provider.py) | Simulated provider (phase 1): outbox files, HMAC signatures |
 | [api/auth.py](../../src/quotation_app/api/auth.py), [api/portal.py](../../src/quotation_app/api/portal.py), [api/channels.py](../../src/quotation_app/api/channels.py) | Sign-in and session dependencies, tenant routes, signed webhook |
 | [persistence/quotations.py](../../src/quotation_app/persistence/quotations.py), [channels.py](../../src/quotation_app/persistence/channels.py), [sessions.py](../../src/quotation_app/persistence/sessions.py) | SQL stores, advisory run lock, job queuing in the same transaction |
@@ -140,8 +139,8 @@ See [customer acceptance](../features/customer-acceptance.md).
 | [0007_acceptance.py](../../migrations/versions/0007_acceptance.py) | Validity setting and column, quotation_responses (append-only), new statuses |
 | portal `features/quotations` | `CustomerPanel`, `customerService.ts`, `useCustomerAnswer.ts`, list filters |
 
-## Phase 1 connector framework (in progress)
-See the [phase 1 plan](../plan/platform/implementation/phase-1-foundations.md). This list grows with each work item.
+## Phase 1 connector framework (merged, ADR 0018)
+See the [phase 1 plan](../plan/platform/implementation/phase-1-foundations.md).
 
 | Actual file | Responsibility |
 |---|---|
@@ -166,13 +165,34 @@ See the [phase 1 plan](../plan/platform/implementation/phase-1-foundations.md). 
 | [application/messaging.py](../../src/quotation_app/application/messaging.py) | OutboundService (render a template, store the message) and SendMessageHandler (`send_message` job) |
 | [application/delivery.py](../../src/quotation_app/application/delivery.py) | `deliver_quotation`: prepare the PDF, queue the outbox message; QuotationDocumentHook attaches the verified PDF at send time |
 | [application/notifications.py](../../src/quotation_app/application/notifications.py) | `notify_approvers` queues approval requests; ApprovalRequestHook creates the single-use token at send time |
-| [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests: secret store (built lazily), provider registry, `build_job_handlers` for every job kind |
+| [composition.py](../../src/quotation_app/composition.py) | Composition root shared by the API, worker and tests: secret store (built lazily), provider registry, mailer, `build_job_handlers` for every job kind (each wrapped so a suspended business's jobs wait) |
+
+## Phase 2 accounts and onboarding (ADR 0019)
+See the [phase 2 plan](../plan/platform/implementation/phase-2-accounts.md) and [accounts and onboarding](../features/accounts-and-onboarding.md).
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/accounts.py](../../src/quotation_app/domain/accounts.py) | Email normalisation, password rules, token lifetimes, rate rules, invitations, last-administrator rule, setup checklist and Go-live check |
+| [domain/tenancy.py](../../src/quotation_app/domain/tenancy.py) | Also TenantStatus and one function per status gate; `members:manage`; PEOPLE_ROLES |
+| [domain/messages.py](../../src/quotation_app/domain/messages.py) | Also the five account email templates (single-line subjects) |
+| [domain/documents.py](../../src/quotation_app/domain/documents.py) | Also SellerDetails and `printable_text` (shared by the renderer and the profile form) |
+| [ports/accounts.py](../../src/quotation_app/ports/accounts.py) | UserStore, BusinessStore, MemberStore, InvitationStore, ApiKeyAdminStore, AccountEmailStore, Mailer, RateLimiter, LogoNormalizer, PasswordHasher |
+| [0010_accounts.py](../../migrations/versions/0010_accounts.py) | All phase 2 tables, policies, grants, the status trigger and the four SECURITY DEFINER functions, with backfill and downgrade |
+| [persistence/accounts.py](../../src/quotation_app/persistence/accounts.py) | SQL stores for people, businesses, members, invitations and account emails; maps the functions' SQLSTATEs to port errors |
+| [persistence/rate_limits.py](../../src/quotation_app/persistence/rate_limits.py) | SqlRateLimiter: fixed windows in one atomic upsert, hashed keys |
+| [persistence/api_keys.py](../../src/quotation_app/persistence/api_keys.py) | Also SqlApiKeyAdminStore (portal keys with their connection and audit) |
+| [adapters/accounts/password.py](../../src/quotation_app/adapters/accounts/password.py) | Argon2id hasher with bounded concurrency; the bundled common-password list (`common_passwords.txt`, MIT) |
+| [adapters/accounts/mail/console.py](../../src/quotation_app/adapters/accounts/mail/console.py) | Development mailer (entry point `console`): one file per email |
+| [adapters/documents/logo.py](../../src/quotation_app/adapters/documents/logo.py) | Logo checks and re-encoding (Pillow) |
+| [application/accounts.py](../../src/quotation_app/application/accounts.py) | Signup, Login, Profile, Business, Member, Invitation and ApiKeyAdmin services; AccountEmailHandler (`send_account_email`) |
+| [application/jobs.py](../../src/quotation_app/application/jobs.py) | Also PauseWhileSuspended |
+| [api/accounts.py](../../src/quotation_app/api/accounts.py), [api/business.py](../../src/quotation_app/api/business.py) | Account routes and per-business settings routes; one error mapping (`guarded`) |
+| portal `features/account`, `features/business` | Sign-up, login, links, profile, invitations; create a business, setup and Go live, settings, people, API keys |
 
 ## Planned modules
 
 | Proposed location | Responsibility |
 |---|---|
-| src/quotation_app/api/ | HTTP routes, auth dependency and webhook handling |
 | src/quotation_app/domain/ | Business models, money, pricing and policy rules |
 | src/quotation_app/application/ | Use cases, transaction boundaries and authorization |
 | src/quotation_app/application/negotiation/ (later) | Counteroffer lifecycle reusing existing quotation/approval services; deferred |

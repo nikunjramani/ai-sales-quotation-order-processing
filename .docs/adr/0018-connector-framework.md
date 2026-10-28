@@ -1,6 +1,6 @@
 # 0018: Connector framework: providers, connections, secrets, one webhook route, one outbox
 Date: 2026-10-27
-Status: accepted; implemented on branch `feat/phase-1-foundations` (phase 1 of the [platform plan](../plan/platform/README.md), verified locally)
+Status: accepted; implemented and merged to main (PR #6, phase 1 of the [platform plan](../plan/platform/README.md)); extended by [0019](0019-accounts-and-onboarding.md)
 Extends [0007](0007-channel-independent-approval.md), [0011](0011-durable-intake-and-jobs.md), [0013](0013-portal-identity-and-approval-core.md), [0015](0015-quotation-documents-and-delivery.md) and [0016](0016-customer-acceptance.md); supersedes their per-channel maps (`DeliveryChannel`, `ApprovalNotifier`, the `Channel`/`ApprovalChannel` enums). Plan: [phase 1](../plan/platform/implementation/phase-1-foundations.md), [shared contracts](../plan/platform/implementation/00-shared-contracts.md).
 
 ## Context

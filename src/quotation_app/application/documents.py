@@ -8,8 +8,9 @@
 """
 
 import hashlib
+import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -17,13 +18,16 @@ from quotation_app.domain.documents import (
     DeliveryRecord,
     DocumentIntegrityError,
     DocumentNotAvailable,
+    DocumentSource,
     StoredDocument,
     document_filename,
 )
 from quotation_app.domain.quotations import QuotationNotFound, quotation_number
 from quotation_app.domain.tenancy import Permission, TenantContext
 from quotation_app.ports.documents import DocumentReader, QuotationRenderer
-from quotation_app.ports.storage import ObjectStorage
+from quotation_app.ports.storage import ObjectNotFound, ObjectStorage
+
+logger = logging.getLogger(__name__)
 
 
 def utc_now() -> datetime:
@@ -36,6 +40,26 @@ def read_verified(storage: ObjectStorage, document: StoredDocument) -> bytes:
     if hashlib.sha256(data).hexdigest() != document.sha256:
         raise DocumentIntegrityError(f"Stored document {document.document_id} does not match")
     return data
+
+
+def with_logo(storage: ObjectStorage, source: DocumentSource) -> DocumentSource:
+    """Adds the business's logo (phase 2) when it is stored and still matches its hash.
+
+    The logo is decoration: a missing or changed file is logged and the PDF is made without it,
+    rather than blocking the quotation. Everything commercial on the PDF is unaffected.
+    """
+    if source.seller is None or source.seller_logo_ref is None:
+        return source
+    key, digest = source.seller_logo_ref
+    try:
+        data = storage.get(key)
+    except ObjectNotFound:
+        logger.warning("Logo file %s is missing; the PDF is made without it", key)
+        return source
+    if hashlib.sha256(data).hexdigest() != digest:
+        logger.warning("Logo file %s does not match its hash; the PDF is made without it", key)
+        return source
+    return replace(source, seller=replace(source.seller, logo_png=data))
 
 
 @dataclass(frozen=True)
@@ -89,7 +113,7 @@ class QuotationDocumentService:
             raise QuotationNotFound("Quotation version not found")
         return PdfFile(
             document_filename(quotation_id, version, preview=True),
-            self._renderer.render(source, preview=True),
+            self._renderer.render(with_logo(self._storage, source), preview=True),
         )
 
     def approved(self, context: TenantContext, quotation_id: UUID) -> PdfFile:

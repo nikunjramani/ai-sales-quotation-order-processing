@@ -1,5 +1,5 @@
 # Security and privacy plan
-- Use OIDC authentication and tenant-scoped roles: administrator, sales operator, approver and viewer; service accounts have narrower scopes.
+- People sign in with email and password (D1, ADR 0019); tenant-scoped roles: administrator, sales operator, approver and viewer; service accounts have narrower scopes.
 - Authenticate callbacks with provider-supported verification, replay protection/deduplication and rate limits.
 - Store credential references in business tables; keep encrypted secrets in managed secret storage or protected local environment configuration for development.
 - Never send credentials to models. Minimize customer data in prompts; redact sensitive logs/traces.
@@ -17,7 +17,22 @@
 - Provider webhook verification is necessary but not sufficient: validate the acting manager, task/version, recipient binding and expiry. Forwarded actions and uncorrelated text must not approve anything.
 - Mobile channel review may expose commercial documents to provider storage; configure permitted channels and disclosure per tenant. Never include reusable action secrets in model input or logs.
 
-## Implemented controls (phase 1, connector framework, in progress)
+## Implemented controls (phase 2, accounts and onboarding, ADR 0019)
+- **Passwords:** Argon2id (64 MiB, 3 passes, 4 lanes), at most 4 hashes at once, re-hashed on login when parameters change; 12-128 characters; common passwords and the email name refused. Never logged, never in job payloads, never returned.
+- **No account lockout (user answer Q3);** rate limits per IP, email, person and business, counted in PostgreSQL with hashed keys, answer 429 with `Retry-After`.
+- **No account enumeration:** one answer for sign-up, login, forgot password and links; unknown addresses still cost one hash.
+- **Email links:** 256-bit tokens created by the worker at send time; only SHA-256 stored; single use by compare-and-set; short lifetimes; in the URL fragment and request bodies only; removed from the address bar after use; `no-referrer`.
+- **Sessions:** a new session at every login; all sessions revoked after a reset, the others after a change; removing a member takes effect on their next request.
+- **CSRF without a session:** sign-up, login, reset and invitation preview accept `application/json` only (a cross-site form cannot send it without a CORS preflight).
+- **Least privilege kept (ADR 0002):** the API still cannot insert tenants or memberships. Four owner-owned `SECURITY DEFINER` functions with a fixed `search_path`, EXECUTE for the API role only, trust only `app.subject` and check it against stored rows; the last administrator survives concurrent removals. The worker cannot read people or credentials.
+- **Business status:** a trigger allows the API only setting_up -> active; suspension needs owner credentials.
+- **Audit:** `admin_events` is append-only (also for the owner) and never holds secrets.
+- **Uploads:** logos are checked by their first bytes, size and pixel count before decoding, and re-encoded from pixels only.
+- **Email content:** fixed templates; values in subjects lose line breaks (no header injection).
+- **API keys:** created in the portal, shown once with `no-store`, audited; each key reads only its own enquiries.
+- **Release gate:** production refuses the console mailer, so phase 2 cannot be deployed before a real sender exists (phase 5).
+
+## Implemented controls (phase 1, connector framework)
 - **Provider secrets** live in a secret store (D8), never in the database. `connections.secret_refs` holds references only. The development `local` store encrypts each secret with AES-256-GCM, bound to its tenant and reference, so a copied or renamed file does not decrypt. Production uses `none` until hosting is chosen (D24); `local` is refused there.
 - **Generic webhooks** (`/api/v1/hooks/{connection}/{token}`):
   - Only the token's SHA-256 is stored. It is compared in constant time, with a dummy hash when the connection does not exist.
@@ -63,7 +78,7 @@
   - only SHA-256 hashes stored, an 8-hour lifetime and server-side logout;
   - state changes need an `X-CSRF-Token` derived from the session;
   - the React app never stores tokens.
-- **Dev login:** it asks for no password, so configuration refuses it in production, and it only admits stored members. OIDC is required before any other deployment.
+- **Dev login:** it asks for no password, so configuration refuses it in production, and it only admits stored members. Since phase 2 people sign in with email and password (ADR 0019).
 - **Access checks:**
   - Every portal request re-resolves membership for the tenant in the URL; non-members get 404.
   - Every decision re-checks the approve permission, so people who were removed or demoted cannot act on old pages or messages.

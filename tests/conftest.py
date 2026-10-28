@@ -226,6 +226,7 @@ class FakeIntakeStore:
                 )
                 for item in envelope.attachments
             ),
+            connection_ref=envelope.connection_ref,
         )
 
 

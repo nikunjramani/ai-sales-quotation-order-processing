@@ -130,10 +130,22 @@ class EnquiryIntakeService:
             return self._replay(receipt, fingerprint)
         return IntakeResult(receipt, duplicate=False)
 
-    def status(self, context: TenantContext, enquiry_id: UUID) -> EnquiryView | None:
-        """None for unknown IDs and for other tenants' IDs alike."""
+    def status(
+        self, context: TenantContext, enquiry_id: UUID, provider_key: str
+    ) -> EnquiryView | None:
+        """The enquiry, only if this credential's own connection submitted it.
+
+        None for unknown IDs, other businesses' IDs and enquiries submitted with another key of
+        the same business alike (user answer P1-Q9, 2026-10-27).
+        """
         context.require(Permission.VIEW_ENQUIRIES)
-        return self._store.get_enquiry(context.tenant_id, enquiry_id)
+        connection = self._connections.find_by_account(
+            context.tenant_id, provider_key, context.subject
+        )
+        enquiry = self._store.get_enquiry(context.tenant_id, enquiry_id)
+        if connection is None or enquiry is None:
+            return None
+        return enquiry if enquiry.connection_ref == connection.connection_id else None
 
     def _replay(self, receipt: Receipt, fingerprint: str) -> IntakeResult:
         if receipt.payload_sha256 != fingerprint:

@@ -68,12 +68,18 @@ def test_hook_lookup_reveals_only_the_named_connection(
 def test_runtime_roles_cannot_change_connections_and_events_are_append_only(
     runtime_engine: Engine, worker_engine: Engine, owner_engine: Engine
 ) -> None:
-    for engine in (runtime_engine, worker_engine):
+    # Since phase 2 the API may change a connection's status (revoking an API key disables its
+    # connection), but never its configuration, secrets or webhook token.
+    statements = {
+        runtime_engine: "UPDATE connections SET config = '{}'",
+        worker_engine: "UPDATE connections SET status = 'disabled'",
+    }
+    for engine, statement in statements.items():
         with (
             pytest.raises(ProgrammingError),
             tenant_transaction(engine, INDUSTRIAL_TENANT) as connection,
         ):
-            connection.execute(text("UPDATE connections SET status = 'disabled'"))
+            connection.execute(text(statement))
     with (
         pytest.raises(ProgrammingError, match="immutable"),
         tenant_transaction(owner_engine, INDUSTRIAL_TENANT) as connection,

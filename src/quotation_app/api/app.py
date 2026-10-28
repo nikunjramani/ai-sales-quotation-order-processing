@@ -10,16 +10,29 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
+from quotation_app.adapters.accounts.password import Argon2PasswordHasher, load_common_passwords
+from quotation_app.adapters.documents.logo import PillowLogoNormalizer
 from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.identity.dev import DevIdentityProvider
 from quotation_app.adapters.storage.local import LocalObjectStorage
-from quotation_app.api.auth import PortalAuth, build_auth_router
+from quotation_app.api.accounts import build_account_router
+from quotation_app.api.auth import PortalAuth, SessionView, build_auth_router
+from quotation_app.api.business import build_business_router
 from quotation_app.api.channels import build_channel_router
 from quotation_app.api.connections import build_connection_router
 from quotation_app.api.enquiries import build_enquiry_router
 from quotation_app.api.hooks import build_hook_router
 from quotation_app.api.portal import build_portal_router
 from quotation_app.application.acceptance import QuotationResponseService
+from quotation_app.application.accounts import (
+    ApiKeyAdminService,
+    BusinessService,
+    InvitationService,
+    LoginService,
+    MemberService,
+    ProfileService,
+    SignupService,
+)
 from quotation_app.application.api_keys import ApiKeyAuthenticator
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.channel_actions import ChannelActionService
@@ -34,7 +47,13 @@ from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.composition import build_catalogue, build_runtime
 from quotation_app.config import Settings
 from quotation_app.persistence.acceptance import SqlResponseStore
-from quotation_app.persistence.api_keys import SqlApiKeyReader
+from quotation_app.persistence.accounts import (
+    SqlBusinessStore,
+    SqlInvitationStore,
+    SqlMemberStore,
+    SqlUserStore,
+)
+from quotation_app.persistence.api_keys import SqlApiKeyAdminStore, SqlApiKeyReader
 from quotation_app.persistence.channels import SqlChannelStore
 from quotation_app.persistence.connections import SqlConnectionStore, SqlHookLookup
 from quotation_app.persistence.database import build_engine, database_ready
@@ -46,6 +65,7 @@ from quotation_app.persistence.quotations import (
     SqlQuotationReader,
     SqlRevisionStore,
 )
+from quotation_app.persistence.rate_limits import SqlRateLimiter
 from quotation_app.persistence.seed import DEMO_MEMBERSHIPS
 from quotation_app.persistence.sessions import SqlSessionStore
 from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
@@ -101,27 +121,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
     # Customer answers (M6): accept/decline through the API, withdrawal in the portal.
     responses = QuotationResponseService(SqlResponseStore(engine), pricing)
+    business_store = SqlBusinessStore(engine)
     app.include_router(
         build_enquiry_router(
-            ApiKeyAuthenticator(SqlApiKeyReader(engine)), intake, documents, responses
+            ApiKeyAuthenticator(SqlApiKeyReader(engine)),
+            intake,
+            documents,
+            responses,
+            business_store,
         )
     )
 
     # Portal (M4): sessions, quotations, approvals and manager channels.
     memberships = SqlMembershipReader(engine)
     resolver = TenantContextResolver(memberships)
+    session_store = SqlSessionStore(engine)
     auth = PortalAuth(
-        SessionService(SqlSessionStore(engine), timedelta(hours=configuration.session_hours)),
-        resolver,
+        SessionService(session_store, timedelta(hours=configuration.session_hours)), resolver
     )
-    dev_login = configuration.portal_login == "dev"
+    users = SqlUserStore(engine)
+    profiles = ProfileService(users)
+    session_view = SessionView(memberships, profiles)
+    dev_login = configuration.dev_login_enabled
     app.include_router(
         build_auth_router(
             auth,
-            memberships,
+            session_view,
             DevIdentityProvider(memberships) if dev_login else None,
             sorted({subject for _, subject, _ in DEMO_MEMBERSHIPS}) if dev_login else [],
             configuration.cookie_secure,
+        )
+    )
+    # Accounts and onboarding (phase 2): sign-up, password login, businesses, members, keys.
+    hasher = Argon2PasswordHasher(max_concurrent=configuration.password_hash_concurrency)
+    common = load_common_passwords()
+    limiter = SqlRateLimiter(engine)
+    businesses = BusinessService(business_store, users, limiter, storage, PillowLogoNormalizer())
+    invitations = InvitationService(SqlInvitationStore(engine), business_store, users, limiter)
+    app.include_router(
+        build_account_router(
+            auth,
+            session_view,
+            SignupService(users, hasher, limiter, common),
+            LoginService(users, hasher, limiter, session_store, common),
+            profiles,
+            invitations,
+            businesses,
+            configuration.cookie_secure,
+            configuration.trusted_proxy_count,
+        )
+    )
+    app.include_router(
+        build_business_router(
+            auth,
+            businesses,
+            MemberService(SqlMemberStore(engine), business_store),
+            invitations,
+            ApiKeyAdminService(SqlApiKeyAdminStore(engine), business_store),
+            profiles,
         )
     )
     approvals = ApprovalService(SqlApprovalStore(engine), resolver)

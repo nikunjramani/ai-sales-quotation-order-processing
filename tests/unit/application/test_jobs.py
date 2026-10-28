@@ -111,3 +111,27 @@ def test_temporary_erp_errors_are_retried() -> None:
     runner(queue, failing(ErpError(ErpErrorCode.RATE_LIMITED, "slow down"))).run_once()
     [(event, detail)] = queue.events
     assert event == "retry" and "rate_limited" in str(detail)
+
+
+def test_a_suspended_business_s_jobs_wait() -> None:
+    from uuid import uuid4
+
+    from quotation_app.application.jobs import BusinessSuspended, PauseWhileSuspended
+    from quotation_app.domain.tenancy import TenantStatus
+
+    ran: list[str] = []
+    statuses = {"suspended": TenantStatus.SUSPENDED}
+
+    class Statuses:
+        def status(self, tenant_id: object) -> TenantStatus:
+            return statuses.get(str(tenant_id), TenantStatus.ACTIVE)
+
+    def job(tenant: object) -> ClaimedJob:
+        return ClaimedJob(uuid4(), tenant, JobKind.SEND_ACCOUNT_EMAIL, {}, 1, 5, uuid4(), uuid4())  # type: ignore[arg-type]
+
+    gate = PauseWhileSuspended(lambda claimed: ran.append(str(claimed.tenant_id)), Statuses())
+    gate(job(None))  # account emails of people, not of a business
+    gate(job("live"))
+    with pytest.raises(BusinessSuspended):
+        gate(job("suspended"))
+    assert ran == ["None", "live"]

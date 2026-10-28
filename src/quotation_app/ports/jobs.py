@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import Protocol
 from uuid import UUID
 
-from quotation_app.domain.jobs import JobKind
+from quotation_app.domain.jobs import JobKind, PermanentJobError
 
 
 class LeaseLost(Exception):
@@ -19,13 +19,19 @@ class LeaseLost(Exception):
 @dataclass(frozen=True)
 class ClaimedJob:
     job_id: UUID
-    tenant_id: UUID
+    tenant_id: UUID | None  # None only for send_account_email (sign-up and reset emails)
     kind: JobKind
     payload: dict[str, str]
     attempt: int
     max_attempts: int
     lease_token: UUID
     correlation_id: UUID
+
+    def require_tenant(self) -> UUID:
+        """The business this job works for; every kind except account emails has one."""
+        if self.tenant_id is None:
+            raise PermanentJobError(f"A {self.kind} job needs a business")
+        return self.tenant_id
 
 
 class JobQueue(Protocol):

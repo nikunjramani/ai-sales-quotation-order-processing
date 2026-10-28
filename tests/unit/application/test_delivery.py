@@ -13,10 +13,12 @@ from uuid import UUID, uuid4
 import pytest
 from pypdf import PdfReader
 
+from quotation_app.application.messaging import NOT_LIVE
 from quotation_app.domain.documents import DeliveryRecord, DeliveryStatus
 from quotation_app.domain.jobs import JobKind, PermanentJobError
 from quotation_app.domain.messages import MessageStatus
 from quotation_app.domain.quotations import ApprovalAction
+from quotation_app.domain.tenancy import TenantStatus
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.providers import SendRejected, SendUncertain
 
@@ -61,7 +63,10 @@ def test_api_enquiry_gets_the_approved_pdf_made_available(harness: Any) -> None:
     enquiry, delivery_id = approve(harness)
     pending = record(harness, delivery_id)
     assert pending.status is DeliveryStatus.PENDING
-    assert (pending.channel, pending.recipient) == ("api", "api-key:test-client")
+    assert (pending.channel, pending.recipient) == (
+        "api",
+        "api-key:00000000-0000-4000-8000-0000000000c1",
+    )
 
     harness.deliver(delivery_id)
 
@@ -233,3 +238,17 @@ def test_missing_or_foreign_deliveries_are_permanent_errors(harness: Any) -> Non
     )
     with pytest.raises(PermanentJobError):
         harness.deliveries()(bad)
+
+
+def test_nothing_is_pushed_to_customers_before_go_live(harness: Any) -> None:
+    """Q11/D3: while setting up, a push channel's quotation is recorded as not sent; the
+    business's own API client (pull, Q27) still gets it."""
+    harness.business_status[harness.tenant_id] = TenantStatus.SETTING_UP
+    _, pushed = approve(harness, ("email", "early@customer.example"))
+    harness.deliver(pushed)
+    assert harness.email.documents == []
+    [message] = [m for m in harness.outbox.messages.values() if m.recipient.startswith("early")]
+    assert message.status is MessageStatus.FAILED and message.last_error == NOT_LIVE
+    _, pulled = approve(harness)
+    harness.deliver(pulled)
+    assert record(harness, pulled).status is DeliveryStatus.AVAILABLE

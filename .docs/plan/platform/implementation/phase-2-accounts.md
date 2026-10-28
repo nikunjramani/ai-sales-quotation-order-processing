@@ -1,5 +1,5 @@
 # Implementation plan, phase 2: accounts and onboarding
-**Status:** planning document (2026-10-23). Nothing here is built. It follows the binding [shared contracts](00-shared-contracts.md); where this plan needs something the contracts do not list, it says so in [Proposed changes to shared contracts](#15-proposed-changes-to-shared-contracts). Every value marked **(to confirm)** is a proposal only and must be confirmed by the user before code is written (AGENTS.md "Ask, do not assume").
+**Status:** all open questions answered by the user on 2026-10-27 (see [User answers](#user-answers-2026-10-27)); implementation in progress on branch `feat/phase-2-accounts`. Where an answer differs from a proposal below, the answers section wins. It follows the binding [shared contracts](00-shared-contracts.md); where this plan needs something the contracts do not list, it says so in [Proposed changes to shared contracts](#15-proposed-changes-to-shared-contracts). Every value marked **(to confirm)** is a proposal only and must be confirmed by the user before code is written (AGENTS.md "Ask, do not assume").
 
 Background: [02 accounts and onboarding](../02-accounts-and-onboarding.md), [07 decisions](../07-decisions-needed.md), [08 phases](../08-phases.md). Paths are relative to `src/quotation_app/` unless they start with another top-level folder.
 
@@ -53,7 +53,44 @@ Phase 2 is verified by (from [08](../08-phases.md)): "New business from zero to 
 | 00-shared-contracts | Names, tables, migration `0010_accounts`, job `send_account_email`, permission `members:manage`, portal features `account` and `business` | Used as written |
 | [02](../02-accounts-and-onboarding.md) | Creator gets administrator **and** approver; quotation validity default 7 days (M6 user decision) | `create_business` inserts both roles; validity default 7 |
 
-### Open questions (must be answered before phase 2 starts)
+### User answers (2026-10-27)
+The user answered every question on 2026-10-27. Where the answer differs from the proposal, it is in **bold** and the plan below is changed accordingly.
+
+| # | Answer |
+|---|---|
+| Q1 | 12 characters minimum, 128 maximum, common-password list and "contains the email name" refused (as proposed) |
+| Q2 | Yes: sign-in before verification, but no business creation or invitation acceptance until verified (as proposed) |
+| Q3 | **No lockout.** Only the rate limits (Q4) slow down guessing. Dropped from the plan: `failed_attempts`/`locked_until`, `LockoutPolicy`, `after_failed_login`, the `LOCKED_OUT` email purpose and its template |
+| Q4 | Rate limits as proposed |
+| Q5 | **PostgreSQL counter table** (shared by all API processes, survives restarts) instead of in-memory counters. New global table `rate_limit_counters`, keys stored as SHA-256 only; `RateLimiter` port with a SQL adapter |
+| Q6 | Verification 24 h, reset 30 min, invitation 7 days (as proposed) |
+| Q7 | Same "check your email" answer; the existing owner gets a notice (as proposed) |
+| Q8 | No owner rights; `tenants.created_by` recorded (as proposed) |
+| Q9 | Invitations as proposed |
+| Q10 | Member list: administrators only (as proposed) |
+| Q11 | Status gate and Go-live checklist as in §6 (as proposed) |
+| Q12 | No way back from `active` to `setting_up` (as proposed) |
+| Q13 | Suspension only by an operator script with owner credentials (as proposed) |
+| Q14 | Pricing "set later" with visible suggestions (as proposed) |
+| Q15 | Country and time zone both required (as proposed) |
+| Q16 | PDF: legal name, address (required for Go live), optional tax ID with label, optional logo PNG/JPEG ≤ 1 MB (as proposed) |
+| Q17 | Only intake keys from the portal; `scripts/create_api_key.py` removed (as proposed) |
+| Q18 | Email normalisation as proposed (no Gmail dot/plus folding) |
+| Q19 | `QUOTATION_MAIL_FROM`, `QUOTATION_PUBLIC_PORTAL_URL`; console mailer in development; production blocked until phase 5 (as proposed) |
+| Q20 | Retention setting in phase 4 (as proposed) |
+| Q21 | No total limit; 5 creations per day per person (as proposed) |
+| Q22 | Members may leave by themselves, except the last administrator (as proposed) |
+| Q23 | Profile: display name and password only (as proposed) |
+| Q24 | **Seeded demo people also get a password**, read from the new setting `QUOTATION_DEMO_PASSWORD` (development/test only; `init_local_env.py --add-missing` fills it with a random value; never in Git). Dev login stays |
+| Q25 | Bundled offline common-password list (as proposed) |
+| Q26 | Narrow SECURITY DEFINER functions (as proposed) |
+| Q27 | API pull delivery allowed while `setting_up` (as proposed) |
+| Argon2id | t=3, m=64 MiB, p=4, at most 4 concurrent hashes (as proposed) |
+| P1-Q9 (from phase 1) | **An API key sees only the enquiries and quotations it submitted itself** (status, quotation JSON/PDF, response). Another key of the same business gets 404 |
+
+Commits: on `feat/phase-2-accounts`, one commit per work item after checks pass, pushed, with a draft PR to `main`; the user merges.
+
+### Open questions (answered 2026-10-27; kept for reference)
 Every row has a proposal. None of these proposals may be coded until confirmed.
 
 | # | Question | Proposal **(to confirm)** | Why it matters |

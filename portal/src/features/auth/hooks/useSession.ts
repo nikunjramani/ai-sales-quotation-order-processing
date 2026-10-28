@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { setCsrfToken } from "@/shared/api/httpClient";
+
 import { authRepository } from "../api/authRepository";
+import type { Session } from "../model/types";
 
 export const authKeys = {
   session: ["auth", "session"] as const,
@@ -16,12 +19,19 @@ export function useAuthConfig() {
   return useQuery({ queryKey: authKeys.config, queryFn: authRepository.config, staleTime: Infinity });
 }
 
-export function useLogin() {
+/**
+ * For other features that change the session (signing in, creating or joining a business):
+ * `set` stores a session the server just returned, `refresh` reloads it.
+ */
+export function useSessionCache() {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: authRepository.devLogin,
-    onSuccess: (session) => client.setQueryData(authKeys.session, session),
-  });
+  return {
+    set(session: Session) {
+      setCsrfToken(session.csrf_token);
+      client.setQueryData(authKeys.session, session);
+    },
+    refresh: () => client.invalidateQueries({ queryKey: authKeys.session }),
+  };
 }
 
 export function useLogout() {

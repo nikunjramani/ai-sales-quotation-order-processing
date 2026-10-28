@@ -23,7 +23,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
-from quotation_app.application.documents import read_verified
+from quotation_app.application.documents import read_verified, with_logo
 from quotation_app.application.messaging import OutboundService
 from quotation_app.domain.acceptance import valid_until
 from quotation_app.domain.documents import (
@@ -79,7 +79,7 @@ class QuotationDeliveryHandler:
             delivery_id = UUID(job.payload["delivery_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid delivery_id") from None
-        tenant_id = job.tenant_id
+        tenant_id = job.require_tenant()
         work = self._store.delivery(tenant_id, delivery_id)
         if work is None:
             raise PermanentJobError("Delivery not found")
@@ -142,7 +142,7 @@ class QuotationDeliveryHandler:
         # prepared for it. A push retry later keeps this date, which is printed on the PDF.
         prepared_at = self._clock()
         until = valid_until(prepared_at, work.validity_days)
-        source = replace(source, valid_until=until)
+        source = replace(with_logo(self._storage, source), valid_until=until)
         data = self._renderer.render(source, preview=False)
         sha256 = hashlib.sha256(data).hexdigest()
         new_id = document_id(

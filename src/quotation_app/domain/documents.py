@@ -25,7 +25,7 @@ from quotation_app.domain.connections import DeliveryMode
 from quotation_app.domain.quotations import quotation_number
 from quotation_app.domain.validation import require_aware
 
-RENDERER_VERSION = "quotation-pdf-v1"
+RENDERER_VERSION = "quotation-pdf-v2"  # v2 (phase 2): seller details and logo
 MAX_ERROR_CHARACTERS = 300
 
 
@@ -60,6 +60,41 @@ class UnrenderableContent(Exception):
     Rendering never drops or replaces characters silently: a changed name or description in a
     commercial document is worse than no document.
     """
+
+
+# The built-in PDF fonts show Windows-1252 (Western European) text only.
+PDF_TEXT_ENCODING = "cp1252"
+
+
+def printable_text(value: object, field: str) -> str:
+    """One line of text the PDF can show exactly, or UnrenderableContent.
+
+    Shared by the renderer and by the business profile form (phase 2), so a saved profile can
+    never make every later PDF of the business fail.
+    """
+    text = " ".join(str(value).split())
+    try:
+        text.encode(PDF_TEXT_ENCODING)
+    except UnicodeEncodeError:
+        raise UnrenderableContent(
+            f"{field} contains characters the PDF fonts cannot show"
+        ) from None
+    return text
+
+
+@dataclass(frozen=True)
+class SellerDetails:
+    """The business as printed on its quotations (phase 2 PDF details, Q16).
+
+    legal_name and address are required for Go live; the rest is optional. The logo is a
+    normalised PNG (re-encoded by the logo adapter, never the uploaded bytes).
+    """
+
+    legal_name: str
+    address_lines: tuple[str, ...]
+    tax_id_label: str | None = None
+    tax_id: str | None = None
+    logo_png: bytes | None = None
 
 
 class DocumentIntegrityError(Exception):
@@ -130,6 +165,10 @@ class DocumentSource:
     customer_reference: str | None
     approved_at: datetime | None
     valid_until: datetime | None = None  # set for the customer document (M6), not previews
+    seller: SellerDetails | None = None  # phase 2; None prints the business name only
+    # Where the seller's logo is stored, as (storage key, SHA-256); read and checked just before
+    # rendering, because the stores that build this source cannot read files.
+    seller_logo_ref: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
         if self.approved_at is not None:

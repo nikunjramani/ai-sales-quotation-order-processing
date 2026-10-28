@@ -29,6 +29,8 @@ class JobKind(StrEnum):
     SEND_MESSAGE = "send_message"
     PROCESS_INBOUND = "process_inbound"
     PROVISION_CONNECTION = "provision_connection"  # no handler until phase 5
+    # Phase 2 accounts: the only kind that may have no business (sign-up, reset emails).
+    SEND_ACCOUNT_EMAIL = "send_account_email"
 
 
 class PermanentJobError(Exception):

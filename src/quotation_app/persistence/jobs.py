@@ -38,7 +38,7 @@ _CLAIM = text(
 
 def queue_job(
     connection: Connection,
-    tenant_id: UUID,
+    tenant_id: UUID | None,
     kind: JobKind,
     payload: Mapping[str, str],
     correlation_id: UUID,
@@ -47,6 +47,7 @@ def queue_job(
     """Queue a job inside the caller's transaction, so it exists only if the change commits.
 
     run_at delays it (e.g. the expiry of a quotation); by default it can run at once.
+    tenant_id is None only for account emails (send_account_email), which the database enforces.
     """
     connection.execute(
         insert(Job).values(

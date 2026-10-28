@@ -12,7 +12,7 @@ export function TenantSwitcher() {
       value={tenant?.tenant_id ?? ""}
       onChange={(event) => {
         selectTenant(event.target.value);
-        navigate("/quotations");
+        navigate("/");
       }}
     >
       {tenants.map((item) => (

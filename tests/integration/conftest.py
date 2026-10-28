@@ -29,7 +29,9 @@ _INTAKE_TABLES = (
     "approval_action_refs, channel_bindings, channel_enrollments, approval_decisions, "
     "approval_tasks, quotation_versions, quotations, user_sessions, "
     "checkpoint_writes, checkpoint_blobs, checkpoints, workflow_runs, "
-    "jobs, attachments, enquiries, inbox_events, api_keys"
+    "jobs, attachments, enquiries, inbox_events, api_keys, "
+    "invitations, admin_events, account_notices, email_verifications, password_resets, "
+    "rate_limit_counters"
 )
 
 
@@ -107,3 +109,15 @@ def make_api_key(owner_engine: Engine, runtime_engine: Engine) -> ApiKeyFactory:
         return key.token
 
     return create
+
+
+@pytest.fixture
+def fresh_accounts(
+    integration_settings: Settings, owner_engine: Engine, runtime_engine: Engine
+) -> Iterator[None]:
+    """For tests that create people and businesses: afterwards, remove every tenant and person
+    (CASCADE, owner only) and seed the demo data again, so later tests see only the demo."""
+    yield
+    with owner_engine.begin() as connection:
+        connection.execute(text("TRUNCATE tenants, users CASCADE"))
+    seed_demo_tenants(integration_settings)

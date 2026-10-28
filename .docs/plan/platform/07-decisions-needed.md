@@ -8,6 +8,7 @@ The user answered most questions on 2026-10-23. **Decided** rows are binding. **
 | D2 | Which identity service? | **Follows from D1:** none; email + password is built into our existing login and sessions | — |
 | D3 | Who may create a business? | **Decided:** anyone, no restrictions (self-service sign-up) | Phase 2 |
 | D4 | Billing and plans? | **Decided:** out of scope | — |
+| D1-D3 details | Passwords, limits, invitations, Go live, PDF details, API keys | **Decided (user, 2026-10-27):** phase 2 Q1-Q27, see [phase 2 plan, user answers](implementation/phase-2-accounts.md#user-answers-2026-10-27). Notable: no account lockout (rate limits only, counters in PostgreSQL); demo people get a password from `.env`; API keys see only their own enquiries | Phase 2 |
 
 ## Connectors
 | # | Question | Answer | Blocking for |

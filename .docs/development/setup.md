@@ -73,10 +73,7 @@ Visit http://127.0.0.1:8000/docs, /health/live or /health/ready.
 - **Readiness** requires the expected migration head and an acceptable runtime role. It returns a sanitized 503 when the database is missing or unsuitable.
 
 ## Enquiry intake (M2)
-1. **Create an API key** for a seeded tenant. The token is printed once; keep it secret:
-   ```powershell
-   uv run python scripts/create_api_key.py --tenant 11111111-1111-4111-8111-111111111111 --role intake_service --name "local test"
-   ```
+1. **Create an API key** in the portal: sign in as `admin@industrial.example` (dev login, or the demo password from `.env`), open **Settings -> API keys** and create one. The token is shown once; keep it secret. (Before phase 2 this was `scripts/create_api_key.py`, now removed.)
 2. **Submit an enquiry** (PowerShell):
    ```powershell
    $token = "qk_..."   # from step 1
@@ -87,7 +84,7 @@ Visit http://127.0.0.1:8000/docs, /health/live or /health/ready.
    The response is 202 with `enquiry_id` and status `received`. Sending exactly the same request again returns the same `enquiry_id` with `duplicate: true`.
 3. **Process background jobs**: `uv run python -m quotation_app.worker --once` drains the queue and exits. Leave out `--once` to keep polling until Ctrl+C.
 4. **Check the status:** `GET /api/v1/enquiries/<enquiry_id>` with the same header. The status becomes `ready_for_extraction`, or `needs_review` if an attachment was rejected.
-5. **Revoke the key:** `uv run python scripts/create_api_key.py --tenant <tenant> --revoke <key id>`.
+5. **Revoke the key** on the same portal page.
 
 Attachments go in `attachments: [{filename, content_type, content_base64}]` and are stored under `QUOTATION_STORAGE_DIR` (default `var/storage`, ignored by Git): `tenants/<tenant>/quarantine/` first, then `clean/` after inspection.
 
@@ -194,7 +191,7 @@ Migrate first (`check_database.py` or `uv run alembic upgrade head`). Each busin
 - **Logs:** no secrets or errors appeared in the logs, and the key was revoked.
 
 ## Boundaries and troubleshooting
-- API keys authenticate systems. People use portal sessions; only the development login exists until an OIDC provider is added.
+- API keys authenticate systems. People use portal sessions: email + password (phase 2), and the development login in development.
 - No real ERP, messaging provider (email, Telegram) or order processing is implemented. Approved PDFs are delivered only to API clients (pull), which can accept or decline them (M6); no ERP order is created yet. Clarification questions are stored, not sent yet.
 - **Missing URL:** generate `.env` from the root, or run `--add-missing`.
 - **Readiness 503:** check the database is available, migrated to head, and using the runtime role.
@@ -209,3 +206,24 @@ uv run alembic upgrade head                            # 0008 connections, 0009 
 uv run python -m quotation_app.persistence.seed        # demo connections (phone, catalogue, webhook)
 ```
 The VS Code "Run all" task migrates and seeds for you; `uv sync` and the key are still manual.
+
+## Accounts and onboarding (phase 2)
+After pulling phase 2, run once:
+```
+uv sync --all-extras                                   # argon2-cffi and the console mailer entry point
+uv run python scripts/init_local_env.py --add-missing  # adds QUOTATION_DEMO_PASSWORD
+uv run alembic upgrade head                            # 0010 accounts
+uv run python -m quotation_app.persistence.seed        # demo people become verified users with that password
+```
+Then, with the API, the worker and the portal running ("Run all" in VS Code):
+1. Open http://localhost:5173/portal/ (or `/portal/` on the API) and choose **Create an account**.
+2. Run the worker if it is not running (`uv run python -m quotation_app.worker --once`). The email is a file in `var/storage/dev-mail/`; open the newest one and paste its link into the browser.
+3. Sign in, **Create a business**, then follow **Setup**: business details, details on quotations, pricing, an API key, and a test enquiry with that key, for example:
+   ```powershell
+   $h = @{ Authorization = "Bearer <key>"; "Idempotency-Key" = "test-1" }
+   Invoke-RestMethod http://localhost:8000/api/v1/enquiries -Method Post -Headers $h -ContentType application/json -Body '{"text":"2 x IND-FAN-450"}'
+   ```
+   A new business has no products yet (phase 3), so the enquiry goes to review with "No product source is connected"; it still counts as the test enquiry.
+4. Press **Go live**. Invite a colleague under **Settings -> People**; their email is in `var/storage/dev-mail/` too.
+
+The demo people keep the dev login, and can also sign in with their email and the `QUOTATION_DEMO_PASSWORD` from `.env`.

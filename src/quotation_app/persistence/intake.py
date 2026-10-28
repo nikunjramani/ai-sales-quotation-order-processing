@@ -178,7 +178,14 @@ class SqlIntakeStore:
                     Enquiry.customer_reference,
                     Enquiry.received_at,
                     Enquiry.correlation_id,
-                ).where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
+                    InboxEvent.connection_ref,
+                )
+                .join(
+                    InboxEvent,
+                    (InboxEvent.tenant_id == Enquiry.tenant_id)
+                    & (InboxEvent.id == Enquiry.inbox_event_id),
+                )
+                .where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
             ).one_or_none()
             if enquiry is None:
                 return None
@@ -224,6 +231,7 @@ class SqlIntakeStore:
                 for row in attachments
             ),
             extraction=None if run is None else _extraction_view(run.status, run.outcome),
+            connection_ref=enquiry.connection_ref,
         )
 
 
