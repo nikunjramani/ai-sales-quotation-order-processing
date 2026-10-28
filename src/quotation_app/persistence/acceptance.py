@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from quotation_app.domain.acceptance import (
     QUOTATION_STATUS_FOR,
     SYSTEM_SUBJECT,
+    CustomerStatus,
     Offer,
     OfferNotOpen,
     RecordedResponse,
@@ -26,6 +27,7 @@ from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.quotations import QuotationStatus
 from quotation_app.persistence.jobs import queue_job
 from quotation_app.persistence.models import (
+    CustomerActionRef,
     Quotation,
     QuotationDelivery,
     QuotationDocument,
@@ -163,7 +165,12 @@ class SqlResponseStore:
         return _offer(tenant_id, row)
 
     def record(
-        self, tenant_id: UUID, offer: Offer, response: NewResponse, now: datetime
+        self,
+        tenant_id: UUID,
+        offer: Offer,
+        response: NewResponse,
+        now: datetime,
+        consume_ref: UUID | None = None,
     ) -> RecordedResponse:
         expiring = response.outcome is ResponseOutcome.EXPIRED
         with tenant_transaction(self._engine, tenant_id) as connection:
@@ -238,6 +245,18 @@ class SqlResponseStore:
                     created_at=now,
                 )
             )
+            if consume_ref is not None:
+                used = connection.execute(
+                    update(CustomerActionRef)
+                    .where(
+                        CustomerActionRef.tenant_id == tenant_id,
+                        CustomerActionRef.id == consume_ref,
+                        CustomerActionRef.consumed_at.is_(None),
+                    )
+                    .values(consumed_at=now, response_id=response_id)
+                ).rowcount
+                if not used:
+                    raise OfferNotOpen(CustomerStatus.CLOSED)  # used meanwhile
             link = enquiry_link(connection, tenant_id, offer.quotation_id)
             queue_job(
                 connection,

@@ -58,6 +58,7 @@ def test_customer_messages_use_the_confirmed_wording() -> None:
         "2026-11-04 10:00 UTC). Send us a message if you would like an updated quotation.",
         TemplateKey.OPTED_OUT: "You will not receive more messages from Acme Industrial. Reply "
         "START to receive messages again.",
+        TemplateKey.OPTED_IN: "You will receive messages from Acme Industrial again.",
     }
 
 

@@ -70,6 +70,7 @@ class TemplateKey(StrEnum):
     QUOTATION_WITHDRAWN = "quotation_withdrawn"
     QUOTATION_EXPIRED = "quotation_expired"
     OPTED_OUT = "opted_out"
+    OPTED_IN = "opted_in"  # START confirmation (asked mid-work, 2026-10-28)
 
 
 ACCOUNT_TEMPLATES: Mapping[AccountEmailPurpose, TemplateKey] = {
@@ -179,6 +180,7 @@ CUSTOMER_WORDING: Mapping[TemplateKey, str] = {
     TemplateKey.OPTED_OUT: (
         "You will not receive more messages from {business}. Reply START to receive messages again."
     ),
+    TemplateKey.OPTED_IN: "You will receive messages from {business} again.",
 }
 CUSTOMER_TEMPLATES = frozenset(CUSTOMER_WORDING) | {TemplateKey.CLARIFICATION_QUESTIONS}
 

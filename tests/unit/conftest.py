@@ -954,7 +954,12 @@ class MemoryQuotations:
         )
 
     def record(
-        self, tenant_id: UUID, offer: Offer, response: NewResponse, now: datetime
+        self,
+        tenant_id: UUID,
+        offer: Offer,
+        response: NewResponse,
+        now: datetime,
+        consume_ref: UUID | None = None,
     ) -> RecordedResponse:
         self._maybe_fail("record")
         quotation = self.quotations[offer.quotation_id]

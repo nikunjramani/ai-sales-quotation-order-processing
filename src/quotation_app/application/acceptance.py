@@ -52,6 +52,7 @@ from quotation_app.ports.acceptance import NewResponse, ResponseStore, RevisedCo
 from quotation_app.ports.channels import NotificationStore
 from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.conversations import CustomerNotifier
+from quotation_app.ports.customer_actions import CustomerActionRef
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.messages import MessageLinks
 
@@ -127,6 +128,38 @@ class QuotationResponseService:
         else:
             response = self._acceptance(offer, context.subject, key, fingerprint)
         recorded = self._store.record(context.tenant_id, offer, response, now)
+        self._raise_if_refused(recorded)
+        return recorded, False
+
+    def respond_by_reference(
+        self, ref: CustomerActionRef, action: ResponseAction, reason: str | None
+    ) -> tuple[RecordedResponse, bool]:
+        """Accept/decline from a chat button or a secure link (phase 4).
+
+        The reference is bound to one version and content hash and is answered once: pressing
+        the same action again returns the first answer (replayed); the other action after
+        that raises OfferNotOpen (accepted, declined...). Same checks and re-pricing as respond().
+        """
+        key = f"ref:{ref.ref_id}"
+        fingerprint = action.value
+        found = self._store.find_response(ref.tenant_id, key)
+        if found is not None and found[1] == fingerprint:
+            self._raise_if_refused(found[0])
+            return found[0], True
+        # The other button after an answer: the offer is no longer open (checked below).
+        offer = self._store.offer_for_quotation(ref.tenant_id, ref.quotation_id)
+        if offer is None:
+            raise DocumentNotAvailable("No quotation has been issued for this enquiry yet")
+        if offer.version != ref.version or offer.content_sha256 != ref.content_sha256:
+            raise NotCurrentOffer("This is not the quotation version currently offered")
+        now = self._clock()
+        self._require_open(offer, now)
+        actor = f"customer:{ref.identity_id}"
+        if action is ResponseAction.DECLINE:
+            response = NewResponse(ResponseOutcome.DECLINED, actor, reason, key, fingerprint)
+        else:
+            response = self._acceptance(offer, actor, key, fingerprint)
+        recorded = self._store.record(ref.tenant_id, offer, response, now, consume_ref=ref.ref_id)
         self._raise_if_refused(recorded)
         return recorded, False
 

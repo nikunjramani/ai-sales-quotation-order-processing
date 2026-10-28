@@ -74,6 +74,9 @@ The user answered every question below on 2026-10-28 and confirmed the summary (
 | Q13 | `/chat/<handle>`, handle derived from the business name (number added if taken), an administrator may change it **once**; domain waits for D24 |
 | Q14 | **(b) now:** reuse the phase 2 PostgreSQL `rate_limit_counters` (no release gate) |
 | Live run | The user has a Gemini key in `.env`: the live run and conversation evaluation use `google_genai:gemini-3.5-flash-lite` with synthetic data only |
+| Cap reached (asked mid-work, 2026-10-28) | When the 200 website-chat reading rounds per day are used up, the message is stored as usual but the enquiry goes to `needs_review` ("daily reading limit reached") instead of being read; no AI call |
+| START reply (asked mid-work) | Yes, fixed text: "You will receive messages from {business} again." |
+| Repeated messages (asked mid-work) | Not dropped: every message is kept (the widget's idempotency key already makes a retried send harmless; rate limits stop floods) |
 | Git | Same as phases 1-3: branch `feat/phase-4-conversations`, one commit per work item, pushed, draft PR to `main`; the user merges |
 
 ### 3.2 Open questions (answered 2026-10-28, see above; kept for the reasoning)

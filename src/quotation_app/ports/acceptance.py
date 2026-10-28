@@ -46,15 +46,20 @@ class ResponseStore(Protocol):
         ...
 
     def record(
-        self, tenant_id: UUID, offer: Offer, response: NewResponse, now: datetime
+        self,
+        tenant_id: UUID,
+        offer: Offer,
+        response: NewResponse,
+        now: datetime,
+        consume_ref: UUID | None = None,
     ) -> RecordedResponse:
         """Record an answer atomically, re-checking under a row lock that the offer is still
         open (approved, still the current version, and before valid_until; for EXPIRED: at or
         after it). Raises OfferNotOpen otherwise.
 
         In the same transaction: update the quotation status, store the revised version (or
-        pricing issues) for REFUSED_CHANGED, queue the workflow resume and, for accepted and
-        declined answers, the staff notification.
+        pricing issues) for REFUSED_CHANGED, queue the workflow resume and the notification
+        job, and mark the customer action reference (phase 4) as used.
         """
         ...
 

@@ -66,7 +66,8 @@ class Settings(BaseSettings):
     default_catalogue_provider: str | None = Field(
         default="local_catalogue", pattern=r"^[a-z][a-z0-9_]{1,31}$"
     )
-    # Public address of this API, only used to show webhook URLs (logs, portal).
+    # Public address of this API: webhook URLs, website chat links and secure answer links
+    # (/q/<token>) in customer messages (phase 4).
     public_base_url: str | None = Field(default=None, pattern=r"^https?://\S+$")
     # Built React portal (portal/dist) to serve at /portal; unset = not served by the API.
     portal_dist_dir: Path | None = None

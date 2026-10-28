@@ -25,6 +25,7 @@ from quotation_app.application.accounts import AccountEmailHandler
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_sources import CatalogueSourceResolver, TenantCatalogue
 from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.customer_actions import QuotationReadyHook
 from quotation_app.application.customer_messages import CustomerConsentHook, CustomerMessenger
 from quotation_app.application.delivery import QuotationDeliveryHandler, QuotationDocumentHook
 from quotation_app.application.inbound import ProcessInboundHandler, routes_for
@@ -49,6 +50,7 @@ from quotation_app.persistence.catalogue import SqlCatalogueStore
 from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.connections import SqlConnectionStore
 from quotation_app.persistence.conversations import SqlCustomerTargets
+from quotation_app.persistence.customer_actions import SqlCustomerActionStore
 from quotation_app.persistence.documents import SqlDeliveryStore
 from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlPreparationStore
@@ -75,6 +77,10 @@ from quotation_app.workflows.quotation import (
 
 SECRET_STORES = "quotation_app.secret_stores"
 MAILERS = "quotation_app.mailers"
+
+
+# Where links in customer messages point when QUOTATION_PUBLIC_BASE_URL is not set (dev).
+DEV_PUBLIC_BASE_URL = "http://localhost:8000"
 
 
 def build_secret_store(settings: Settings) -> SecretStore:
@@ -221,7 +227,17 @@ def build_job_handlers(
     send_hooks: dict[TemplateKey, SendHook] = {
         template: CustomerConsentHook(targets) for template in CUSTOMER_TEMPLATES
     }
-    send_hooks[TemplateKey.QUOTATION_READY] = CustomerConsentHook(targets, document_hook)
+    send_hooks[TemplateKey.QUOTATION_READY] = CustomerConsentHook(
+        targets,
+        QuotationReadyHook(
+            document_hook,
+            deliveries,
+            targets,
+            SqlCustomerActionStore(engine),
+            runtime.registry,
+            settings.public_base_url or DEV_PUBLIC_BASE_URL,
+        ),
+    )
     send_hooks[TemplateKey.APPROVAL_REQUEST] = ApprovalRequestHook(notifications)
     send_hooks[TemplateKey.QUOTATION_DOCUMENT] = document_hook
     quotations = QuotationJobHandler(
