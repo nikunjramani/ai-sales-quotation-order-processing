@@ -35,7 +35,12 @@
 </header>
 <main>
   <section class="pane customer">
-    <h2>Customer (sends an enquiry)</h2>
+    <h2>Customer on the website chat (phase 4)</h2>
+    <iframe id="website-chat" title="Website chat" style="flex:1;border:0;width:100%"></iframe>
+    <div class="error" id="chat-error"></div>
+  </section>
+  <section class="pane customer">
+    <h2>Customer system (API enquiry)</h2>
     <div class="log" id="customer-log"></div>
     <div class="error" id="customer-error"></div>
     <form id="enquiry-form">
@@ -192,6 +197,10 @@ async function refresh() {
   try { await refreshManager(); } catch (error) { $("manager-error").textContent = error.message; }
 }
 setInterval(refresh, 2000);
+// The real website chat page of the demo business, as a visitor would see it.
+api("GET", "/demo/chat")
+  .then((chat) => { $("website-chat").src = chat.chat_url; })
+  .catch((error) => { $("chat-error").textContent = error.message; });
 refresh();
 </script>
 </body>
