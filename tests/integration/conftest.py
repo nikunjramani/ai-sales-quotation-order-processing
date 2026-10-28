@@ -31,7 +31,9 @@ _INTAKE_TABLES = (
     "checkpoint_writes, checkpoint_blobs, checkpoints, workflow_runs, "
     "jobs, attachments, enquiries, inbox_events, api_keys, "
     "invitations, admin_events, account_notices, email_verifications, password_resets, "
-    "rate_limit_counters"
+    "rate_limit_counters, "
+    "catalogue_changes, catalogue_stock, catalogue_prices, catalogue_products, "
+    "catalogue_categories"
 )
 
 
