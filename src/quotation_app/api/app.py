@@ -22,6 +22,7 @@ from quotation_app.api.business import build_business_router
 from quotation_app.api.catalogue import build_catalogue_router
 from quotation_app.api.channels import build_channel_router
 from quotation_app.api.connections import build_connection_router
+from quotation_app.api.conversations import build_conversation_router
 from quotation_app.api.enquiries import build_enquiry_router
 from quotation_app.api.hooks import build_hook_router
 from quotation_app.api.portal import build_portal_router
@@ -42,6 +43,7 @@ from quotation_app.application.catalogue_admin import ProductService
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.chat import HostedChatService
 from quotation_app.application.connections import ConnectionService
+from quotation_app.application.contacts import ContactService
 from quotation_app.application.conversations import default_router
 from quotation_app.application.customer_actions import CustomerActionService
 from quotation_app.application.documents import QuotationDocumentService
@@ -73,6 +75,11 @@ from quotation_app.persistence.connections import (
     SqlConnectionStore,
     SqlHookLookup,
     SqlHostedChatAdmin,
+)
+from quotation_app.persistence.contacts import (
+    SqlContactMerger,
+    SqlContactReader,
+    SqlCustomerMessageSettings,
 )
 from quotation_app.persistence.customer_actions import SqlCustomerActionStore
 from quotation_app.persistence.database import build_engine, database_ready
@@ -241,6 +248,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ConnectionService(connections, runtime.registry, SqlHostedChatAdmin(engine)),
             channels,
             base_url,
+        )
+    )
+    # Customers and conversations in the portal (phase 4).
+    app.include_router(
+        build_conversation_router(
+            auth,
+            ContactService(
+                SqlContactReader(engine),
+                SqlContactMerger(engine),
+                SqlCustomerMessageSettings(engine),
+            ),
         )
     )
     # Hosted customer chat (phase 4): the public chat API and the secure answer links.

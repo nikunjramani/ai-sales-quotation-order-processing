@@ -254,3 +254,56 @@ def test_a_secure_link_shows_the_offer_and_answers_only_on_confirm(
     )
     assert again.status_code == 409  # answered once
     assert client.get("/q/not-a-real-token").status_code == 410
+
+
+def test_staff_see_the_inbox_merge_contacts_and_switch_off_the_acknowledgement(
+    client: TestClient, integration_settings: Settings, worker_engine: Engine
+) -> None:
+    handle = enable_chat(client)
+    first = start(client, handle).json()["session_token"]
+    second = start(client, handle, name="Asha R", email=None, phone="+91 98765 43210").json()[
+        "session_token"
+    ]
+    say(client, handle, first, "We need 5 boxes of 2-core cable")
+    drain(integration_settings, worker_engine)
+
+    headers = login(client, "sales@local.example")
+    [talked] = client.get(f"{BASE}/conversations").json()  # the silent chat is not listed
+    assert (
+        talked["provider_key"] == "web_chat" and talked["enquiry_status"] == "needs_clarification"
+    )
+    detail = client.get(f"{BASE}/conversations/{talked['conversation_id']}").json()
+    authors = [(m["direction"], m["author"]) for m in detail["messages"]]
+    assert authors[0] == ("inbound", "customer") and ("outbound", "system") in authors
+    assert detail["identity"]["verified"] is True and detail["identity"]["consent"] == "implied"
+    thread = client.get(f"{BASE}/enquiries/{talked['enquiry_id']}/messages").json()
+    assert thread[0]["text"] == "We need 5 boxes of 2-core cable"
+
+    contacts = client.get(f"{BASE}/contacts", params={"q": "asha"}).json()
+    assert {c["email"] for c in contacts} == {"asha@example.com", None}
+    assert all(not c["email_verified"] for c in contacts)  # claimed only (Q2)
+    source, target = (c["contact_id"] for c in contacts)
+    assert client.get(f"{BASE}/contacts/{target}").json()["suggestions"] == []  # none verified
+    merged = client.post(
+        f"{BASE}/contacts/{source}/merge", json={"into_contact_id": target}, headers=headers
+    )
+    assert merged.status_code == 204
+    after = client.get(f"{BASE}/contacts/{target}").json()
+    assert len(after["identities"]) == 2 and len(after["conversations"]) == 2
+    assert client.get(f"{BASE}/contacts/{source}").status_code == 404  # merged away
+    client.cookies.clear()
+
+    # D14: administrators switch the acknowledgement off; sales staff may not.
+    admin = login(client, "admin@local.example")
+    off = client.put(
+        f"{BASE}/customer-messages", json={"acknowledge_enquiries": False}, headers=admin
+    )
+    assert off.status_code == 200
+    client.cookies.clear()
+    say(client, handle, second, "Please quote 2 x IND-FAN-450")
+    drain(integration_settings, worker_engine)
+    assert [m["kind"] for m in thread_of(client, handle, second)] == ["text"]
+
+
+def thread_of(client: TestClient, handle: str, token: str) -> list[dict[str, Any]]:
+    return thread(client, handle, token)

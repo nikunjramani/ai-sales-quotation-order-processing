@@ -69,6 +69,9 @@ class ConnectionService:
             raise ValueError("This tool cannot be enabled here yet")
         for row in self._connections.list_for(context.tenant_id):
             if row.provider_key == provider_key and row.active:
+                if row.public_handle is None:
+                    self._chats.ensure_handle(context.tenant_id, row.connection_id, context.subject)
+                    return self._chat(context, row.connection_id)
                 return row
         connection_id = self._chats.create(
             context.tenant_id,

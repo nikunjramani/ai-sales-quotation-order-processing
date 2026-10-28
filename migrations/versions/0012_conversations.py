@@ -66,6 +66,13 @@ _EVENT_KINDS_OLD = (
     "'created', 'migrated', 'status_changed', 'tested', 'provisioned', 'deprovisioned'"
 )
 _EVENT_KINDS_NEW = _EVENT_KINDS_OLD + ", 'settings_changed'"
+_ADMIN_ACTIONS_OLD = (
+    "'business_created', 'went_live', 'status_changed', 'details_changed', 'profile_changed', "
+    "'logo_changed', 'pricing_changed', 'member_invited', 'invitation_resent', "
+    "'invitation_revoked', 'invitation_accepted', 'member_roles_changed', 'member_removed', "
+    "'api_key_created', 'api_key_revoked'"
+)
+_ADMIN_ACTIONS_NEW = _ADMIN_ACTIONS_OLD + ", 'contacts_merged', 'customer_messages_changed'"
 _CHECKPOINT_TABLES = ("checkpoint_writes", "checkpoint_blobs", "checkpoints")
 
 
@@ -395,6 +402,11 @@ def upgrade() -> None:
         "connections",
         "public_handle IS NULL OR public_handle ~ '^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])$'",
     )
+    # A manual contact merge (D13) and the acknowledgement setting (D14) are audited.
+    op.drop_constraint("ck_admin_events_action", "admin_events", type_="check")
+    op.create_check_constraint(
+        "ck_admin_events_action", "admin_events", f"action IN ({_ADMIN_ACTIONS_NEW})"
+    )
     # Hosted chat address and settings changes are audited like other connection changes.
     op.drop_constraint("ck_connection_events_kind", "connection_events", type_="check")
     op.create_check_constraint(
@@ -610,6 +622,17 @@ def downgrade() -> None:
     op.drop_constraint("ck_connection_events_kind", "connection_events", type_="check")
     op.create_check_constraint(
         "ck_connection_events_kind", "connection_events", f"kind IN ({_EVENT_KINDS_OLD})"
+    )
+    op.execute("ALTER TABLE admin_events NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE admin_events DISABLE TRIGGER admin_events_immutable")
+    op.execute(
+        "DELETE FROM admin_events WHERE action IN ('contacts_merged', 'customer_messages_changed')"
+    )
+    op.execute("ALTER TABLE admin_events ENABLE TRIGGER admin_events_immutable")
+    op.execute("ALTER TABLE admin_events FORCE ROW LEVEL SECURITY")
+    op.drop_constraint("ck_admin_events_action", "admin_events", type_="check")
+    op.create_check_constraint(
+        "ck_admin_events_action", "admin_events", f"action IN ({_ADMIN_ACTIONS_OLD})"
     )
     op.drop_column("tenants", "acknowledge_enquiries")
     op.drop_constraint("ck_connections_public_handle", "connections", type_="check")

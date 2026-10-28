@@ -270,15 +270,21 @@ class SqlHostedChatAdmin:
                     created_by=actor,
                 )
             )
-            base = handle_from_name(name)
-            for attempt in range(1, 100):
-                candidate = base if attempt == 1 else f"{base[:58]}-{attempt}"
-                if _try_handle(connection, tenant_id, connection_id, candidate):
-                    break
-            else:
-                raise RuntimeError("No free chat address")
+            candidate = _assign_handle(connection, tenant_id, connection_id, name)
             _event(connection, tenant_id, connection_id, "created", actor, {"handle": candidate})
         return connection_id
+
+    def ensure_handle(self, tenant_id: UUID, connection_id: UUID, actor: str) -> None:
+        """Give an existing chat without an address one (e.g. after a downgrade/upgrade)."""
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            name = connection.execute(
+                select(Tenant.name).where(Tenant.id == tenant_id)
+            ).scalar_one()
+            candidate = _assign_handle(connection, tenant_id, connection_id, name)
+            _event(
+                connection, tenant_id, connection_id, "settings_changed", actor,
+                {"handle": candidate},
+            )  # fmt: skip
 
     def change_handle(self, tenant_id: UUID, connection_id: UUID, handle: str, actor: str) -> bool:
         """Once only (Q13). False if the handle is taken (by anyone)."""
@@ -318,6 +324,17 @@ class SqlHostedChatAdmin:
                 actor,
                 {"status": status.value},
             )
+
+
+def _assign_handle(
+    connection: DbConnection, tenant_id: UUID, connection_id: UUID, business_name: str
+) -> str:
+    base = handle_from_name(business_name)
+    for attempt in range(1, 100):
+        candidate = base if attempt == 1 else f"{base[:58]}-{attempt}"
+        if _try_handle(connection, tenant_id, connection_id, candidate):
+            return candidate
+    raise RuntimeError("No free chat address")
 
 
 def _try_handle(
