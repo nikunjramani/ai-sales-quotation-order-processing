@@ -5,10 +5,13 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Identity,
     Index,
     Integer,
     MetaData,
@@ -53,6 +56,8 @@ class Tenant(Base):
     created_by: Mapped[str | None] = mapped_column(String(200))
     went_live_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Phase 4 (D14): send customers "we are preparing your quotation" on a new enquiry.
+    acknowledge_enquiries: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
 
 
 class User(Base):
@@ -361,6 +366,11 @@ class ConnectionRow(Base):
             unique=True,
             postgresql_where=text("status = 'active' AND purposes @> ARRAY['catalogue']::text[]"),
         ),
+        UniqueConstraint("public_handle", name="uq_connections_public_handle"),
+        CheckConstraint(
+            "public_handle IS NULL OR public_handle ~ '^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])$'",
+            name="ck_connections_public_handle",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -377,6 +387,9 @@ class ConnectionRow(Base):
     created_by: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Phase 4 (Q13): the public address of a customer tool, e.g. /chat/<handle>.
+    public_handle: Mapped[str | None] = mapped_column(String(64))
+    public_handle_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ConnectionEventRow(Base):
@@ -451,6 +464,17 @@ class Enquiry(Base):
             ENQUIRY_STATUS_CHECK,
             name="ck_enquiries_status",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "conversation_id"],
+            ["conversations.tenant_id", "conversations.id"],
+            name="fk_enquiries_conversation",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "contact_id"],
+            ["contacts.tenant_id", "contacts.id"],
+            name="fk_enquiries_contact",
+        ),
+        Index("ix_enquiries_conversation_status", "tenant_id", "conversation_id", "status"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -459,10 +483,13 @@ class Enquiry(Base):
     channel: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32))
     customer_reference: Mapped[str | None] = mapped_column(String(200))
-    text: Mapped[str] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text)  # the first message; all are in conversation_messages
     correlation_id: Mapped[UUID] = mapped_column()
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Phase 4: NULL for API enquiries without a customer_reference (Q5).
+    conversation_id: Mapped[UUID | None] = mapped_column()
+    contact_id: Mapped[UUID | None] = mapped_column()
 
 
 class Attachment(Base):
@@ -546,15 +573,22 @@ class WorkflowRun(Base):
             name="fk_workflow_runs_enquiry",
         ),
         UniqueConstraint(
-            "tenant_id", "enquiry_id", "graph_version", name="uq_workflow_runs_enquiry_version"
+            "tenant_id",
+            "enquiry_id",
+            "graph_version",
+            "round",
+            name="uq_workflow_runs_enquiry_round",
         ),
         CheckConstraint(WORKFLOW_RUN_STATUS_CHECK, name="ck_workflow_runs_status"),
+        CheckConstraint("round >= 1", name="ck_workflow_runs_round"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
     enquiry_id: Mapped[UUID] = mapped_column()
     graph_version: Mapped[str] = mapped_column(String(50))
+    # Phase 4: each reading of an enquiry (first message, then each follow-up) is one round.
+    round: Mapped[int] = mapped_column(Integer, server_default=text("1"))
     status: Mapped[str] = mapped_column(String(32))
     outcome: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -1172,3 +1206,286 @@ class CatalogueChange(Base):
     changes: Mapped[dict[str, object]] = mapped_column(JSONB)
     actor: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# --- Customers and conversations (phase 4, migration 0012, ADR 0021) -------------------------
+
+
+class Contact(Base):
+    """One customer of one business. Email/phone are claimed until a *_verified_at is set."""
+
+    __tablename__ = "contacts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_contacts_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "merged_into_id"],
+            ["contacts.tenant_id", "contacts.id"],
+            name="fk_contacts_merged",
+        ),
+        CheckConstraint(
+            "merged_into_id IS NULL OR merged_into_id <> id", name="ck_contacts_not_self"
+        ),
+        CheckConstraint(
+            "(merged_into_id IS NULL) = (merged_at IS NULL)", name="ck_contacts_merged"
+        ),
+        Index("ix_contacts_tenant_email", "tenant_id", func.lower(text("email"))),
+        Index("ix_contacts_tenant_phone", "tenant_id", "phone"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    display_name: Mapped[str | None] = mapped_column(String(200))
+    company: Mapped[str | None] = mapped_column(String(200))
+    email: Mapped[str | None] = mapped_column(String(320))
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    phone: Mapped[str | None] = mapped_column(String(32))
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    merged_into_id: Mapped[UUID | None] = mapped_column()
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    merged_by: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ContactIdentity(Base):
+    """One address of a contact on one connection, with its consent state (D15)."""
+
+    __tablename__ = "contact_identities"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "connection_ref", "external_id", name="uq_contact_identities_external"
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_contact_identities_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "contact_id"],
+            ["contacts.tenant_id", "contacts.id"],
+            name="fk_contact_identities_contact",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_ref"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_contact_identities_connection",
+        ),
+        CheckConstraint(
+            "consent_status IN ('implied', 'opted_in', 'opted_out')",
+            name="ck_contact_identities_consent",
+        ),
+        Index("ix_contact_identities_contact", "tenant_id", "contact_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    contact_id: Mapped[UUID] = mapped_column()
+    connection_ref: Mapped[UUID] = mapped_column()
+    external_id: Mapped[str] = mapped_column(String(320))
+    display_hint: Mapped[str | None] = mapped_column(String(200))
+    verified: Mapped[bool] = mapped_column(Boolean)
+    consent_status: Mapped[str] = mapped_column(String(16), server_default=text("'implied'"))
+    consent_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consent_source: Mapped[str | None] = mapped_column(String(100))
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Conversation(Base):
+    """One per identity; its row lock serialises one customer's messages on one tool."""
+
+    __tablename__ = "conversations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "identity_id", name="uq_conversations_identity"),
+        UniqueConstraint("tenant_id", "id", name="uq_conversations_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "contact_id"],
+            ["contacts.tenant_id", "contacts.id"],
+            name="fk_conversations_contact",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "identity_id"],
+            ["contact_identities.tenant_id", "contact_identities.id"],
+            name="fk_conversations_identity",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_ref"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_conversations_connection",
+        ),
+        Index("ix_conversations_inbox", "tenant_id", text("last_message_at DESC")),
+        Index("ix_conversations_contact", "tenant_id", "contact_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    contact_id: Mapped[UUID] = mapped_column()
+    identity_id: Mapped[UUID] = mapped_column()
+    connection_ref: Mapped[UUID] = mapped_column()
+    last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConversationMessage(Base):
+    """Append-only thread entry: an inbound inbox event or an outbound outbox message."""
+
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        UniqueConstraint("inbox_event_id", name="uq_conversation_messages_inbox"),
+        UniqueConstraint("outbound_message_id", name="uq_conversation_messages_outbound"),
+        ForeignKeyConstraint(
+            ["tenant_id", "conversation_id"],
+            ["conversations.tenant_id", "conversations.id"],
+            name="fk_conversation_messages_conversation",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "enquiry_id"],
+            ["enquiries.tenant_id", "enquiries.id"],
+            name="fk_conversation_messages_enquiry",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "inbox_event_id"],
+            ["inbox_events.tenant_id", "inbox_events.id"],
+            name="fk_conversation_messages_inbox_event",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "outbound_message_id"],
+            ["outbound_messages.tenant_id", "outbound_messages.id"],
+            name="fk_conversation_messages_outbound",
+        ),
+        CheckConstraint(
+            "direction IN ('inbound', 'outbound')", name="ck_conversation_messages_direction"
+        ),
+        CheckConstraint(
+            "author IN ('customer', 'system', 'staff')", name="ck_conversation_messages_author"
+        ),
+        CheckConstraint(
+            "(direction = 'inbound' AND inbox_event_id IS NOT NULL "
+            "AND outbound_message_id IS NULL) OR (direction = 'outbound' "
+            "AND outbound_message_id IS NOT NULL AND inbox_event_id IS NULL)",
+            name="ck_conversation_messages_source",
+        ),
+        CheckConstraint(
+            "conversation_id IS NOT NULL OR enquiry_id IS NOT NULL",
+            name="ck_conversation_messages_owner",
+        ),
+        CheckConstraint("length(text) <= 20000", name="ck_conversation_messages_text"),
+        Index("ix_conversation_messages_conversation", "tenant_id", "conversation_id", "seq"),
+        Index("ix_conversation_messages_enquiry", "tenant_id", "enquiry_id", "seq"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True))
+    # Declared before `text`, which would otherwise shadow sqlalchemy.text in this class body.
+    attachment_ids: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    conversation_id: Mapped[UUID | None] = mapped_column()
+    enquiry_id: Mapped[UUID | None] = mapped_column()
+    direction: Mapped[str] = mapped_column(String(8))
+    author: Mapped[str] = mapped_column(String(16))
+    text: Mapped[str] = mapped_column(Text)
+    template_key: Mapped[str | None] = mapped_column(String(64))
+    inbox_event_id: Mapped[UUID | None] = mapped_column()
+    outbound_message_id: Mapped[UUID | None] = mapped_column()
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CustomerActionRef(Base):
+    """Accept/Decline reference for one offered version and one identity (answered once).
+
+    Buttons send the ID (the sender is checked); a secure link carries a token whose SHA-256 is
+    stored here. The token itself is never stored.
+    """
+
+    __tablename__ = "customer_action_refs"
+    __table_args__ = (
+        UniqueConstraint("token_sha256", name="uq_customer_action_refs_token"),
+        UniqueConstraint(
+            "tenant_id",
+            "quotation_id",
+            "version",
+            "identity_id",
+            name="uq_customer_action_refs_offer",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "quotation_id", "version"],
+            [
+                "quotation_versions.tenant_id",
+                "quotation_versions.quotation_id",
+                "quotation_versions.version",
+            ],
+            name="fk_customer_action_refs_version",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "identity_id"],
+            ["contact_identities.tenant_id", "contact_identities.id"],
+            name="fk_customer_action_refs_identity",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "conversation_id"],
+            ["conversations.tenant_id", "conversations.id"],
+            name="fk_customer_action_refs_conversation",
+        ),
+        ForeignKeyConstraint(
+            ["response_id"], ["quotation_responses.id"], name="fk_customer_action_refs_response"
+        ),
+        CheckConstraint(
+            "(consumed_at IS NULL) = (response_id IS NULL)",
+            name="ck_customer_action_refs_consumed",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    quotation_id: Mapped[UUID] = mapped_column()
+    version: Mapped[int] = mapped_column(Integer)
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    identity_id: Mapped[UUID] = mapped_column()
+    conversation_id: Mapped[UUID] = mapped_column()
+    outbound_message_id: Mapped[UUID | None] = mapped_column()
+    token_sha256: Mapped[str | None] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    response_id: Mapped[UUID | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CustomerSession(Base):
+    """A website chat visitor's session: one connection, identity and conversation."""
+
+    __tablename__ = "customer_sessions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_ref"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_customer_sessions_connection",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "identity_id"],
+            ["contact_identities.tenant_id", "contact_identities.id"],
+            name="fk_customer_sessions_identity",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "conversation_id"],
+            ["conversations.tenant_id", "conversations.id"],
+            name="fk_customer_sessions_conversation",
+        ),
+        Index("ix_customer_sessions_connection", "tenant_id", "connection_ref"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    connection_ref: Mapped[UUID] = mapped_column()
+    identity_id: Mapped[UUID] = mapped_column()
+    conversation_id: Mapped[UUID] = mapped_column()
+    secret_sha256: Mapped[str] = mapped_column(String(64))
+    ip_hmac: Mapped[str] = mapped_column(String(64))
+    origin: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

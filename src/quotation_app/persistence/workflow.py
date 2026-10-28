@@ -56,7 +56,9 @@ class SqlWorkflowStore:
             ),
         )
 
-    def start_run(self, tenant_id: UUID, enquiry_id: UUID, graph_version: str) -> UUID:
+    def start_run(
+        self, tenant_id: UUID, enquiry_id: UUID, graph_version: str, round: int = 1
+    ) -> UUID:
         with tenant_transaction(self._engine, tenant_id) as connection:
             connection.execute(
                 insert(WorkflowRun)
@@ -65,15 +67,19 @@ class SqlWorkflowStore:
                     tenant_id=tenant_id,
                     enquiry_id=enquiry_id,
                     graph_version=graph_version,
+                    round=round,
                     status=RUNNING,
                 )
-                .on_conflict_do_nothing(index_elements=["tenant_id", "enquiry_id", "graph_version"])
+                .on_conflict_do_nothing(
+                    index_elements=["tenant_id", "enquiry_id", "graph_version", "round"]
+                )
             )
             run_id: UUID = connection.execute(
                 select(WorkflowRun.id).where(
                     WorkflowRun.tenant_id == tenant_id,
                     WorkflowRun.enquiry_id == enquiry_id,
                     WorkflowRun.graph_version == graph_version,
+                    WorkflowRun.round == round,
                 )
             ).scalar_one()
         return run_id

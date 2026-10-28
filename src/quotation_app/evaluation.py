@@ -100,14 +100,16 @@ class InMemoryWorkflowStore:
 
     def __init__(self) -> None:
         self.contents: dict[tuple[UUID, UUID], EnquiryContent] = {}
-        self.runs: dict[tuple[UUID, UUID, str], UUID] = {}
+        self.runs: dict[tuple[UUID, UUID, str, int], UUID] = {}
         self.outcomes: dict[UUID, tuple[ExtractionOutcome, Mapping[str, object]]] = {}
 
     def enquiry_content(self, tenant_id: UUID, enquiry_id: UUID) -> EnquiryContent | None:
         return self.contents.get((tenant_id, enquiry_id))
 
-    def start_run(self, tenant_id: UUID, enquiry_id: UUID, graph_version: str) -> UUID:
-        return self.runs.setdefault((tenant_id, enquiry_id, graph_version), uuid4())
+    def start_run(
+        self, tenant_id: UUID, enquiry_id: UUID, graph_version: str, round: int = 1
+    ) -> UUID:
+        return self.runs.setdefault((tenant_id, enquiry_id, graph_version, round), uuid4())
 
     def record_outcome(
         self,

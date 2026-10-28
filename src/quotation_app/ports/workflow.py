@@ -29,8 +29,13 @@ class EnquiryContent:
 class WorkflowStore(Protocol):
     def enquiry_content(self, tenant_id: UUID, enquiry_id: UUID) -> EnquiryContent | None: ...
 
-    def start_run(self, tenant_id: UUID, enquiry_id: UUID, graph_version: str) -> UUID:
-        """Return the run (thread) ID for this enquiry and graph version, creating it once."""
+    def start_run(
+        self, tenant_id: UUID, enquiry_id: UUID, graph_version: str, round: int = 1
+    ) -> UUID:
+        """Return the run (thread) ID for this enquiry, graph version and round, creating it once.
+
+        Each reading of an enquiry is one round (phase 4): a follow-up message starts the next
+        round on a fresh thread, and earlier rounds stay as history."""
         ...
 
     def record_outcome(
