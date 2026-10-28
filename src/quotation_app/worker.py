@@ -33,7 +33,7 @@ def main() -> None:
         settings.model_api_key.get_secret_value() if settings.model_api_key else None,
         settings.model_options,
     )
-    runtime = build_runtime(settings)
+    runtime = build_runtime(settings, engine)
     logging.info("Enquiry interpreter: %s", settings.model or "rules (no AI)")
     logging.info("Providers: %s", ", ".join(p.key for p in runtime.registry.all()) or "none")
     try:

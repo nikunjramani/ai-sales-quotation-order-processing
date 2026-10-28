@@ -43,6 +43,7 @@ from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.messages import TemplateKey
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.accounts import SqlAccountEmailStore, SqlBusinessStore
+from quotation_app.persistence.catalogue import SqlCatalogueStore
 from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.connections import SqlConnectionStore
 from quotation_app.persistence.documents import SqlDeliveryStore
@@ -132,9 +133,15 @@ def lazy_secret_store(settings: Settings) -> SecretStore:
     return LazySecretStore(lambda: build_secret_store(settings))
 
 
-def build_provider_registry(settings: Settings) -> ProviderRegistry:
+def build_provider_registry(settings: Settings, engine: Engine | None = None) -> ProviderRegistry:
+    """Every installed provider. `engine` (the process's own database role) lets providers
+    that read our own tables, such as our product list, use them."""
     return ProviderRegistry.load(
-        ProviderEnvironment(environment=settings.environment, storage_dir=settings.storage_dir)
+        ProviderEnvironment(
+            environment=settings.environment,
+            storage_dir=settings.storage_dir,
+            catalogue_store=SqlCatalogueStore(engine) if engine is not None else None,
+        )
     )
 
 
@@ -146,8 +153,8 @@ class Runtime:
     secrets: SecretStore
 
 
-def build_runtime(settings: Settings) -> Runtime:
-    return Runtime(build_provider_registry(settings), lazy_secret_store(settings))
+def build_runtime(settings: Settings, engine: Engine | None = None) -> Runtime:
+    return Runtime(build_provider_registry(settings, engine), lazy_secret_store(settings))
 
 
 def build_catalogue(engine: Engine, runtime: Runtime) -> ErpReader:

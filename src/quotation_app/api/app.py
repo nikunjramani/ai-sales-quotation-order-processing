@@ -109,7 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Composition root: wire adapters to application services. Nothing connects until used.
     storage = LocalObjectStorage(configuration.storage_dir)
-    runtime = build_runtime(configuration)
+    runtime = build_runtime(configuration, engine)
     connections = SqlConnectionStore(engine)
     intake = EnquiryIntakeService(SqlIntakeStore(engine), storage, connections, runtime.registry)
     # Quotation PDFs (M5): previews for staff, approved documents for staff and customers.

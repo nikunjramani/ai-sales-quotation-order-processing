@@ -101,7 +101,7 @@ def running_worker(settings: Settings, engine: Engine) -> Iterator[JobRunner]:
     erp = SimulatedErp(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
     with open_checkpointer(settings.worker_url()) as checkpointer:
         handlers = build_job_handlers(
-            settings, engine, build_runtime(settings), checkpointer, RulesInterpreter(), erp
+            settings, engine, build_runtime(settings, engine), checkpointer, RulesInterpreter(), erp
         )
         yield JobRunner(SqlJobQueue(engine), handlers)
 
@@ -920,7 +920,11 @@ def test_a_business_without_a_product_source_gets_a_clear_outcome_at_once(
     submit(make_client(), make_api_key(tenant, Role.INTAKE_SERVICE), "Please quote 2 x IND-FAN-450")
     with open_checkpointer(settings.worker_url()) as checkpointer:
         handlers = build_job_handlers(  # the real per-business catalogue, no fixed reader
-            settings, worker_engine, build_runtime(settings), checkpointer, RulesInterpreter()
+            settings,
+            worker_engine,
+            build_runtime(settings, worker_engine),
+            checkpointer,
+            RulesInterpreter(),
         )
         runner = JobRunner(SqlJobQueue(worker_engine), handlers)
         while runner.run_once():

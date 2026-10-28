@@ -1,0 +1,16 @@
+{
+  "description": "Search behaviour every product source we run must keep (phase 3 plan, section 7.1). Industrial demo catalogue; run against the simulated ERP and our own catalogue (memory and PostgreSQL).",
+  "cases": [
+    {"query": "IND-FAN-450", "limit": 10, "expected": ["IND-FAN-450"]},
+    {"query": "IND-FAN", "limit": 10, "expected": ["IND-FAN-450", "IND-FAN-600"]},
+    {"query": "ind-fan-450", "limit": 10, "expected": ["IND-FAN-450"]},
+    {"query": "exhaust fans", "limit": 10, "expected": ["IND-FAN-450", "IND-FAN-600"]},
+    {"query": "fasteners", "limit": 10, "expected": ["IND-BOLT-M8"]},
+    {"query": "M8 bolts", "limit": 10, "expected": ["IND-BOLT-M8"]},
+    {"query": "2-core cable", "limit": 10, "expected": ["IND-CABLE-2C"]},
+    {"query": "pumps", "limit": 10, "expected": ["IND-PUMP-2HP"]},
+    {"query": "tata sierra car", "limit": 10, "expected": []},
+    {"query": "hydraulic presses", "limit": 10, "expected": []},
+    {"query": "IND-FAN", "limit": 1, "expected": ["IND-FAN-450"]}
+  ]
+}

@@ -33,7 +33,7 @@ def app(integration_settings: Settings, runtime_engine: Engine) -> Iterator[Test
 
 def drain(settings: Settings, engine: Engine) -> None:
     with open_checkpointer(settings.worker_url()) as checkpointer:
-        runtime = build_runtime(settings)
+        runtime = build_runtime(settings, engine)
         handlers = build_job_handlers(settings, engine, runtime, checkpointer, RulesInterpreter())
         runner = JobRunner(SqlJobQueue(engine), handlers)
         while runner.run_once():

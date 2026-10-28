@@ -22,7 +22,12 @@ from quotation_app.adapters.providers.simulated.provider import SIGNING_SECRET
 from quotation_app.adapters.providers.simulated.signing import hook_token
 from quotation_app.composition import build_secret_store
 from quotation_app.config import Settings
-from quotation_app.domain.catalogue_admin import LOCAL_PRICE_LIST, ProductFields, fields_as_dict
+from quotation_app.domain.catalogue_admin import (
+    DEFAULT_LOCATION,
+    LOCAL_PRICE_LIST,
+    ProductFields,
+    fields_as_dict,
+)
 from quotation_app.domain.catalogue_search import product_terms
 from quotation_app.domain.connections import ConnectionStatus, Purpose
 from quotation_app.domain.money import RoundingMode
@@ -357,7 +362,7 @@ def seed_local_catalogue(
                     id=uuid4(),
                     tenant_id=tenant_id,
                     product_id=product_id,
-                    location_code=catalogue.warehouse,
+                    location_code=DEFAULT_LOCATION,  # one location per business (Q21)
                     quantity=catalogue.stock[sku],
                     unit=product.unit,
                     as_of=func.now(),
