@@ -44,3 +44,6 @@ A provider is one package. It never changes the API, the worker, the application
 
 ## Not yet (phase 5)
 Self-service Enable/Disable (`provision`, `resume`), GET webhook handshakes, platform-wide webhooks (one URL per app) and sending questions to customers. See the [phase 5 plan](../plan/platform/implementation/phase-5-one-click-providers.md).
+
+## Hosted customer tools (phase 4)
+A provider with `Capabilities(hosted_chat=True)` (website chat is the first) is served by our own public chat API and widget: administrators enable it with one click (`POST /connections/hosted-chat`), it gets a public handle, and the core routes its visitors' messages like any customer message. Nothing in the core or portal names the provider; `GET /connections/available` lists what can be enabled.

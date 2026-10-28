@@ -94,3 +94,6 @@ Imports use the `@/` alias for `src/` (`@/shared/ui/StatusBadge`). Inside a feat
 - Pure services get plain unit tests. Components are tested through what the user sees and what is sent to the API (`fetch` is stubbed).
 - `tests/architecture.test.ts` enforces this document.
 - Commands, from `portal/`: `npm run typecheck`, `npm test` and `npm run build`.
+
+## Website chat widget (phase 4)
+`src/widget/` is a separate customer-side app (plain TypeScript, Shadow DOM, no React) built by `vite.widget.config.ts`. The architecture test keeps it apart: it may not import portal code and the portal may not import it; only `widget/api/chatClient.ts` calls `fetch` and only `widget/state/` uses browser storage (the visitor's own chat token).

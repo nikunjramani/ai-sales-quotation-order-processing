@@ -110,6 +110,16 @@ Backfill (0010): one person per existing membership subject (never verified), ex
 
 All five tables: forced RLS on `app.tenant_id`; the worker reads only. `pg_trgm` trigram indexes on `lower(sku)` and `lower(name)` serve the portal search box. Backfill (0011): every business without an active catalogue connection gets a `local_catalogue` one (`created_by = migration:0011_catalogue`).
 
+### Added in phase 4 (migration 0012, ADR 0021)
+- `contacts`: a customer of a business; claimed or verified email/phone; `merged_into_id` after a manual merge.
+- `contact_identities`: the contact's address on one connection (unique per connection and `external_id`), `verified`, consent (`implied`, `opted_in`, `opted_out`).
+- `conversations`: one per identity; the row lock serialises one customer's messages.
+- `conversation_messages`: append-only thread (inbound: inbox event; outbound: outbox message); `seq` orders it and is the chat's polling cursor.
+- `customer_action_refs`: one Accept/Decline reference per offered version and identity (secure-link token hash optional).
+- `customer_sessions`: website chat visitor sessions (secret hash, IP HMAC, expiry).
+- New columns: `enquiries.conversation_id`, `enquiries.contact_id`; `workflow_runs.round`; `connections.public_handle`, `public_handle_changed_at`; `tenants.acknowledge_enquiries`.
+- Lookup policies (one row by a presented value before the tenant is known): `customer_session_lookup`, `connection_handle_lookup`, `customer_action_lookup`. The trigger `guard_enquiry_reopen` lets the API role change an enquiry's status only `needs_clarification -> received`.
+
 ## Planned entities
 | Entity | Important contents |
 |---|---|

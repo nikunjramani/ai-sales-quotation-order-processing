@@ -228,6 +228,19 @@ Then, with the API, the worker and the portal running ("Run all" in VS Code):
 
 The demo people keep the dev login, and can also sign in with their email and the `QUOTATION_DEMO_PASSWORD` from `.env`.
 
+## Customers, conversations and website chat (phase 4)
+After pulling:
+```powershell
+uv sync --all-extras                                   # registers the web_chat provider
+uv run python scripts/init_local_env.py --add-missing  # adds QUOTATION_CHAT_IP_KEY
+uv run alembic upgrade head                            # 0012_conversations
+cd portal; npm ci; npm run build; cd ..                # portal + dist/widget/widget.js
+```
+- **Try the chat:** sign in as `admin@local.example` (or an industrial demo administrator), open **Connections**, press **Enable Website chat** and open the chat link (`/chat/<handle>`). The API serves the widget when `QUOTATION_PORTAL_DIST_DIR` points at `portal/dist` (the demo runner sets it).
+- **Watch staff screens:** the **Inbox** and **Contacts** show conversations; the quotation page shows the enquiry's messages.
+- **Demo:** `uv run python demo/run_demo.py` shows the industrial business's website chat next to the API customer and the manager phone. Try "We need 5 boxes of 2-core cable", then "10 metres" (rules reader), or "can you get cables price?" then "10 meter?" (Gemini).
+- **Downgrading 0012** loses follow-up rounds and follow-up message text; back up first.
+
 ## Product catalogue (phase 3)
 After pulling phase 3, run once. The first command gives the migration role CREATE on `quotation_dev` (needed for the `pg_trgm` extension; user decision 2026-10-28); it re-runs the idempotent role script (in Git Bash, prefix it with `MSYS_NO_PATHCONV=1`):
 ```

@@ -97,3 +97,6 @@ See [testing](../development/testing.md). Rules interpreter on 2026-10-22: 12/12
 - The worker uses the simulated ERP for the two demo tenants only.
 
 **Related ADRs:** [0001](../adr/0001-adapter-boundaries.md), [0003](../adr/0003-erp-authority.md), [0004](../adr/0004-durable-execution.md), [0012](../adr/0012-provider-independent-extraction.md).
+
+## Rounds and conversations (phase 4)
+Each reading is a round on a fresh thread; the reader gets every customer message separately (with our earlier questions outside the data), quotes are checked per message, a later quantity through `quantity_quote`; a round that missed a newer message is read again; website chat readings are capped at 200 a day per business. See [conversations](conversations.md).

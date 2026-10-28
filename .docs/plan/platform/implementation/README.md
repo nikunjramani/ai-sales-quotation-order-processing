@@ -1,5 +1,5 @@
 # Detailed implementation plan
-**Status:** planning only (written 2026-10-23 to 2026-10-26); nothing here is built. It turns the [platform plan](../README.md) into step-by-step work a developer can follow:
+**Status:** planning documents (written 2026-10-23 to 2026-10-26). Phases 1-3 are built and merged; phase 4 is built on `feat/phase-4-conversations` (PR #9). It turns the [platform plan](../README.md) into step-by-step work a developer can follow:
 - every file to add or change, with `file:line` references to today's code;
 - signatures, tables, row-level security and grants;
 - API shapes, portal screens and jobs;
@@ -24,7 +24,7 @@ Each phase plan has a "Decisions used and open questions" section. The questions
 | 1 | Phase 1, open questions | Keeping the old simulated webhook path as an alias; local secret encryption details |
 | 2 | Phase 2, open questions | Password rules, login rate limits and lockout, invitation expiry, email wording |
 | 3 | Phase 3, open questions | Required product fields, one currency per business, maximum products |
-| 4 | Phase 4, open questions + D13/D14/D15 | Merging contacts, the acknowledgement message, opt-out wording, website chat verification |
+| 4 | Phase 4, open questions + D13/D14/D15 | **Answered 2026-10-28** (see the phase 4 plan) |
 | 5 | Phase 5, P5-1 … | Reply approval when no AI model is configured, Meta/Twilio account details, costs to show |
 | 6-7 | Phase 6-7, Q1-Q16 and the pilot questions | When an order is created, cancellations, statuses customers see, payment terms; which ERP the pilot uses (D21) |
 

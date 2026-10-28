@@ -204,9 +204,9 @@ def queue_delivery(
             Enquiry.correlation_id,
             # Envelopes written by a pre-phase-1 process have no reply_to; the only tool then was
             # the API, whose reply address is the submitting key's connection.
-            func.coalesce(
-                InboxEvent.envelope["reply_to"].astext, InboxEvent.connection_id
-            ).label("reply_to"),
+            func.coalesce(InboxEvent.envelope["reply_to"].astext, InboxEvent.connection_id).label(
+                "reply_to"
+            ),
         )
         .join(
             Enquiry,

@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-28 (phases 1-3 merged through PRs #6, #7 and #8; phase 4 conversations started on `feat/phase-4-conversations`).
+Updated: 2026-10-28 (phases 1-3 merged through PRs #6, #7 and #8; phase 4 conversations and website chat implemented on `feat/phase-4-conversations`, draft PR #9, awaiting review).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -359,7 +359,7 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Not run:** the portal was not clicked through in a real browser (no browser tool here); CI runs on push.
 - **Merged:** the user merged PR #8 on 2026-10-28 ("already merge phase 3 prs"). Open points 1-2 above stay open.
 
-## Phase 4 customers, conversations and website chat (in progress, branch `feat/phase-4-conversations`)
+## Phase 4 customers, conversations and website chat (implemented, branch `feat/phase-4-conversations`, draft PR #9)
 - **User (2026-10-28):** "move on to phase 4". All open questions (D13-D15, Q1-Q14) were asked and answered, and the summary confirmed ("Yes, start"); see [phase 4 plan, user answers](plan/platform/implementation/phase-4-conversations.md#user-answers-2026-10-28) and [07 decisions](plan/platform/07-decisions-needed.md). Same commit arrangement as phases 1-3 (one commit per work item, pushed, draft PR; the user merges).
 - **Answers that change the plan:**
   - rapid messages also join an enquiry that is still being read, and the round is re-run (Q3 = b);
@@ -368,20 +368,39 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - chat rate limits reuse the phase 2 PostgreSQL counters (Q14 = b, no release gate);
   - administrators **and sales operators** may merge contacts; no undo (D13).
 - **W0 done:** answers recorded in the plan, 07 decisions, shared contracts (U2) and here.
-- **Asked mid-work (2026-10-28):** cap of 200 chat reading rounds reached -> the message is stored and the enquiry goes to review (no AI call); START gets "You will receive messages from {business} again."; repeated identical messages are not dropped.
+- **Asked mid-work (2026-10-28):** cap of 200 chat reading rounds reached -> the message is stored and the enquiry goes to review (no AI call); START gets "You will receive messages from {business} again."; repeated identical messages are not dropped; the chat start form must be open at least 2 seconds. The user then asked to "build everything first" before closing phase 4.
 - **W1 done:** migration `0012_conversations` (contacts, identities, conversations, append-only messages, `workflow_runs.round`, action refs, customer sessions, `connections.public_handle`, `tenants.acknowledge_enquiries`, reopen guard trigger, lookup policies, backfill, downgrade). `test_migrations_0012.py`.
 - **W2 done:** `domain/contacts.py` (consent words, claimed details, masking), `domain/conversations.py` (`follow_up_target`), `quantity_quote` in the verbatim check, customer templates, permissions `conversations:view`, `contacts:details` (not viewers), `contacts:merge` (administrators, sales operators).
 - **W3-W5 done:** `IntakeStore.record` routes through the conversation lock (`persistence/conversations.py`); `application/conversations.py` `IntentRouter` with pluggable handlers; API answer `continued`. PostgreSQL race tests: four answers at once reopen once; four first messages of a new customer give one contact and one enquiry.
 - **W7-W8 done:** rounds (payload `round`, fresh thread per round), transcript port (`EnquiryTranscript`), per-message verbatim checks, LangChain message markers (customer-typed markers neutralised, our questions outside the data tag, too-long conversations refused), rules bare-answer binding (Q6); a round that missed a newer message or an uninspected file is history only and the enquiry is read again (Q3).
 - **W9 done:** `CustomerMessenger` (push tools only; API customers read status as before), acknowledgement from preparation (D14 setting), questions from the clarify step, quotation ready from delivery, answer/withdrawn/expired notices from `notify_response` (now queued for every answer; managers still only for accept/decline), `CustomerConsentHook` (opted out -> failed with reason). Outbox messages with a conversation are also thread rows.
 - **W10 done:** `customer_action_refs` issued at send time (`QuotationReadyHook`): button reference (sender identity checked) or secure-link token (hash only); `respond_by_reference` shares the API answer core and consumes the reference in the same transaction.
-- **Checks so far:** ruff, mypy; 704 unit; PostgreSQL 829 passed (W9), `--cycle` 822 twice (W8).
+- **Final checks (2026-10-28):** ruff lint and format, strict mypy (266 files); 714 unit passed; `check_database.py --cycle` 851 passed, then downgrade to empty, upgrade, 851 passed again; portal typecheck, 104 tests (one timing failure during the parallel database run did not repeat in two reruns), build (portal 459 kB JS / 137 kB gzip; widget about 3 KB gzip).
 - **Deviations so far (for review):**
   1. One action reference per offered version and identity (not one per action), so an offer is answered once whichever button is pressed.
   2. WI-6 (customer messages from webhook providers through `process_inbound`) is not built: no webhook customer provider exists before phase 5; the API and website chat route synchronously.
   3. Messages to API (pull) customers are not created: their system reads status and questions through the API as before.
   4. Two extra permissions (`contacts:details`, `contacts:merge`) besides `conversations:view`.
-- **Next:** W11-W12 website chat (sessions, rate limits, `web_chat` provider, public chat API, Enable with a public handle), W13-W14 portal, W15 widget, W16 demo, W17 docs, then the live run with Gemini.
+- **W11-W12 done:** `web_chat` provider (capability `hosted_chat`), one-click Enable with a public handle (changed once), allowed websites and greeting, public chat API (sessions, honeypot + 2 s form time, PostgreSQL rate limits, files through quarantine, STOP/START as consent events for the worker, Accept/Decline buttons, PDF download, end), secure answer link page, daily reading cap. `QUOTATION_CHAT_IP_KEY` (required in production, with an https `QUOTATION_PUBLIC_BASE_URL`).
+- **W13-W14 done:** portal API and feature `conversations` (inbox, conversation, contacts with masking for viewers, manual merge with confirmation and no undo, acknowledgement switch), quotation page shows the enquiry's messages, website chat card on Connections (`GET /connections/available` keeps provider names out of the portal).
+- **W15 done:** widget `portal/src/widget/` (plain TypeScript, Shadow DOM, about 3 KB gzip), hosted page `/chat/<handle>` and `/chat/widget.js` served by the API from `QUOTATION_PORTAL_DIST_DIR`.
+- **W16 done:** the demo page shows the industrial business's real website chat; API follow-ups are listed once.
+- **W17 done:** [ADR 0021](adr/0021-customers-conversations-and-website-chat.md), [conversations](features/conversations.md), [website chat](features/website-chat.md), configuration, setup ("after pulling phase 4"), code map, testing, data model, intake/extraction, portal architecture, adding providers, shared contracts change log rev 5, follow-up plan marked superseded.
+- **After pulling:** `uv sync --all-extras`, `uv run python scripts/init_local_env.py --add-missing`, `uv run alembic upgrade head`, `npm ci && npm run build` in `portal/` ([setup](development/setup.md#customers-conversations-and-website-chat-phase-4)).
+- **Bug found by the live run and fixed:** approving a quotation whose enquiry envelope had no `reply_to` (written by an API process still running pre-phase-1 code) failed on a NULL delivery recipient (the `resume_quotation` job died). Delivery now falls back to the submitting connection; regression test `test_an_enquiry_stored_before_phase_1_is_still_delivered`.
+- **Live run (2026-10-28, Gemini `google_genai:gemini-3.5-flash-lite`, synthetic data, API on :8010 with the built portal, real worker, dev database):**
+  - hosted page and `/chat/widget.js` 200;
+  - "can you get cables price?" -> acknowledgement + "We need a bit more information: - How many metre of 2-core power cable do you need?";
+  - "10 meter?" -> the **same** enquiry, `ready_for_quotation`, one line IND-CABLE-2C 10 metre (384.00);
+  - manager approval -> quotation card in the chat ("Your quotation Q-343EB9F6 (version 1) is ready: total 453.12 INR, valid until 2026-11-04 10:29 UTC.") with PDF (200, `%PDF-`) and Accept/Decline;
+  - Accept -> `accepted` and "Thank you, we received your acceptance of Q-343EB9F6."; the inbox shows the visitor's conversation as accepted;
+  - API and worker logs: no session tokens, bearer headers or visitor emails; no 5xx.
+- **Not run:** the portal and widget were not clicked through in a real browser (no browser tool here); they are unit-tested, built, and the hosted page/widget were served. The conversation evaluation set (`evals/conversation_cases.jsonl`) was not added; the literal case is covered by the live run with Gemini and the rules variant by PostgreSQL tests.
+- **More deviations (for review):**
+  5. Ending a chat session only signs the visitor out; it does not opt them out (the plan proposed opting out; not decided by the user).
+  6. The inbox hides chats that were started but have no message yet.
+  7. Enabling a chat that lost its address (after a downgrade/upgrade) assigns a new one.
+- **Next:** the user reviews PR #9 (deviations above, open points of phase 3 still open); click through the portal and the demo in a browser; then ask every open question for phase 5 first.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

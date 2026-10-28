@@ -101,3 +101,6 @@ See [testing](../development/testing.md). To try it locally, follow the [setup g
 - The worker polls every 2 seconds.
 
 **Related ADRs:** [0002](../adr/0002-tenant-isolation.md), [0004](../adr/0004-durable-execution.md), [0011](../adr/0011-durable-intake-and-jobs.md).
+
+## Follow-ups (phase 4)
+A message with the same API key and `customer_reference` continues the customer's open enquiry under the agreed rules; the answer is `202` with the existing `enquiry_id` and `continued: true` (a replay returns the same). See [conversations](conversations.md).
