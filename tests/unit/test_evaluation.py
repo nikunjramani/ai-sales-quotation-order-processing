@@ -5,9 +5,12 @@ from uuid import UUID
 
 import pytest
 
-from quotation_app.adapters.erp.simulated import SimulatedErp
+from quotation_app.adapters.catalogue.local import LocalCatalogue
+from quotation_app.adapters.catalogue.memory import InMemoryCatalogueStore
+from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.interpreters.rules import RulesInterpreter
 from quotation_app.evaluation import CaseResult, evaluate, load_cases
+from quotation_app.ports.erp import ErpReader
 
 
 @pytest.fixture(scope="module")
@@ -15,15 +18,25 @@ def cases_loaded() -> int:
     return len(load_cases())
 
 
-def run(simulated_erp: SimulatedErp, industrial: UUID, office: UUID) -> list[CaseResult]:
+def run(erp: ErpReader, industrial: UUID, office: UUID) -> list[CaseResult]:
     tenants = {"industrial": industrial, "office": office}
-    return evaluate(RulesInterpreter(), simulated_erp, tenants, load_cases())
+    return evaluate(RulesInterpreter(), erp, tenants, load_cases())
 
 
+@pytest.mark.parametrize("source", ["simulated", "local"])
 def test_rules_interpreter_passes_every_case_and_invents_nothing(
-    simulated_erp: SimulatedErp, industrial_tenant: UUID, office_tenant: UUID, cases_loaded: int
+    simulated_erp: SimulatedErp,
+    industrial_tenant: UUID,
+    office_tenant: UUID,
+    cases_loaded: int,
+    source: str,
 ) -> None:
-    results = run(simulated_erp, industrial_tenant, office_tenant)
+    """Phase 3: our own catalogue holding the same data must give the same answers."""
+    erp: ErpReader = simulated_erp
+    if source == "local":
+        catalogues = demo_catalogues(industrial_tenant, office_tenant)
+        erp = LocalCatalogue(InMemoryCatalogueStore.from_simulated(catalogues))
+    results = run(erp, industrial_tenant, office_tenant)
     assert cases_loaded >= 10
     failures = [(r.case.name, r.outcome, r.lines, r.error) for r in results if not r.passed]
     assert failures == []
