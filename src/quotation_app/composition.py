@@ -39,10 +39,12 @@ from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.providers import ProviderRegistry
 from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
+from quotation_app.domain.connections import Purpose
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.messages import TemplateKey
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.accounts import SqlAccountEmailStore, SqlBusinessStore
+from quotation_app.persistence.catalogue import SqlCatalogueStore
 from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.connections import SqlConnectionStore
 from quotation_app.persistence.documents import SqlDeliveryStore
@@ -52,7 +54,7 @@ from quotation_app.persistence.messages import SqlMessageOutbox
 from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
 from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
 from quotation_app.persistence.workflow import SqlWorkflowStore
-from quotation_app.ports.accounts import Mailer, MailerEnvironment
+from quotation_app.ports.accounts import DefaultSource, Mailer, MailerEnvironment
 from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.interpretation import EnquiryInterpreter
 from quotation_app.ports.providers import ProviderEnvironment
@@ -132,9 +134,15 @@ def lazy_secret_store(settings: Settings) -> SecretStore:
     return LazySecretStore(lambda: build_secret_store(settings))
 
 
-def build_provider_registry(settings: Settings) -> ProviderRegistry:
+def build_provider_registry(settings: Settings, engine: Engine | None = None) -> ProviderRegistry:
+    """Every installed provider. `engine` (the process's own database role) lets providers
+    that read our own tables, such as our product list, use them."""
     return ProviderRegistry.load(
-        ProviderEnvironment(environment=settings.environment, storage_dir=settings.storage_dir)
+        ProviderEnvironment(
+            environment=settings.environment,
+            storage_dir=settings.storage_dir,
+            catalogue_store=SqlCatalogueStore(engine) if engine is not None else None,
+        )
     )
 
 
@@ -146,8 +154,25 @@ class Runtime:
     secrets: SecretStore
 
 
-def build_runtime(settings: Settings) -> Runtime:
-    return Runtime(build_provider_registry(settings), lazy_secret_store(settings))
+def build_runtime(settings: Settings, engine: Engine | None = None) -> Runtime:
+    return Runtime(build_provider_registry(settings, engine), lazy_secret_store(settings))
+
+
+def default_catalogue_source(
+    settings: Settings, registry: ProviderRegistry
+) -> DefaultSource | None:
+    """The product source new businesses start with (QUOTATION_DEFAULT_CATALOGUE_PROVIDER).
+
+    A configured key that is not an installed catalogue provider stops start-up: a silent
+    fallback would leave every new business without products.
+    """
+    key = settings.default_catalogue_provider
+    if not key:
+        return None
+    provider = registry.find(key)
+    if provider is None or Purpose.CATALOGUE not in provider.purposes:
+        raise ValueError(f"QUOTATION_DEFAULT_CATALOGUE_PROVIDER '{key}' is not a product source")
+    return DefaultSource(provider.key, provider.display_name)
 
 
 def build_catalogue(engine: Engine, runtime: Runtime) -> ErpReader:

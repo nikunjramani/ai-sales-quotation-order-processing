@@ -40,6 +40,7 @@ Current features:
 | `quotations` | List, review, decide, revise |
 | `enquiries` | Exception list |
 | `connections` | The business's tools (phase 1) and linking/revoking manager accounts; replaced `channels` (`#/channels` redirects) |
+| `catalogue` | The business's own product list (phase 3): products with search and paging, product page (details, prices, stock, archive, changes), categories. Filters in a Zustand store read through a hook; prices and quantities shown exactly as sent |
 
 ## Layers and who may import whom
 Within a feature:

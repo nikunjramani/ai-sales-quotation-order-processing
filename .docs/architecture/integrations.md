@@ -38,7 +38,7 @@ Do not route approval events through customer enquiry extraction or ask an LLM t
 See [approval contracts](approvals.md) and [extension boundaries](module-boundaries.md). Provider-specific permissions/capabilities must be verified before implementing each connector.
 
 ## ERP operations
-Implemented M1 signatures take a trusted TenantContext and add `get_products(skus)` so quantity rules (unit, minimum, step) come from the ERP. Customer-specific pricing (`customer_context`), requested quantities in availability and discount basis are deferred. Unknown SKUs are omitted, never zero-filled. The [contract suite](../../tests/unit/ports/test_erp_contract.py) applies to every adapter.
+Implemented M1 signatures take a trusted TenantContext and add `get_products(skus)` so quantity rules (unit, minimum, step) come from the ERP. Implemented sources: the simulated ERP (development) and, since phase 3, our own catalogue (`LocalCatalogue`, [ADR 0020](../adr/0020-local-catalogue.md)); both pass the contract suite, in memory and (ours) on PostgreSQL, plus a shared search-quality table (`tests/data/catalogue_search_cases.json`). Customer-specific pricing (`customer_context`), requested quantities in availability and discount basis are deferred. Unknown SKUs are omitted, never zero-filled. The [contract suite](../../tests/unit/ports/test_erp_contract.py) applies to every adapter.
 Required read operations:
 - search_products(query, customer_context): SKU candidates with authoritative IDs, units and descriptions.
 - get_prices(skus, customer, currency, effective_at): price list/version, effective dates, currency, units and discount basis.

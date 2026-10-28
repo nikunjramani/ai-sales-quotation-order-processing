@@ -55,19 +55,6 @@ def test_other_warehouse_returns_nothing(
     assert simulated_erp.get_availability(context, ["IND-FAN-450"], warehouse="ELSEWHERE") == {}
 
 
-@pytest.mark.parametrize(("query", "limit"), [("", 10), ("fan", 0), ("fan", 51)])
-def test_invalid_search_is_rejected(
-    simulated_erp: SimulatedErp,
-    make_context: ContextFactory,
-    industrial_tenant: UUID,
-    query: str,
-    limit: int,
-) -> None:
-    with pytest.raises(ErpError) as raised:
-        simulated_erp.search_products(make_context(industrial_tenant, Role.VIEWER), query, limit)
-    assert raised.value.code is ErpErrorCode.INVALID_REQUEST
-
-
 def test_categories_are_the_tenants_own_product_groups(
     simulated_erp: SimulatedErp,
     make_context: ContextFactory,
@@ -80,19 +67,3 @@ def test_categories_are_the_tenants_own_product_groups(
     ]  # fmt: skip
     office = make_context(office_tenant, Role.VIEWER)
     assert simulated_erp.list_categories(office) == ["Desks", "Office chairs"]
-
-
-def test_search_finds_products_by_category(
-    simulated_erp: SimulatedErp, make_context: ContextFactory, industrial_tenant: UUID
-) -> None:
-    context = make_context(industrial_tenant, Role.VIEWER)
-    assert [p.sku for p in simulated_erp.search_products(context, "fasteners")] == ["IND-BOLT-M8"]
-    assert simulated_erp.search_products(context, "tata sierra car") == []
-
-
-def test_partial_code_finds_only_the_best_matches(
-    simulated_erp: SimulatedErp, make_context: ContextFactory, industrial_tenant: UUID
-) -> None:
-    context = make_context(industrial_tenant, Role.VIEWER)
-    found = [p.sku for p in simulated_erp.search_products(context, "IND-FAN")]
-    assert found == ["IND-FAN-450", "IND-FAN-600"]  # not every IND- product

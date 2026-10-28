@@ -3,9 +3,11 @@
 To add an adapter, register a factory in ADAPTERS. Each factory returns the adapter, two
 tenant contexts and a SKU that exists only for the first tenant. A real adapter that needs a
 sandbox registers with `pytest.param(..., marks=pytest.mark.integration)` so it is skipped
-unless --run-integration is passed.
+unless --run-integration is passed. Our own catalogue on PostgreSQL runs the same search cases
+in tests/integration/adapters/catalogue.
 """
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -14,6 +16,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from quotation_app.adapters.catalogue.local import LocalCatalogue
+from quotation_app.adapters.catalogue.memory import InMemoryCatalogueStore
 from quotation_app.adapters.erp.simulated import SimulatedErp, demo_catalogues
 from quotation_app.adapters.providers.simulated import SimulatedProvider
 from quotation_app.application.catalogue_sources import CatalogueSourceResolver, TenantCatalogue
@@ -21,7 +25,11 @@ from quotation_app.application.providers import ProviderRegistry
 from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
 from quotation_app.domain.tenancy import Role, TenantContext
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
-from quotation_app.ports.erp import ErpReader
+from quotation_app.ports.erp import ErpError, ErpErrorCode, ErpReader
+
+SEARCH_CASES = json.loads(
+    (Path(__file__).parents[2] / "data" / "catalogue_search_cases.json").read_text("utf-8")
+)["cases"]
 
 
 @dataclass(frozen=True)
@@ -71,9 +79,16 @@ def _tenant_catalogue() -> ContractSetup:
     return replace(_simulated(), erp=TenantCatalogue(resolver))
 
 
+def _local_in_memory() -> ContractSetup:
+    """Phase 3: our own catalogue, holding the same synthetic data."""
+    store = InMemoryCatalogueStore.from_simulated(demo_catalogues(INDUSTRIAL_TENANT, OFFICE_TENANT))
+    return replace(_simulated(), erp=LocalCatalogue(store))
+
+
 ADAPTERS: list[object] = [
     pytest.param(_simulated, id="simulated"),
     pytest.param(_tenant_catalogue, id="tenant-catalogue"),
+    pytest.param(_local_in_memory, id="local-memory"),
 ]
 
 
@@ -121,3 +136,23 @@ def test_naive_effective_date_is_rejected(setup: ContractSetup) -> None:
         setup.erp.get_prices(
             setup.tenant, [setup.known_sku], setup.currency, datetime(2026, 10, 22)
         )
+
+
+@pytest.mark.parametrize(("query", "limit"), [("", 10), ("  ", 10), ("fan", 0), ("fan", 51)])
+def test_invalid_search_is_rejected(setup: ContractSetup, query: str, limit: int) -> None:
+    with pytest.raises(ErpError) as raised:
+        setup.erp.search_products(setup.tenant, query, limit)
+    assert raised.value.code is ErpErrorCode.INVALID_REQUEST
+
+
+def test_categories_are_sorted_and_the_businesss_own(setup: ContractSetup) -> None:
+    mine = list(setup.erp.list_categories(setup.tenant))
+    theirs = list(setup.erp.list_categories(setup.other_tenant))
+    assert mine == sorted(mine) and mine
+    assert not set(mine) & set(theirs)
+
+
+@pytest.mark.parametrize("case", SEARCH_CASES, ids=lambda case: f"{case['query']}/{case['limit']}")
+def test_search_quality_cases(setup: ContractSetup, case: dict[str, object]) -> None:
+    found = setup.erp.search_products(setup.tenant, str(case["query"]), int(str(case["limit"])))
+    assert [product.sku for product in found] == case["expected"]

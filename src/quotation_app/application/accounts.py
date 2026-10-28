@@ -340,12 +340,16 @@ class BusinessService:
         storage: ObjectStorage,
         logos: LogoNormalizer,
         clock: Callable[[], datetime] = utc_now,
+        product_data: Callable[[TenantContext], bool] | None = None,
     ) -> None:
+        """`product_data` decides the checklist's product step (phase 3): our product list
+        needs a priced product; without it, an active product source is enough."""
         self._businesses = businesses
         self._users = users
         self._limits = _Limits(limiter, clock)
         self._storage = storage
         self._logos = logos
+        self._product_data = product_data
 
     def create(self, subject: str, business: NewBusiness) -> UUID:
         user = self._users.by_subject(subject)
@@ -443,7 +447,15 @@ class BusinessService:
         return self._businesses.update_pricing(context, validate_pricing(cleaned), expected_version)
 
     def checklist(self, context: TenantContext) -> list[SetupItem]:
-        return self._businesses.setup_state(context)
+        items = self._businesses.setup_state(context)
+        if self._product_data is None:
+            return items
+        return [
+            SetupItem(item.key, item.done and self._product_data(context))
+            if item.key is SetupItemKey.PRODUCT_SOURCE
+            else item
+            for item in items
+        ]
 
     def go_live(self, context: TenantContext) -> list[SetupItemKey]:
         context.require(Permission.MANAGE_TENANT)

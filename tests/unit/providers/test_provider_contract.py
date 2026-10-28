@@ -19,6 +19,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from quotation_app.adapters.catalogue.memory import InMemoryCatalogueStore
+from quotation_app.adapters.erp.simulated import demo_catalogue
 from quotation_app.application.inbound import InboundService
 from quotation_app.application.providers import ProviderRegistry
 from quotation_app.domain.connections import (
@@ -117,6 +119,7 @@ SAMPLES: dict[str, Sample] = {
         ).encode(),
         _hmac_header("x-simulated-signature"),
     ),
+    "local_catalogue": Sample(b"{}", None),
     "echo": Sample(
         json.dumps({"id": "evt-1", "from": "phone", "code": "X"}).encode(),
         _hmac_header("x-echo-signature"),
@@ -126,7 +129,11 @@ SAMPLES: dict[str, Sample] = {
 
 def installed() -> list[Provider]:
     # Providers may write files (the simulated outbox): a throwaway folder, never var/.
-    environment = ProviderEnvironment("development", Path(tempfile.mkdtemp(prefix="contract-")))
+    environment = ProviderEnvironment(
+        "development",
+        Path(tempfile.mkdtemp(prefix="contract-")),
+        catalogue_store=InMemoryCatalogueStore.from_simulated({A: demo_catalogue("industrial")}),
+    )
     registry = ProviderRegistry.load(environment)
     return [*registry.all(), EchoProvider()]
 

@@ -35,6 +35,9 @@ class Permission(StrEnum):
     MANAGE_INTEGRATIONS = "integrations:manage"
     # See colleagues, invite people, change their roles and remove them (phase 2).
     MANAGE_MEMBERS = "members:manage"
+    # Read and edit the business's own product list (phase 3, Q14).
+    VIEW_CATALOGUE = "catalogue:view"
+    MANAGE_CATALOGUE = "catalogue:manage"
 
 
 # Administrators do not approve by default: approval is a separate, explicitly granted role.
@@ -49,6 +52,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.MANAGE_MEMBERS,
                 Permission.SUBMIT_ENQUIRIES,
                 Permission.VIEW_ENQUIRIES,
+                Permission.VIEW_CATALOGUE,
+                Permission.MANAGE_CATALOGUE,
             }
         ),
         Role.SALES_OPERATOR: frozenset(
@@ -57,12 +62,21 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.DRAFT_QUOTATIONS,
                 Permission.SUBMIT_ENQUIRIES,
                 Permission.VIEW_ENQUIRIES,
+                Permission.VIEW_CATALOGUE,
+                Permission.MANAGE_CATALOGUE,
             }
         ),
         Role.APPROVER: frozenset(
-            {Permission.VIEW_QUOTATIONS, Permission.APPROVE_QUOTATIONS, Permission.VIEW_ENQUIRIES}
+            {
+                Permission.VIEW_QUOTATIONS,
+                Permission.APPROVE_QUOTATIONS,
+                Permission.VIEW_ENQUIRIES,
+                Permission.VIEW_CATALOGUE,
+            }
         ),
-        Role.VIEWER: frozenset({Permission.VIEW_QUOTATIONS, Permission.VIEW_ENQUIRIES}),
+        Role.VIEWER: frozenset(
+            {Permission.VIEW_QUOTATIONS, Permission.VIEW_ENQUIRIES, Permission.VIEW_CATALOGUE}
+        ),
         Role.INTAKE_SERVICE: frozenset(
             {
                 Permission.SUBMIT_ENQUIRIES,

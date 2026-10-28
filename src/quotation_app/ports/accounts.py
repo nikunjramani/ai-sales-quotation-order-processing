@@ -159,6 +159,15 @@ class NewBusiness:
 
 
 @dataclass(frozen=True)
+class DefaultSource:
+    """The product source a new business starts with (phase 3; from settings, never a name
+    written in code): its catalogue connection is created together with the business."""
+
+    provider_key: str
+    display_name: str
+
+
+@dataclass(frozen=True)
 class BusinessProfile:
     """The PDF details (Q16)."""
 

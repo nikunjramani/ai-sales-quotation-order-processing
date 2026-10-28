@@ -6,6 +6,7 @@ import { TenantSwitcher, useCurrentTenant } from "@/features/tenant";
 const NAVIGATION: { to: string; label: string; show?: Permission[] }[] = [
   { to: "/quotations", label: "Quotations" },
   { to: "/enquiries", label: "Enquiries" },
+  { to: "/catalogue", label: "Products", show: ["catalogue:view"] },
   { to: "/connections", label: "Connections" },
   { to: "/settings", label: "Settings", show: ["tenant:manage", "members:manage", "integrations:manage"] },
 ];

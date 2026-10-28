@@ -1,5 +1,5 @@
 # Implementation plan, phase 3: product data (our own catalogue)
-**Status:** planning document (2026-10-23). Nothing here is implemented. It follows the binding names in [00-shared-contracts.md](00-shared-contracts.md); every deviation is listed in [section 12](#12-proposed-changes-to-shared-contracts) and must be agreed and copied into the shared contracts before coding.
+**Status:** all open questions answered by the user on 2026-10-28 (see [User answers](#user-answers-2026-10-28)); implementation in progress on branch `feat/phase-3-catalogue`. Where an answer differs from a proposal, the answers section wins. It follows the binding names in [00-shared-contracts.md](00-shared-contracts.md); every deviation is listed in [section 12](#12-proposed-changes-to-shared-contracts) and must be agreed and copied into the shared contracts before coding.
 **Builds on:** [05 product data](../05-product-data.md), [06 future commerce](../06-future-commerce.md), [07 decisions](../07-decisions-needed.md) (D18, D19), [08 phases](../08-phases.md), ADRs [0001](../../../adr/0001-adapter-boundaries.md), [0003](../../../adr/0003-erp-authority.md), [0010](../../../adr/0010-deterministic-pricing-and-tenant-context.md), [0016](../../../adr/0016-customer-acceptance.md), [0017](../../../adr/0017-gemini-reader-and-category-replies.md).
 **Needs first:** phase 1 (connections, provider registry, per-business catalogue source resolution) and phase 2 (accounts, `create_business`, settings, setup checklist).
 
@@ -38,6 +38,37 @@ In simple words:
 - Bulk edit in the portal.
 
 ## 3. Decisions used and open questions
+### User answers (2026-10-28)
+The user answered every question on 2026-10-28 and confirmed the summary ("Yes, start phase 3"). Every answer is the proposed default, so the plan below stands unchanged:
+
+| # | Answer |
+|---|---|
+| Q1 | Required: SKU, name, unit; category and description optional; minimum and step default to 1 |
+| Q2 | SKU format as proposed; unique per business ignoring case; cannot be changed after creation |
+| Q3 | Only the four units the reader understands (`each`, `metre`, `kg`, `box`) |
+| Q4 | Prices up to 6 decimals (stored with at least the currency's minor units); quantities up to 3 |
+| Q5 | Price must be greater than 0 |
+| Q6 | Prices exclude tax |
+| Q7 | One currency per business (the quotation currency) |
+| Q8 | A price starts now or in the future, never in the past |
+| Q9 | No temporary prices in phase 3 |
+| Q10 | Price `fetched_at` = read time; stock `fetched_at` = "as of"; new businesses get max stock age **7 days** |
+| Q11 | Archived products cannot be quoted or accepted |
+| Q12 | Delete only if never priced, counted or quoted; otherwise archive |
+| Q13 | 10,000 active products per business |
+| Q14 / U1 | `catalogue:view` for all four staff roles; `catalogue:manage` for administrator and sales operator |
+| Q15 | No "did you mean" suggestions yet; only the trigram index is built |
+| Q16, Q17 | Minimum must be a multiple of the step; unit locked once a price or stock entry exists |
+| Q18 | Other sources: read-only screens with a "Products come from <source>" banner |
+| Q19 | "Product data" checklist step shown, not blocking Go live |
+| Q20 | Third dev-only demo business "Demo Local Catalogue"; both existing demo businesses stay on the simulated ERP |
+| Q21 | Stock optional, one location `MAIN`, "not tracked" allowed |
+| Q22 | Search uses SKU, name and category only |
+| Q23 | One price list `standard`; evidence "standard, revision N"; source display name "Our product list" |
+| C6 | New businesses get the local catalogue by default (`QUOTATION_DEFAULT_CATALOGUE_PROVIDER`); existing businesses without a catalogue connection get one in migration 0011 |
+| Git | Same as phases 1 and 2: one commit per work item, pushed, draft PR to `main`; the user merges |
+| pg_trgm (asked during W15, 2026-10-28) | The migration role gets CREATE on `quotation_dev` in `infra/postgres/init.sql` (it owns `quotation_test` already), so 0011 can create the trusted `pg_trgm` extension. A hosted database needs the same or a pre-installed extension (D24) |
+
 ### Decisions used (binding)
 | # | Decision | Effect on this plan |
 |---|---|---|

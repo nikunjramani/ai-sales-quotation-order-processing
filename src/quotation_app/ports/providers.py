@@ -28,6 +28,7 @@ from uuid import UUID
 
 from quotation_app.domain.connections import Capabilities, Connection, Purpose
 from quotation_app.domain.intake import InboundEvent
+from quotation_app.ports.catalogue_admin import CatalogueReadStore
 from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.secrets import SecretStore
 
@@ -110,6 +111,8 @@ class ProviderEnvironment:
     environment: str  # development | test | production
     storage_dir: Path
     options: Mapping[str, object] = field(default_factory=dict)
+    # Our own catalogue tables, bound to the running process's database role (phase 3).
+    catalogue_store: CatalogueReadStore | None = None
 
 
 class Provider(Protocol):

@@ -3,7 +3,7 @@ Accepted denotes intended design, not implemented code. Date: 2026-10-22.
 
 - [0001: Channel-independent core and adapters](0001-adapter-boundaries.md) — accepted
 - [0002: Tenant isolation from the foundation](0002-tenant-isolation.md) — accepted
-- [0003: Existing ERP remains authoritative](0003-erp-authority.md) — accepted
+- [0003: Existing ERP remains authoritative](0003-erp-authority.md) — accepted; amended by 0020 (our own catalogue when there is no ERP)
 - [0004: Persisted graph with durable jobs and outbox](0004-durable-execution.md) — accepted
 - [0005: Version-bound internal approval and customer acceptance](0005-versioned-approval.md) — superseded by 0007
 - [0006: Versioned documentation and portable agent instructions](0006-portable-documentation.md) — accepted
@@ -19,6 +19,7 @@ Accepted denotes intended design, not implemented code. Date: 2026-10-22.
 - [0016: Customer acceptance through the API, with validity, price re-check and automatic revision](0016-customer-acceptance.md) — implemented in M6 (user decisions 2026-10-23); verified locally and in CI
 - [0017: A generic AI enquiry reader (first model: Gemini free tier), and category-based "not found" replies](0017-gemini-reader-and-category-replies.md) — user decisions 2026-10-23; implemented, live Gemini evaluation pending the user's key
 - [0018: Connector framework: providers, connections, secrets, one webhook route, one outbox](0018-connector-framework.md) — phase 1, user decisions 2026-10-27; implemented and merged (PR #6)
-- [0019: Accounts, sign-up and business onboarding](0019-accounts-and-onboarding.md) — phase 2, user decisions 2026-10-27; implemented on `feat/phase-2-accounts`, verified locally
+- [0019: Accounts, sign-up and business onboarding](0019-accounts-and-onboarding.md) — phase 2, user decisions 2026-10-27; implemented and merged (PR #7)
+- [0020: Our own product catalogue as a product source](0020-local-catalogue.md) — phase 3, user decisions 2026-10-28; implemented on `feat/phase-3-catalogue`, verified locally
 
 New decisions get sequential IDs. Preserve history and explicitly link superseding records.

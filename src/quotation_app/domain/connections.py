@@ -54,6 +54,8 @@ class Capabilities:
     delivery_receipts: bool = False
     manager_enrollment: str = "code_message"  # "code_message" | "oauth" | "email_link" | "none"
     max_inbound_bytes: int = 64 * 1024
+    # Staff edit the products in our portal (phase 3); other sources are read-only there.
+    catalogue_editable: bool = False
 
 
 @dataclass(frozen=True)

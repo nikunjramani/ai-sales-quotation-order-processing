@@ -1,6 +1,6 @@
 # 0019: Accounts, sign-up and business onboarding
 Date: 2026-10-27
-Status: accepted; implemented on branch `feat/phase-2-accounts` (phase 2 of the [platform plan](../plan/platform/README.md), verified locally)
+Status: accepted; implemented and merged (PR #7, phase 2 of the [platform plan](../plan/platform/README.md))
 Extends [0002](0002-tenant-isolation.md), [0011](0011-durable-intake-and-jobs.md), [0013](0013-portal-identity-and-approval-core.md) and [0018](0018-connector-framework.md). Supersedes the line in 0013 that OIDC is required before any non-development deployment (user decision D1: email + password only). Plan: [phase 2](../plan/platform/implementation/phase-2-accounts.md), answers in its [user answers](../plan/platform/implementation/phase-2-accounts.md#user-answers-2026-10-27).
 
 ## Context

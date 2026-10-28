@@ -51,6 +51,7 @@ from quotation_app.ports.accounts import (
     AlreadyMember,
     BusinessProfile,
     BusinessSettings,
+    DefaultSource,
     InvitationNotUsable,
     InvitationPreview,
     LoginRecord,
@@ -451,17 +452,21 @@ def _pricing(row: object) -> PricingSettings:
 
 
 class SqlBusinessStore:
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, default_catalogue: DefaultSource | None = None) -> None:
+        """`default_catalogue`: the product source a new business gets (phase 3, C6)."""
         self._engine = engine
+        self._default_catalogue = default_catalogue
 
     def create(self, user_id: UUID, subject: str, business: NewBusiness) -> UUID:
+        source = self._default_catalogue
         try:
             with self._engine.begin() as connection:
                 set_settings(connection, subject=subject)
                 tenant_id = connection.execute(
                     text(
                         "SELECT create_business(:user_id, :name, :country, :time_zone, "
-                        "CAST(:currency AS text), CAST(:tax_rate AS numeric), :validity)"
+                        "CAST(:currency AS text), CAST(:tax_rate AS numeric), :validity, "
+                        "CAST(:catalogue_provider AS text), CAST(:catalogue_name AS text))"
                     ),
                     {
                         "user_id": user_id,
@@ -471,6 +476,8 @@ class SqlBusinessStore:
                         "currency": business.currency,
                         "tax_rate": business.tax_rate,
                         "validity": business.quote_validity_days,
+                        "catalogue_provider": source.provider_key if source else None,
+                        "catalogue_name": source.display_name if source else None,
                     },
                 ).scalar_one()
         except DBAPIError as error:

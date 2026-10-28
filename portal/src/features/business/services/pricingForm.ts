@@ -40,5 +40,6 @@ export function suggestedMinorUnits(currency: string): number | null {
 export const SUGGESTED = {
   rounding_mode: "half_up" as const,
   max_price_age_minutes: 15,
-  max_stock_age_minutes: 5,
+  // Typed stock counts age for days, not minutes (phase 3, Q10): 7 days.
+  max_stock_age_minutes: 7 * 24 * 60,
 };

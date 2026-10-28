@@ -69,6 +69,7 @@ PROVIDER_NAME_EXCEPTIONS = {
     "api/channels.py": "the deprecated simulated route (removed in phase 4/5)",
     "persistence/api_keys.py": "API keys are the api provider's accounts",
     "persistence/seed.py": "synthetic demo data for development",
+    "config.py": "the default product source setting (QUOTATION_DEFAULT_CATALOGUE_PROVIDER)",
 }
 
 

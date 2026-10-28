@@ -1,6 +1,6 @@
 # Data model and ownership
 ## Authoritative sources
-ERP owns SKUs, current prices, stock and final order records. The platform owns enquiry workflows, quotation snapshots, approvals, delivery intents and audit history.
+The business's selected product source owns SKUs, current prices and stock: its ERP when one is connected, otherwise our own catalogue tables (phase 3, [ADR 0020](../adr/0020-local-catalogue.md), amending ADR 0003). The ERP owns final order records. The platform owns enquiry workflows, quotation snapshots, approvals, delivery intents and audit history.
 A quote stores the exact commercial values reviewed, their source and timestamp. This is evidence, not a second live inventory system.
 Synthetic ERP fixtures are replaceable test infrastructure.
 
@@ -97,6 +97,18 @@ Backfill (0008): one `api` connection per API key (disabled if the key is revoke
 | jobs.tenant_id | NULL allowed only for `send_account_email` |
 
 Backfill (0010): one person per existing membership subject (never verified), existing businesses `active` with `went_live_at = created_at`, an empty profile each.
+
+### Added in phase 3 (migration 0011, ADR 0020)
+| Table | Contents and rules |
+|---|---|
+| catalogue_categories | Business, name (unique ignoring case), archived time, row version, who/when |
+| catalogue_products | Business, SKU (pattern check, unique ignoring case, never changed), name, staff notes, category (composite FK to the same business), unit, minimum quantity and step (numeric, ≤3 decimals, > 0), `search_terms` (GIN), `source` (`manual` only), unused `external_id`/`synced_at` for later sync, archived time/by, row version, who/when. API: column-level UPDATE and DELETE (only unused products, checked by the service) |
+| catalogue_prices | Append-only: product, price list (`standard`), revision (unique per product, list, currency), currency, unit, unit price (numeric > 0, ≤6 decimals, kept exactly), effective from, note, request ID (unique), who/when |
+| catalogue_stock | Append-only: product, location (`MAIN`), quantity (NULL = not tracked; ≥ 0, ≤3 decimals), unit, as of (not more than 5 minutes after it was recorded), note, request ID (unique), who/when |
+| catalogue_changes | Append-only audit of product and category edits: entity, action, `{field: [old, new]}`, actor |
+| create_business (changed) | Two optional arguments: the default product source's provider key and name; when given, its catalogue connection is created with the business |
+
+All five tables: forced RLS on `app.tenant_id`; the worker reads only. `pg_trgm` trigram indexes on `lower(sku)` and `lower(name)` serve the portal search box. Backfill (0011): every business without an active catalogue connection gets a `local_catalogue` one (`created_by = migration:0011_catalogue`).
 
 ## Planned entities
 | Entity | Important contents |
