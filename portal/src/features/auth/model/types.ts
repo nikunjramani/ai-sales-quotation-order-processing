@@ -39,4 +39,6 @@ export type Permission =
   | "tenant:manage"
   | "enquiries:view"
   | "integrations:manage"
-  | "members:manage";
+  | "members:manage"
+  | "catalogue:view"
+  | "catalogue:manage";

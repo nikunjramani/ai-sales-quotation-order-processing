@@ -2,6 +2,7 @@ import { createHashRouter } from "react-router";
 
 import { accountPublicRoutes, accountRoutes } from "@/features/account";
 import { businessRoutes, businessStartRoutes } from "@/features/business";
+import { catalogueRoutes } from "@/features/catalogue";
 import { connectionRoutes } from "@/features/connections";
 import { enquiryRoutes } from "@/features/enquiries";
 import { quotationRoutes } from "@/features/quotations";
@@ -28,6 +29,7 @@ export function createRouter() {
         { index: true, element: <HomeRedirect /> },
         ...quotationRoutes,
         ...enquiryRoutes,
+        ...catalogueRoutes,
         ...connectionRoutes,
         ...businessRoutes,
         { path: "*", element: <NotFoundPage /> },

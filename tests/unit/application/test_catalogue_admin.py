@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -44,6 +45,9 @@ class Businesses:
 
     def pricing(self, context: TenantContext) -> StoredPricing:
         return StoredPricing(self.pricing_value, 1)
+
+    def settings(self, context: TenantContext) -> SimpleNamespace:
+        return SimpleNamespace(time_zone="Asia/Kolkata")
 
 
 @dataclass

@@ -26,8 +26,8 @@ export const SETUP_STEPS: Record<SetupItemKey, { label: string; hint: string; li
   },
   product_source: {
     label: "Products",
-    hint: "Adding your products comes in a later update; not needed to go live yet.",
-    link: null,
+    hint: "At least one product with a price, so enquiries can be quoted. Not needed to go live.",
+    link: "/catalogue",
   },
   customer_channel: {
     label: "A way for customers to reach you",

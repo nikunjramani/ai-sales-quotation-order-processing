@@ -207,6 +207,7 @@ class SummaryOut(BaseModel):
     currency: str | None
     minor_units: int | None
     max_stock_age_seconds: int | None
+    time_zone: str | None
 
 
 class CategoryOut(BaseModel):
@@ -383,6 +384,7 @@ def _summary(summary: CatalogueSummary) -> SummaryOut:
         max_stock_age_seconds=None
         if summary.max_stock_age is None
         else int(summary.max_stock_age.total_seconds()),
+        time_zone=summary.time_zone,
     )
 
 

@@ -88,6 +88,7 @@ class CatalogueSummary:
     currency: str | None
     minor_units: int | None
     max_stock_age: timedelta | None
+    time_zone: str | None  # a scheduled price starts at midnight here (Q8)
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,7 @@ class ProductService:
             currency=pricing.currency,
             minor_units=pricing.minor_units,
             max_stock_age=max_age,
+            time_zone=self._businesses.settings(context).time_zone,
         )
 
     def source(self, context: TenantContext) -> CatalogueSource | None:
