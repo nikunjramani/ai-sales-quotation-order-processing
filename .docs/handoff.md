@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-28 (phases 1 and 2 merged through PRs #6 and #7; phase 3 catalogue implemented on `feat/phase-3-catalogue`, draft PR #8, awaiting review).
+Updated: 2026-10-28 (phases 1-3 merged through PRs #6, #7 and #8; phase 4 conversations started on `feat/phase-4-conversations`).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -326,7 +326,7 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Watch:** one setup error in `test_expiry_closes_an_unanswered_quotation` appeared once in a full run and did not repeat in four later runs (phase 1 saw a similar one-off).
 - **Merged:** the user asked for the merge on 2026-10-28 ("merge phase 2 pr"); PR #7 was green (`verify` and `portal`).
 
-## Phase 3 product catalogue (implemented, branch `feat/phase-3-catalogue`, draft PR #8)
+## Phase 3 product catalogue (complete, merged to main through PR #8, merge commit 9d31e22, 2026-10-28)
 - **User (2026-10-28):** "continue with phase 3". All Q1-Q23 and the default-source question were answered with the proposals and the summary confirmed; see [phase 3 plan, user answers](plan/platform/implementation/phase-3-catalogue.md#user-answers-2026-10-28) and [07 decisions](plan/platform/07-decisions-needed.md). Same commit arrangement as phases 1 and 2 (one commit per work item, pushed, draft PR; the user merges).
 - **Asked mid-work (W15):** `pg_trgm` needs CREATE on the database; the user chose to grant it to `quotation_owner` on `quotation_dev` in `infra/postgres/init.sql` (`quotation_test` is owned by it already). **Existing dev databases need the one-off command in [setup](development/setup.md#product-catalogue-phase-3).**
 - **W0-W13 done** (ADR [0020](adr/0020-local-catalogue.md), feature doc [product catalogue](features/product-catalogue.md)):
@@ -357,7 +357,17 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Portal:** typecheck, 97 tests, build (447 kB JS, 134 kB gzip).
   - **Live run** (API on :8010 serving the built portal, real worker, dev database): 24/25 steps OK: source and counts, category/product/price/stock, a portal API key, enquiry quoted with evidence "standard r1, local-catalogue", approval, customer sees it, price raised, acceptance refused with version 2 at the new price, an 8-day-old count stale in the portal and in the quotation, archive, other business 404, demo read-only 409, a newly signed-up business starts with Our product list and an open Products step. The failed step is open point 1 (sibling match). API log: no keys, tokens, passwords or email addresses; no 5xx.
   - **Not run:** the portal was not clicked through in a real browser (no browser tool here); CI runs on push.
-- **Next:** the user reviews PR #8 (and the deviations and open points above).
+- **Merged:** the user merged PR #8 on 2026-10-28 ("already merge phase 3 prs"). Open points 1-2 above stay open.
+
+## Phase 4 customers, conversations and website chat (in progress, branch `feat/phase-4-conversations`)
+- **User (2026-10-28):** "move on to phase 4". All open questions (D13-D15, Q1-Q14) were asked and answered, and the summary confirmed ("Yes, start"); see [phase 4 plan, user answers](plan/platform/implementation/phase-4-conversations.md#user-answers-2026-10-28) and [07 decisions](plan/platform/07-decisions-needed.md). Same commit arrangement as phases 1-3 (one commit per work item, pushed, draft PR; the user merges).
+- **Answers that change the plan:**
+  - rapid messages also join an enquiry that is still being read, and the round is re-run (Q3 = b);
+  - customers are told when a quotation is withdrawn or expires (Q10), without the staff reason;
+  - website chat visitors may send files through the quarantine (Q11): PDF, text, PNG, JPEG; 5 MB, 5 per message, 20 per session per day;
+  - chat rate limits reuse the phase 2 PostgreSQL counters (Q14 = b, no release gate);
+  - administrators **and sales operators** may merge contacts; no undo (D13).
+- **W0 done:** answers recorded in the plan, 07 decisions, shared contracts (U2) and here.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).
@@ -368,5 +378,5 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
    - Follow [setup](development/setup.md#approvals-and-portal-m4).
-2. Next milestone (orders or another): ask the user every open question first (clarify-before-building).
+2. Phase 4 is in progress (see above); after it, ask the user every open question for the next phase first (clarify-before-building).
 - Update this handoff in every change; never mark milestones complete without evidence.

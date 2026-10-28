@@ -1,5 +1,5 @@
 # Implementation plan, phase 4: customers and conversations + website chat
-**Status:** planning document (2026-10-23). Not started. **No code is written until the open questions in section 3.2 are answered** (AGENTS.md "ask, don't assume"). Names, tables, job kinds, permissions and portal features follow [00-shared-contracts.md](00-shared-contracts.md). Where this plan needs something the contracts do not have, it is listed in [section 15](#15-proposed-changes-to-shared-contracts) and nowhere else.
+**Status:** all open questions answered by the user on 2026-10-28 (see [User answers](#user-answers-2026-10-28)); implementation in progress on branch `feat/phase-4-conversations`. Where an answer differs from the proposals in section 3.2 or later sections, the answers section wins. Names, tables, job kinds, permissions and portal features follow [00-shared-contracts.md](00-shared-contracts.md). Where this plan needs something the contracts do not have, it is listed in [section 15](#15-proposed-changes-to-shared-contracts) and nowhere else.
 
 Background: [04 customers and conversations](../04-customers-and-conversations.md), [03 connectors](../03-connectors.md), [09 one-click integrations](../09-one-click-integrations.md), [07 decisions](../07-decisions-needed.md), [conversation follow-ups](../../conversation-follow-ups.md), [08 phases](../08-phases.md), ADRs [0011](../../../adr/0011-durable-intake-and-jobs.md), [0012](../../../adr/0012-provider-independent-extraction.md), [0015](../../../adr/0015-quotation-documents-and-delivery.md), [0016](../../../adr/0016-customer-acceptance.md), [0017](../../../adr/0017-gemini-reader-and-category-replies.md).
 
@@ -51,7 +51,32 @@ Background: [04 customers and conversations](../04-customers-and-conversations.m
 | ADR 0016 | Answers bound to version + content hash; append-only; replay returns the first result; any price change refuses and revises | Reused unchanged for chat answers; ADR 0016 is extended (not replaced) by a new ADR for channel answers |
 | ADR 0017 | Fixed reply templates; Gemini free tier is for synthetic data only | All customer messages are `TemplateKey`s; real website visitors must not reach the free tier (release gate, section 12) |
 
-### 3.2 Open questions (must be answered before building; recommendations are proposals only)
+### User answers (2026-10-28)
+The user answered every question below on 2026-10-28 and confirmed the summary ("Yes, start"). Answers that differ from the proposal are in **bold**.
+
+| # | Answer |
+|---|---|
+| D13 | (b) Never automatic; manual merge, suggested when the same **verified** email/phone appears. **Administrators and sales operators** may merge (not only administrators). **No undo** in phase 4; the merge shows both contacts and asks to confirm, and is recorded in the admin event log |
+| D14 | (b) Per-business setting `acknowledge_enquiries`, **on** by default, with a portal toggle |
+| D15 | Platform text only in this phase. `STOP`, `UNSUBSCRIBE`, `OPT OUT` as the whole message (any case, surrounding spaces ignored) opt out; `START` opts back in. Nothing is sent to an opted-out identity except the opt-out confirmation |
+| Q1 | Secure link confirmed, with the safeguards: GET never changes anything, POST with explicit confirm; single use; expires at "valid until"; page names the business and quotation number; confirmation goes to the original identity |
+| Q2 | (a) No code; website chat email/phone stored as claimed; claimed details are never used for merge suggestions or sending |
+| Q3 | **(b)** A message also joins an enquiry that is still being read (`received`, preparation, `ready_for_extraction`); the round is re-run if newer messages arrived before its outcome is recorded |
+| Q4 | (a) Same tool identity (same conversation) |
+| Q5 | (a) No contact and no conversation for API enquiries without `customer_reference` |
+| Q6 | Variant case for `rules`; the literal demo case is required for the model provider |
+| Q7 | Texts of section 6.6 as proposed |
+| Q8 | (a) Honeypot + minimum form time + rate limits; no captcha |
+| Q9 | Numbers as proposed (2,000 characters; 10/min and 100/day per session; 20 new sessions/hour per IP per business; 30-day sliding idle; 200 website-chat extraction rounds per business per day); they are settings |
+| Q10 | **Yes:** the customer is told when a quotation is withdrawn or expires. Texts: withdrawn "Quotation {number} has been withdrawn. Please contact us if you still need it."; expired "Quotation {number} has expired (it was valid until {date}). Send us a message if you would like an updated quotation." The staff withdrawal reason is **never** shown to the customer |
+| Q11 | **Files allowed** from website chat visitors, through the same quarantine: PDF, plain text, PNG, JPEG; 5 MB each; 5 per message; 20 per session per day (settings). No OCR yet, so unreadable files send the enquiry to review as today |
+| Q12 / U2 | (b) Email/phone masked for viewers; full for administrator, sales operator and approver |
+| Q13 | `/chat/<handle>`, handle derived from the business name (number added if taken), an administrator may change it **once**; domain waits for D24 |
+| Q14 | **(b) now:** reuse the phase 2 PostgreSQL `rate_limit_counters` (no release gate) |
+| Live run | The user has a Gemini key in `.env`: the live run and conversation evaluation use `google_genai:gemini-3.5-flash-lite` with synthetic data only |
+| Git | Same as phases 1-3: branch `feat/phase-4-conversations`, one commit per work item, pushed, draft PR to `main`; the user merges |
+
+### 3.2 Open questions (answered 2026-10-28, see above; kept for the reasoning)
 | # | Question | Options and consequences | Recommendation |
 |---|---|---|---|
 | **D13** | Same person on two tools: merge automatically? | a) never automatic, manual merge by staff; b) manual + **suggest** when the same verified email/phone appears; c) automatic on verified match (risk: wrong merges, data shown to the wrong person) | (b). Build the manual merge only after the answer; until then contacts are never merged |
