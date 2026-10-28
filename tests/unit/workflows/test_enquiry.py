@@ -21,7 +21,11 @@ from quotation_app.domain.requirements import (
 )
 from quotation_app.evaluation import InMemoryWorkflowStore
 from quotation_app.ports.erp import CatalogueSourceMissing, ErpError, ErpErrorCode
-from quotation_app.ports.interpretation import DocumentText, InterpretationRejected
+from quotation_app.ports.interpretation import (
+    DocumentText,
+    EnquiryTranscript,
+    InterpretationRejected,
+)
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.workflow import CleanAttachment, EnquiryContent
 from quotation_app.workflows.enquiry import (
@@ -39,11 +43,13 @@ class CountingInterpreter:
         self.extract_calls = 0
         self.rules = RulesInterpreter()
 
-    def extract(self, text: str, documents: Sequence[DocumentText]) -> ExtractedRequirements:
+    def extract(
+        self, transcript: EnquiryTranscript, documents: Sequence[DocumentText]
+    ) -> ExtractedRequirements:
         self.extract_calls += 1
         if isinstance(self.answer, Exception):
             raise self.answer
-        return self.answer or self.rules.extract(text, documents)
+        return self.answer or self.rules.extract(transcript, documents)
 
     def choose_product(self, item: RequestedItem, candidates: Sequence[Product]) -> str | None:
         return self.rules.choose_product(item, candidates)
@@ -66,7 +72,9 @@ class Harness:
 
     def enquiry(self, tenant: UUID, text: str, attachments: Sequence[CleanAttachment] = ()) -> UUID:
         enquiry_id = uuid4()
-        self.store.contents[(tenant, enquiry_id)] = EnquiryContent(text, tuple(attachments))
+        self.store.contents[(tenant, enquiry_id)] = EnquiryContent(
+            EnquiryTranscript.single(text), tuple(attachments)
+        )
         return enquiry_id
 
     def run(self, tenant: UUID, enquiry_id: UUID) -> tuple[ExtractionOutcome, dict[str, Any]]:

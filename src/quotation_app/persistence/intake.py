@@ -15,6 +15,7 @@ from quotation_app.domain.intake import (
 )
 from quotation_app.domain.jobs import JobKind, JobStatus
 from quotation_app.persistence.conversations import (
+    EXTRACTION_GRAPHS,
     ConversationRef,
     append_inbound,
     ensure_conversation,
@@ -446,12 +447,20 @@ class SqlPreparationStore:
                 .values(status=status.value, updated_at=func.now())
             ).rowcount
             if changed and status is EnquiryStatus.READY_FOR_EXTRACTION:
+                # Each reading is the next round (phase 4): a follow-up gets a fresh thread.
+                last_round = connection.execute(
+                    select(func.coalesce(func.max(WorkflowRun.round), 0)).where(
+                        WorkflowRun.tenant_id == tenant_id,
+                        WorkflowRun.enquiry_id == enquiry_id,
+                        WorkflowRun.graph_version.like(EXTRACTION_GRAPHS),
+                    )
+                ).scalar_one()
                 connection.execute(
                     insert(Job).values(
                         id=uuid4(),
                         tenant_id=tenant_id,
                         kind=JobKind.EXTRACT_REQUIREMENTS.value,
-                        payload={"enquiry_id": str(enquiry_id)},
+                        payload={"enquiry_id": str(enquiry_id), "round": str(last_round + 1)},
                         status=JobStatus.PENDING.value,
                         max_attempts=MAX_JOB_ATTEMPTS,
                         run_at=func.now(),

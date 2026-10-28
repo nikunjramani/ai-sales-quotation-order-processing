@@ -10,6 +10,7 @@ from typing import Protocol
 from uuid import UUID
 
 from quotation_app.domain.requirements import ExtractionOutcome
+from quotation_app.ports.interpretation import EnquiryTranscript
 
 
 @dataclass(frozen=True)
@@ -22,8 +23,9 @@ class CleanAttachment:
 
 @dataclass(frozen=True)
 class EnquiryContent:
-    text: str
+    transcript: EnquiryTranscript  # every customer message, plus the previous round's questions
     attachments: tuple[CleanAttachment, ...]  # only attachments that passed inspection
+    last_message_seq: int = 0  # the newest message read; later ones trigger another round
 
 
 class WorkflowStore(Protocol):
@@ -46,5 +48,9 @@ class WorkflowStore(Protocol):
         outcome: ExtractionOutcome,
         details: Mapping[str, object],
     ) -> None:
-        """Store the result and move the enquiry to the matching status. Safe to repeat."""
+        """Store the result and move the enquiry to the matching status. Safe to repeat.
+
+        If the customer wrote again after this round read the messages (details
+        "message_seq_upto"), or a file is still in quarantine, the result stays as history
+        only: the enquiry goes back to received and is prepared and read again (Q3)."""
         ...

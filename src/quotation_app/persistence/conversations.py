@@ -156,6 +156,21 @@ def open_enquiries(
     ]
 
 
+def lock_conversation_of(connection: Connection, tenant_id: UUID, enquiry_id: UUID) -> None:
+    """Worker side of the lock order: the enquiry's conversation first (if it has one)."""
+    conversation_id = connection.execute(
+        select(Enquiry.conversation_id).where(
+            Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id
+        )
+    ).scalar_one_or_none()
+    if conversation_id is not None:
+        connection.execute(
+            select(Conversation.id)
+            .where(Conversation.tenant_id == tenant_id, Conversation.id == conversation_id)
+            .with_for_update()
+        )
+
+
 def append_inbound(
     connection: Connection,
     tenant_id: UUID,

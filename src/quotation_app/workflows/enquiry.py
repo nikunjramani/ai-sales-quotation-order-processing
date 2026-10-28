@@ -3,15 +3,19 @@
     START -> extract -> match -> assess -> ready | clarify | review -> END
                  \\________(model answer invalid)______/
 
-- extract: read the enquiry and clean attachments, ask the interpreter for items, then check
-  every item against the customer's own words (invented facts are flagged).
+- extract: read every customer message of the enquiry and its clean attachments, ask the
+  interpreter for items, then check every item against the customer's own words, each message
+  and document on its own (invented facts are flagged).
 - match:   search the tenant's ERP per item; the interpreter may only pick among ERP results.
 - assess:  deterministic rules decide ready / needs clarification / needs review.
 - finish:  record the outcome on the enquiry.
 
-Each step is checkpointed, so after a crash the job resumes at the step that failed instead of
-asking the model again. State holds IDs and small summaries only; document text is never
-checkpointed. Prices are not involved here: pricing stays with the M1 calculator.
+Each reading is one round (phase 4): a follow-up message starts the next round on a fresh
+thread, and the round records the newest message it read so a message that arrives meanwhile
+causes another round instead of being missed. Each step is checkpointed, so after a crash the
+job resumes at the step that failed instead of asking the model again. State holds IDs and
+small summaries only; document text is never checkpointed. Prices are not involved here:
+pricing stays with the M1 calculator.
 """
 
 from collections.abc import Sequence
@@ -71,6 +75,7 @@ class EnquiryState(TypedDict, total=False):
     questions: list[str]
     review_reasons: list[str]
     no_source: bool  # the business has no product source connected (P1-Q3)
+    seq_upto: int  # the newest customer message this round read (phase 4)
 
 
 type EnquiryGraph = CompiledStateGraph[EnquiryState, None, EnquiryState, EnquiryState]
@@ -92,6 +97,7 @@ def _item_to_state(item: RequestedItem) -> dict[str, str | None]:
         "product_text": item.product_text,
         "quantity": None if item.quantity is None else str(item.quantity),
         "unit": item.unit,
+        "quantity_quote": item.quantity_quote,
     }
 
 
@@ -102,6 +108,7 @@ def _item_from_state(data: dict[str, str | None]) -> RequestedItem:
         product_text=str(data["product_text"]),
         quantity=None if quantity is None else Decimal(quantity),
         unit=data["unit"],
+        quantity_quote=data.get("quantity_quote"),  # absent before phase 4
     )
 
 
@@ -146,21 +153,25 @@ def build_enquiry_graph(
         unsupported = [
             f"{doc.name} ({doc.unsupported_reason})" for doc in documents if not doc.text
         ]
+        transcript = content.transcript
         try:
-            requirements = deps.interpreter.extract(content.text, documents)
+            requirements = deps.interpreter.extract(transcript, documents)
         except InterpretationRejected:
             return {
                 "rejected": True,
                 "items": [],
                 "unverified": [],
                 "unsupported_documents": unsupported,
+                "seq_upto": content.last_message_seq,
             }
-        sources = [content.text] + [doc.text for doc in documents if doc.text]
+        # Each message and document is a separate source; our own questions never are.
+        sources = transcript.texts + [doc.text for doc in documents if doc.text]
         return {
             "rejected": False,
             "items": [_item_to_state(item) for item in requirements.items],
-            "unverified": unverified_items(requirements, sources),
+            "unverified": unverified_items(requirements, sources, transcript.texts),
             "unsupported_documents": unsupported,
+            "seq_upto": content.last_message_seq,
         }
 
     def match(state: EnquiryState) -> EnquiryState:
@@ -261,6 +272,7 @@ def build_enquiry_graph(
             "questions": state.get("questions", []),
             "review_reasons": state.get("review_reasons", []),
             "unsupported_documents": state.get("unsupported_documents", []),
+            "message_seq_upto": state.get("seq_upto"),
         }
         deps.store.record_outcome(tenant_id, enquiry_id, UUID(state["run_id"]), outcome, details)
         return {}
@@ -269,7 +281,7 @@ def build_enquiry_graph(
         return record(state, ExtractionOutcome.READY_FOR_QUOTATION)
 
     def clarify(state: EnquiryState) -> EnquiryState:
-        # Questions are stored for a person or a later channel adapter to send (M5/M7).
+        # Recording queues the questions message to the customer's tool (phase 4).
         return record(state, ExtractionOutcome.NEEDS_CLARIFICATION)
 
     def review(state: EnquiryState) -> EnquiryState:
@@ -312,7 +324,13 @@ class ExtractionJobHandler:
             enquiry_id = UUID(job.payload["enquiry_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid enquiry_id") from None
-        run_id = self._store.start_run(job.require_tenant(), enquiry_id, GRAPH_VERSION)
+        try:
+            round_number = int(job.payload.get("round", "1"))  # jobs before phase 4: round 1
+        except ValueError:
+            raise PermanentJobError("Job payload has no valid round") from None
+        run_id = self._store.start_run(
+            job.require_tenant(), enquiry_id, GRAPH_VERSION, round_number
+        )
         config: RunnableConfig = {"configurable": {"thread_id": str(run_id)}}
         snapshot = self._graph.get_state(config)
         if snapshot.values and not snapshot.next:

@@ -19,7 +19,7 @@ from quotation_app.adapters.documents.text import PdfAndTextReader
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.requirements import ExtractionOutcome
 from quotation_app.ports.erp import ErpReader
-from quotation_app.ports.interpretation import EnquiryInterpreter
+from quotation_app.ports.interpretation import EnquiryInterpreter, EnquiryTranscript
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.storage import ObjectNotFound
 from quotation_app.ports.workflow import EnquiryContent
@@ -153,7 +153,9 @@ def evaluate(
     results = []
     for case in cases:
         tenant_id, enquiry_id = tenants[case.tenant], uuid4()
-        store.contents[(tenant_id, enquiry_id)] = EnquiryContent(case.text, ())
+        store.contents[(tenant_id, enquiry_id)] = EnquiryContent(
+            EnquiryTranscript.single(case.text), ()
+        )
         job = ClaimedJob(
             uuid4(),
             tenant_id,
