@@ -300,9 +300,14 @@ def test_staff_see_the_inbox_merge_contacts_and_switch_off_the_acknowledgement(
     )
     assert off.status_code == 200
     client.cookies.clear()
-    say(client, handle, second, "Please quote 2 x IND-FAN-450")
-    drain(integration_settings, worker_engine)
-    assert [m["kind"] for m in thread_of(client, handle, second)] == ["text"]
+    try:
+        say(client, handle, second, "Please quote 2 x IND-FAN-450")
+        drain(integration_settings, worker_engine)
+        assert [m["kind"] for m in thread_of(client, handle, second)] == ["text"]
+    finally:  # the demo business is shared by later tests: switch it back on
+        admin = login(client, "admin@local.example")
+        client.put(f"{BASE}/customer-messages", json={"acknowledge_enquiries": True}, headers=admin)
+        client.cookies.clear()
 
 
 def thread_of(client: TestClient, handle: str, token: str) -> list[dict[str, Any]]:
