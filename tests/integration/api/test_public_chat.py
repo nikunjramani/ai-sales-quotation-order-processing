@@ -321,3 +321,38 @@ def test_the_hosted_chat_page_loads_the_widget_in_page_mode(client: TestClient) 
     assert f"data-chat='{handle}' data-mode='page'" in page.text
     assert "frame-ancestors 'self'" in page.headers["content-security-policy"]
     assert client.get("/chat/no-such-chat").status_code == 404
+
+
+def test_an_enquiry_stored_before_phase_1_is_still_delivered(
+    client: TestClient,
+    integration_settings: Settings,
+    worker_engine: Engine,
+    owner_engine: Engine,
+    make_api_key: Any,
+) -> None:
+    """Regression (found in the phase 4 live run): an envelope without reply_to (written by
+    an older process) made the approved quotation's delivery fail on a NULL recipient."""
+    from quotation_app.domain.tenancy import Role
+
+    token = make_api_key(LOCAL_TENANT, Role.INTAKE_SERVICE)
+    response = client.post(
+        "/api/v1/enquiries",
+        json={"text": "Please quote 2 x IND-FAN-450"},
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": f"old-{uuid4()}"},
+    )
+    enquiry_id = response.json()["enquiry_id"]
+    with tenant_transaction(owner_engine, LOCAL_TENANT) as connection:
+        connection.execute(
+            text(
+                "UPDATE inbox_events SET envelope = envelope - 'reply_to' WHERE id = "
+                "(SELECT inbox_event_id FROM enquiries WHERE id = :e)"
+            ),
+            {"e": enquiry_id},
+        )
+    drain(integration_settings, worker_engine)
+    approve_pending(client)
+    drain(integration_settings, worker_engine)
+    issued = client.get(
+        f"/api/v1/enquiries/{enquiry_id}/quotation", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert issued.status_code == 200 and issued.json()["status"] == "open"
