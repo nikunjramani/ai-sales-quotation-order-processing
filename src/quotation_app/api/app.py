@@ -18,6 +18,7 @@ from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.accounts import build_account_router
 from quotation_app.api.auth import PortalAuth, SessionView, build_auth_router
 from quotation_app.api.business import build_business_router
+from quotation_app.api.catalogue import build_catalogue_router
 from quotation_app.api.channels import build_channel_router
 from quotation_app.api.connections import build_connection_router
 from quotation_app.api.enquiries import build_enquiry_router
@@ -35,6 +36,7 @@ from quotation_app.application.accounts import (
 )
 from quotation_app.application.api_keys import ApiKeyAuthenticator
 from quotation_app.application.approvals import ApprovalService
+from quotation_app.application.catalogue_admin import ProductService
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.connections import ConnectionService
 from quotation_app.application.documents import QuotationDocumentService
@@ -44,7 +46,7 @@ from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.sessions import SessionService
 from quotation_app.application.tenancy import TenantContextResolver
-from quotation_app.composition import build_catalogue, build_runtime
+from quotation_app.composition import build_catalogue, build_runtime, default_catalogue_source
 from quotation_app.config import Settings
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.accounts import (
@@ -54,6 +56,7 @@ from quotation_app.persistence.accounts import (
     SqlUserStore,
 )
 from quotation_app.persistence.api_keys import SqlApiKeyAdminStore, SqlApiKeyReader
+from quotation_app.persistence.catalogue import SqlCatalogueStore
 from quotation_app.persistence.channels import SqlChannelStore
 from quotation_app.persistence.connections import SqlConnectionStore, SqlHookLookup
 from quotation_app.persistence.database import build_engine, database_ready
@@ -121,7 +124,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     pricing = QuotationPricingService(erp, SqlPricingPolicyReader(engine))
     # Customer answers (M6): accept/decline through the API, withdrawal in the portal.
     responses = QuotationResponseService(SqlResponseStore(engine), pricing)
-    business_store = SqlBusinessStore(engine)
+    business_store = SqlBusinessStore(
+        engine, default_catalogue_source(configuration, runtime.registry)
+    )
     app.include_router(
         build_enquiry_router(
             ApiKeyAuthenticator(SqlApiKeyReader(engine)),
@@ -156,7 +161,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     hasher = Argon2PasswordHasher(max_concurrent=configuration.password_hash_concurrency)
     common = load_common_passwords()
     limiter = SqlRateLimiter(engine)
-    businesses = BusinessService(business_store, users, limiter, storage, PillowLogoNormalizer())
+    catalogue_store = SqlCatalogueStore(engine)
+    products = ProductService(
+        catalogue_store, catalogue_store, business_store, connections, runtime.registry
+    )
+    businesses = BusinessService(
+        business_store,
+        users,
+        limiter,
+        storage,
+        PillowLogoNormalizer(),
+        product_data=products.has_product_data,
+    )
     invitations = InvitationService(SqlInvitationStore(engine), business_store, users, limiter)
     app.include_router(
         build_account_router(
@@ -201,6 +217,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             connections,
         )
     )
+    app.include_router(build_catalogue_router(auth, products))
     app.include_router(
         build_connection_router(auth, ConnectionService(connections, runtime.registry), channels)
     )

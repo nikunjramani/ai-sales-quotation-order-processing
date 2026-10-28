@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     secret_store: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,31}$")
     secret_store_key: SecretStr | None = None
     secret_store_options: dict[str, Any] = Field(default_factory=dict)
+    # Product source a new business starts with (phase 3): an installed provider key with the
+    # catalogue purpose. Empty = new businesses start without one ("No product source").
+    default_catalogue_provider: str | None = Field(
+        default="local_catalogue", pattern=r"^[a-z][a-z0-9_]{1,31}$"
+    )
     # Public address of this API, only used to show webhook URLs (logs, portal).
     public_base_url: str | None = Field(default=None, pattern=r"^https?://\S+$")
     # Built React portal (portal/dist) to serve at /portal; unset = not served by the API.

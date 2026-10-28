@@ -31,6 +31,8 @@ from quotation_app.domain.accounts import (
     LastAdministrator,
     PasswordProblem,
     RateRule,
+    SetupItem,
+    SetupItemKey,
     User,
 )
 from quotation_app.domain.jobs import JobKind, PermanentJobError
@@ -304,6 +306,9 @@ class FakeBusinesses:
     def go_live(self, context: TenantContext) -> list[object]:
         return []
 
+    def setup_state(self, context: TenantContext) -> list[SetupItem]:
+        return [SetupItem(key, True) for key in SetupItemKey]
+
 
 def context(*roles: Role, subject: str = "user:admin") -> TenantContext:
     return TenantContext(UUID(int=1), subject, frozenset(roles))
@@ -524,3 +529,23 @@ def test_a_used_link_or_a_crashed_attempt_sends_nothing() -> None:
     crashed = FakeEmails(AccountEmailWork("ana@shop.example", None, frozenset()), sending=True)
     handler(crashed, mailer)(job(AccountEmailPurpose.VERIFY_EMAIL))
     assert mailer.sent == [] and crashed.prepared == []
+
+
+def test_checklist_product_step_asks_the_product_list() -> None:
+    """Phase 3: an active source is not enough for our own list; it needs a priced product."""
+    users, businesses = FakeUsers(), FakeBusinesses()
+    ready = {"value": False}
+    service = BusinessService(
+        businesses,  # type: ignore[arg-type]
+        users,
+        FakeLimiter(),
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        lambda: NOW,
+        product_data=lambda context: ready["value"],
+    )
+    steps = {item.key: item.done for item in service.checklist(context(Role.ADMINISTRATOR))}
+    assert steps[SetupItemKey.PRODUCT_SOURCE] is False and steps[SetupItemKey.PRICING] is True
+    ready["value"] = True
+    steps = {item.key: item.done for item in service.checklist(context(Role.ADMINISTRATOR))}
+    assert steps[SetupItemKey.PRODUCT_SOURCE] is True
