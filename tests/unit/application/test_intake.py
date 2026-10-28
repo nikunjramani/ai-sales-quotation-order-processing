@@ -1,7 +1,7 @@
 """Intake use case: durability order, replay, conflicts and cleanup of quarantined files."""
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -162,3 +162,50 @@ def test_the_reply_address_is_fixed_at_intake(
     envelope = intake_store.envelopes[result.receipt.enquiry_id]
     # A pull provider: the quotation goes back to the submitting key, not the reference label.
     assert envelope.reply_to == intake_context.subject and envelope.channel == "api"
+
+
+# --- Phase 4: follow-ups continue the customer's open enquiry ------------------------------
+
+
+def test_a_message_while_the_first_is_still_read_continues_it(
+    service: EnquiryIntakeService, intake_context: TenantContext
+) -> None:
+    first = service.submit(intake_context, submission(), "request-0001", "api")
+    second = service.submit(intake_context, submission("10 meter"), "request-0002", "api")
+    assert second.receipt.enquiry_id == first.receipt.enquiry_id
+    assert second.receipt.continued and not first.receipt.continued
+    replay = service.submit(intake_context, submission("10 meter"), "request-0002", "api")
+    assert replay.duplicate and replay.receipt.continued
+
+
+def test_an_answer_reopens_a_waiting_enquiry(
+    service: EnquiryIntakeService, intake_context: TenantContext, intake_store: Any, now: datetime
+) -> None:
+    first = service.submit(intake_context, submission(), "request-0001", "api")
+    intake_store.statuses[first.receipt.enquiry_id] = EnquiryStatus.NEEDS_CLARIFICATION
+    intake_store.asked[first.receipt.enquiry_id] = now
+    answer = service.submit(intake_context, submission("10 meter"), "request-0002", "api")
+    assert answer.receipt.continued and answer.receipt.status is EnquiryStatus.RECEIVED
+
+
+def test_a_question_seven_days_old_starts_a_new_enquiry(
+    service: EnquiryIntakeService, intake_context: TenantContext, intake_store: Any, now: datetime
+) -> None:
+    first = service.submit(intake_context, submission(), "request-0001", "api")
+    intake_store.statuses[first.receipt.enquiry_id] = EnquiryStatus.NEEDS_CLARIFICATION
+    intake_store.asked[first.receipt.enquiry_id] = now - timedelta(days=7)
+    later = service.submit(intake_context, submission("10 meter"), "request-0002", "api")
+    assert not later.receipt.continued
+    assert later.receipt.enquiry_id != first.receipt.enquiry_id
+
+
+def test_without_a_customer_reference_messages_are_never_continued(
+    service: EnquiryIntakeService, intake_context: TenantContext
+) -> None:
+    def anonymous(text: str) -> EnquirySubmission:
+        return EnquirySubmission(text, None)
+
+    first = service.submit(intake_context, anonymous("Quote 5 fans"), "request-0001", "api")
+    second = service.submit(intake_context, anonymous("10 meter"), "request-0002", "api")
+    assert second.receipt.enquiry_id != first.receipt.enquiry_id
+    assert not second.receipt.continued

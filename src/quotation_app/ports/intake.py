@@ -1,11 +1,13 @@
 """Contracts for durable enquiry receipt, status reads and worker-side preparation."""
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
 from quotation_app.domain.attachments import AttachmentStatus
+from quotation_app.domain.conversations import FollowUp, OpenEnquiry
 from quotation_app.domain.intake import EnquiryStatus, InboundEnvelope
 
 
@@ -20,6 +22,12 @@ class Receipt:
     payload_sha256: str
     correlation_id: UUID
     received_at: datetime
+    continued: bool = False  # the message joined an existing enquiry (phase 4)
+
+
+# Decides, inside the conversation's locked transaction, which open enquiry (if any) a message
+# continues. None: it starts a new enquiry. See application/conversations.py.
+type EnquiryRouter = Callable[[Sequence[OpenEnquiry], datetime], FollowUp | None]
 
 
 @dataclass(frozen=True)
@@ -68,9 +76,19 @@ class IntakeStore(Protocol):
     ) -> Receipt | None: ...
 
     def record(
-        self, envelope: InboundEnvelope, payload_sha256: str, enquiry_id: UUID
+        self,
+        envelope: InboundEnvelope,
+        payload_sha256: str,
+        enquiry_id: UUID,
+        router: EnquiryRouter | None = None,
     ) -> tuple[Receipt, bool]:
-        """Atomically store inbox event, enquiry, attachments and a preparation job.
+        """Atomically store the inbox event, the conversation message and its attachments, and
+        either continue an open enquiry or create one (enquiry_id) with its preparation job.
+
+        A sender (envelope.sender_external_id) gets an identity, contact and conversation on
+        first contact; the conversation row is locked while router decides, so one customer's
+        messages are routed one at a time. Without a sender, or without a router, the message
+        always starts a new enquiry (Q5).
 
         Returns (receipt, created). If another request already recorded the same provider event,
         nothing is written and the existing receipt is returned with created=False.

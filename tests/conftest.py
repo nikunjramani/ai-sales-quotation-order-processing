@@ -18,13 +18,14 @@ from quotation_app.adapters.providers.api import ApiProvider
 from quotation_app.application.providers import ProviderRegistry
 from quotation_app.domain.attachments import AttachmentStatus
 from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
+from quotation_app.domain.conversations import OpenEnquiry
 from quotation_app.domain.intake import EnquiryStatus, InboundEnvelope
 from quotation_app.domain.money import RoundingMode
 from quotation_app.domain.pricing import PricingPolicy
 from quotation_app.domain.tenancy import Role, TenantContext
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
 from quotation_app.ports.api_keys import ApiKeyRecord
-from quotation_app.ports.intake import AttachmentView, EnquiryView, Receipt
+from quotation_app.ports.intake import AttachmentView, EnquiryRouter, EnquiryView, Receipt
 from quotation_app.ports.storage import ObjectNotFound
 from quotation_app.ports.tenancy import PricingPolicyNotConfigured
 
@@ -179,6 +180,9 @@ class FakeIntakeStore:
         self.envelopes: dict[UUID, InboundEnvelope] = {}
         self.fail_record: Exception | None = None
         self.concurrent_winner: Receipt | None = None
+        self.statuses: dict[UUID, EnquiryStatus] = {}
+        self.asked: dict[UUID, datetime] = {}  # enquiry -> when our question was recorded
+        self.follow_ups: dict[UUID, list[InboundEnvelope]] = {}
 
     def find_receipt(
         self, tenant_id: UUID, connection_ref: UUID, provider_event_id: str
@@ -186,12 +190,36 @@ class FakeIntakeStore:
         return self.receipts.get((tenant_id, connection_ref, provider_event_id))
 
     def record(
-        self, envelope: InboundEnvelope, payload_sha256: str, enquiry_id: UUID
+        self,
+        envelope: InboundEnvelope,
+        payload_sha256: str,
+        enquiry_id: UUID,
+        router: EnquiryRouter | None = None,
     ) -> tuple[Receipt, bool]:
+        """Open enquiries are those of the same (connection, sender) still in `statuses`
+        (default received); tests set statuses/asked to simulate later workflow steps."""
         if self.fail_record is not None:
             raise self.fail_record
         if self.concurrent_winner is not None:
             return self.concurrent_winner, False
+        key = (envelope.tenant_id, envelope.connection_ref, envelope.provider_event_id)
+        follow_up = None
+        if router is not None and envelope.sender_external_id is not None:
+            follow_up = router(self._open(envelope), envelope.received_at)
+        if follow_up is not None:
+            if follow_up.reopen:
+                self.statuses[follow_up.enquiry_id] = EnquiryStatus.RECEIVED
+            self.follow_ups.setdefault(follow_up.enquiry_id, []).append(envelope)
+            receipt = Receipt(
+                follow_up.enquiry_id,
+                self.statuses.get(follow_up.enquiry_id, EnquiryStatus.RECEIVED),
+                payload_sha256,
+                envelope.correlation_id,
+                envelope.received_at,
+                continued=True,
+            )
+            self.receipts[key] = receipt
+            return receipt, True
         receipt = Receipt(
             enquiry_id,
             EnquiryStatus.RECEIVED,
@@ -199,10 +227,23 @@ class FakeIntakeStore:
             envelope.correlation_id,
             envelope.received_at,
         )
-        key = (envelope.tenant_id, envelope.connection_ref, envelope.provider_event_id)
         self.receipts[key] = receipt
         self.envelopes[enquiry_id] = envelope
         return receipt, True
+
+    def _open(self, envelope: InboundEnvelope) -> list[OpenEnquiry]:
+        return [
+            OpenEnquiry(
+                enquiry_id,
+                self.statuses.get(enquiry_id, EnquiryStatus.RECEIVED),
+                first.received_at,
+                self.asked.get(enquiry_id),
+                False,
+            )
+            for enquiry_id, first in self.envelopes.items()
+            if (first.tenant_id, first.connection_ref, first.sender_external_id)
+            == (envelope.tenant_id, envelope.connection_ref, envelope.sender_external_id)
+        ]
 
     def get_enquiry(self, tenant_id: UUID, enquiry_id: UUID) -> EnquiryView | None:
         envelope = self.envelopes.get(enquiry_id)

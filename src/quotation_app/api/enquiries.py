@@ -86,6 +86,9 @@ class EnquiryAccepted(BaseModel):
     duplicate: bool
     correlation_id: UUID
     received_at: datetime
+    # True when the message continued the customer's open enquiry (same key and
+    # customer_reference, our question less than 7 days old, or the enquiry still being read).
+    continued: bool = False
 
 
 class AttachmentOut(BaseModel):
@@ -359,6 +362,7 @@ def build_enquiry_router(
             duplicate=result.duplicate,
             correlation_id=receipt.correlation_id,
             received_at=receipt.received_at,
+            continued=receipt.continued,
         )
 
     @router.get("/{enquiry_id}", response_model=EnquiryOut, responses={404: {}})
