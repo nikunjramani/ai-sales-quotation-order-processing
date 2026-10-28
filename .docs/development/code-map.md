@@ -189,6 +189,28 @@ See the [phase 2 plan](../plan/platform/implementation/phase-2-accounts.md) and 
 | [api/accounts.py](../../src/quotation_app/api/accounts.py), [api/business.py](../../src/quotation_app/api/business.py) | Account routes and per-business settings routes; one error mapping (`guarded`) |
 | portal `features/account`, `features/business` | Sign-up, login, links, profile, invitations; create a business, setup and Go live, settings, people, API keys |
 
+## Phase 3 product catalogue (ADR 0020)
+See the [phase 3 plan](../plan/platform/implementation/phase-3-catalogue.md) and [product catalogue](../features/product-catalogue.md).
+
+| Actual file | Responsibility |
+|---|---|
+| [domain/catalogue_search.py](../../src/quotation_app/domain/catalogue_search.py) | The one word-matching rule for product search (moved out of the simulated ERP): words, query and product terms, best matches only |
+| [domain/catalogue_admin.py](../../src/quotation_app/domain/catalogue_admin.py) | Editing rules (SKU, units, decimals, price start, stock "as of"), price and stock selection, staleness, change lists; product, category, price and stock records |
+| [domain/tenancy.py](../../src/quotation_app/domain/tenancy.py) | Also `catalogue:view` and `catalogue:manage` |
+| [domain/connections.py](../../src/quotation_app/domain/connections.py) | Also the `catalogue_editable` capability |
+| [ports/catalogue_admin.py](../../src/quotation_app/ports/catalogue_admin.py) | CatalogueReadStore (for LocalCatalogue) and CatalogueStore (for the screens), queries, pages, counts, errors |
+| [ports/providers.py](../../src/quotation_app/ports/providers.py) | Also `ProviderEnvironment.catalogue_store` |
+| [0011_catalogue.py](../../migrations/versions/0011_catalogue.py) | Catalogue tables, indexes, RLS, triggers, grants; `create_business` with the default source; backfill and downgrade |
+| [persistence/catalogue.py](../../src/quotation_app/persistence/catalogue.py) | SqlCatalogueStore: both ports, best-match search in one query, row locks for revisions, replays by request ID, change log |
+| [persistence/seed.py](../../src/quotation_app/persistence/seed.py) | Also the Demo Local Catalogue business and `seed_local_catalogue` |
+| [adapters/catalogue/local.py](../../src/quotation_app/adapters/catalogue/local.py) | LocalCatalogue: our list as an `ErpReader` (evidence rules of Q10) |
+| [adapters/catalogue/memory.py](../../src/quotation_app/adapters/catalogue/memory.py) | InMemoryCatalogueStore for tests and offline evaluation |
+| [adapters/providers/local_catalogue/](../../src/quotation_app/adapters/providers/local_catalogue/__init__.py) | Provider `local_catalogue` ("Our product list"), entry point in `pyproject.toml` |
+| [application/catalogue_admin.py](../../src/quotation_app/application/catalogue_admin.py) | ProductService: permissions, read-only sources, currency, request IDs, summary, the checklist's product step |
+| [composition.py](../../src/quotation_app/composition.py) | Also `default_catalogue_source` and the store given to providers |
+| [api/catalogue.py](../../src/quotation_app/api/catalogue.py) | `/api/v1/tenants/{t}/catalogue/...` routes and their error codes |
+| portal `features/catalogue` | Product list, product page (details, prices, stock, archive, changes), categories |
+
 ## Planned modules
 
 | Proposed location | Responsibility |

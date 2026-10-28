@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-28 (phases 1 and 2 merged through PRs #6 and #7; phase 3 catalogue in progress on `feat/phase-3-catalogue`).
+Updated: 2026-10-28 (phases 1 and 2 merged through PRs #6 and #7; phase 3 catalogue implemented on `feat/phase-3-catalogue`, draft PR #8, awaiting review).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -326,9 +326,38 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Watch:** one setup error in `test_expiry_closes_an_unanswered_quotation` appeared once in a full run and did not repeat in four later runs (phase 1 saw a similar one-off).
 - **Merged:** the user asked for the merge on 2026-10-28 ("merge phase 2 pr"); PR #7 was green (`verify` and `portal`).
 
-## Phase 3 product catalogue (in progress, branch `feat/phase-3-catalogue`)
+## Phase 3 product catalogue (implemented, branch `feat/phase-3-catalogue`, draft PR #8)
 - **User (2026-10-28):** "continue with phase 3". All Q1-Q23 and the default-source question were answered with the proposals and the summary confirmed; see [phase 3 plan, user answers](plan/platform/implementation/phase-3-catalogue.md#user-answers-2026-10-28) and [07 decisions](plan/platform/07-decisions-needed.md). Same commit arrangement as phases 1 and 2 (one commit per work item, pushed, draft PR; the user merges).
-- **W0 done:** answers recorded.
+- **Asked mid-work (W15):** `pg_trgm` needs CREATE on the database; the user chose to grant it to `quotation_owner` on `quotation_dev` in `infra/postgres/init.sql` (`quotation_test` is owned by it already). **Existing dev databases need the one-off command in [setup](development/setup.md#product-catalogue-phase-3).**
+- **W0-W13 done** (ADR [0020](adr/0020-local-catalogue.md), feature doc [product catalogue](features/product-catalogue.md)):
+  - **W1:** the search word rule moved from the simulated ERP to `domain/catalogue_search.py` (no behaviour change).
+  - **W2-W3:** editing rules (`domain/catalogue_admin.py`) and `catalogue:view` / `catalogue:manage`.
+  - **W4-W6:** ports, migration `0011_catalogue` (five tables, `pg_trgm`, RLS, triggers, grants, `create_business` with the default source, backfill, downgrade), `SqlCatalogueStore`, the **Demo Local Catalogue** business (`33333333-…`, people `admin@`, `sales@`, `manager@local.example`).
+  - **W7-W8:** `LocalCatalogue` and provider `local_catalogue` ("Our product list"); `InMemoryCatalogueStore`; ERP and provider contract suites extended; a shared search-case table.
+  - **W9-W11:** `ProductService`, `/api/v1/tenants/{t}/catalogue/...`, `QUOTATION_DEFAULT_CATALOGUE_PROVIDER`, the checklist's Products step (done with one priced product; not required).
+  - **W12:** portal feature `catalogue` (list, product page with prices/stock/archive/changes, categories); top bar "Products"; the pricing form suggests a 7-day stock age (Q10).
+  - **W13:** evaluation on both sources (`evaluate_extraction.py --source local`), PostgreSQL end-to-end tests.
+- **After pulling:** the init command, `uv sync --all-extras`, `uv run alembic upgrade head`, `uv run python -m quotation_app.persistence.seed` ([setup](development/setup.md#product-catalogue-phase-3)).
+- **Deviations from the plan (for review):**
+  1. **C7 was not quite true:** migration 0008 gives the demo businesses' simulated connection only manager approvals; the seed adds the catalogue purpose. After a downgrade/upgrade without seeding, 0011 gives them our list; the seed now disables such a second source on the two ERP demos (found by the full PostgreSQL run).
+  2. The provider gets its store through `ProviderEnvironment.catalogue_store` (each process's own role), not a new registry hook.
+  3. `InMemoryCatalogueStore` lives in `src/` (`adapters/catalogue/memory.py`) because tests run with `--import-mode=importlib` and the evaluation script uses it offline; the plan put a fake in `tests/conftest.py`.
+  4. `evaluate_extraction.py --source local` uses that in-memory store, not the dev database's third business (PostgreSQL is covered by the integration tests).
+  5. The catalogue summary also returns the business time zone (a scheduled price starts at midnight there, Q8).
+  6. Prices and stock cannot be added to an archived product (409 `product_archived`); restore it first. The plan did not say.
+  7. Archiving a category keeps its products' link but stops using its name for search and "we supply" replies.
+- **Open points found (for the user, not changed):**
+  1. **A near-miss SKU can be matched to a sibling product.** Live run: an enquiry for the archived `LIVE-VALVE-…-B` was matched automatically to the active `LIVE-VALVE-…` (three shared words: live, valve, the code). An unknown `IND-…` code gets "which product did you mean" with every `IND-` product. Both follow the existing rule (ADR 0017: "best word matches; exactly one candidate is matched"), the same as the simulated ERP; manager approval still applies. Options for a later decision: treat a query that looks like a SKU as "exact SKU or nothing", or require more than shared prefix words.
+  2. Deviation 7 of phase 2 (a bigger common-password list) and the account email wording are still open.
+- **Verification (2026-10-28):**
+  - **Static:** ruff, ruff format, strict mypy (237 files).
+  - **Unit:** 636 passed, 3 skipped.
+  - **PostgreSQL:** `check_database.py --cycle`: 757 passed, then downgrade to empty, upgrade, 757 passed again (`alembic check` clean on both databases). Includes RLS on every catalogue table, history-only rows, concurrent revisions, the 0011 migration round trip, the API with real sessions and the end-to-end quotation flow.
+  - **Evaluation:** 14/14 (rules) on the simulated ERP and on our list, 0 invented facts.
+  - **Portal:** typecheck, 97 tests, build (447 kB JS, 134 kB gzip).
+  - **Live run** (API on :8010 serving the built portal, real worker, dev database): 24/25 steps OK: source and counts, category/product/price/stock, a portal API key, enquiry quoted with evidence "standard r1, local-catalogue", approval, customer sees it, price raised, acceptance refused with version 2 at the new price, an 8-day-old count stale in the portal and in the quotation, archive, other business 404, demo read-only 409, a newly signed-up business starts with Our product list and an open Products step. The failed step is open point 1 (sibling match). API log: no keys, tokens, passwords or email addresses; no 5xx.
+  - **Not run:** the portal was not clicked through in a real browser (no browser tool here); CI runs on push.
+- **Next:** the user reviews PR #8 (and the deviations and open points above).
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

@@ -24,6 +24,9 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO quotation_owner;
 GRANT USAGE ON SCHEMA public TO quotation_app, quotation_worker;
 GRANT CONNECT ON DATABASE quotation_dev TO quotation_owner, quotation_app, quotation_worker;
+-- Migrations create trusted extensions (pg_trgm, phase 3), which needs CREATE on the database.
+-- quotation_test is owned by quotation_owner, so it has this already (user decision 2026-10-28).
+GRANT CREATE ON DATABASE quotation_dev TO quotation_owner;
 
 -- Separate database for integration tests, which may truncate tables between tests.
 -- Integration tests refuse to run against a database whose name does not end in _test.

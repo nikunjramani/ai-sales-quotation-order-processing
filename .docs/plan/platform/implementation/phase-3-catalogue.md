@@ -67,6 +67,7 @@ The user answered every question on 2026-10-28 and confirmed the summary ("Yes, 
 | Q23 | One price list `standard`; evidence "standard, revision N"; source display name "Our product list" |
 | C6 | New businesses get the local catalogue by default (`QUOTATION_DEFAULT_CATALOGUE_PROVIDER`); existing businesses without a catalogue connection get one in migration 0011 |
 | Git | Same as phases 1 and 2: one commit per work item, pushed, draft PR to `main`; the user merges |
+| pg_trgm (asked during W15, 2026-10-28) | The migration role gets CREATE on `quotation_dev` in `infra/postgres/init.sql` (it owns `quotation_test` already), so 0011 can create the trusted `pg_trgm` extension. A hosted database needs the same or a pre-installed extension (D24) |
 
 ### Decisions used (binding)
 | # | Decision | Effect on this plan |

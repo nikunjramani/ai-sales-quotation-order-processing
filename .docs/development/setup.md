@@ -223,7 +223,23 @@ Then, with the API, the worker and the portal running ("Run all" in VS Code):
    $h = @{ Authorization = "Bearer <key>"; "Idempotency-Key" = "test-1" }
    Invoke-RestMethod http://localhost:8000/api/v1/enquiries -Method Post -Headers $h -ContentType application/json -Body '{"text":"2 x IND-FAN-450"}'
    ```
-   A new business has no products yet (phase 3), so the enquiry goes to review with "No product source is connected"; it still counts as the test enquiry.
+   Since phase 3 a new business starts with **Our product list** but no products, so the enquiry is answered with a question (nothing to match); it still counts as the test enquiry. Add products under **Products** first to see it quoted.
 4. Press **Go live**. Invite a colleague under **Settings -> People**; their email is in `var/storage/dev-mail/` too.
 
 The demo people keep the dev login, and can also sign in with their email and the `QUOTATION_DEMO_PASSWORD` from `.env`.
+
+## Product catalogue (phase 3)
+After pulling phase 3, run once. The first command gives the migration role CREATE on `quotation_dev` (needed for the `pg_trgm` extension; user decision 2026-10-28); it re-runs the idempotent role script (in Git Bash, prefix it with `MSYS_NO_PATHCONV=1`):
+```
+docker compose exec -T postgres psql -U postgres -d quotation_dev -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/01-roles.sql
+uv sync --all-extras                                   # registers the local_catalogue provider
+uv run alembic upgrade head                            # 0011 catalogue (pg_trgm, our list as default source)
+uv run python -m quotation_app.persistence.seed        # adds the Demo Local Catalogue business
+```
+Then ("Run all" in VS Code):
+1. Sign in as `sales@local.example` (dev login) and open **Products**: five synthetic products, prices and stock.
+2. Add a category and a product, give it a price and a stock count. Create an API key as `admin@local.example` (**Settings -> API keys**) and send an enquiry for the new SKU; after a worker pass `manager@local.example` sees the quotation with evidence "standard list, revision 1".
+3. Raise the price, then accept the quotation as the customer (`POST .../quotation/response`): it is refused and version 2 goes to the manager.
+4. The demo businesses still use the simulated ERP; their **Products** page is read-only.
+
+Offline check of our list: `uv run python scripts/evaluate_extraction.py --source local` (14/14 expected).
