@@ -19,6 +19,7 @@ from quotation_app.domain.documents import (
     DeliveryStatus,
     DocumentKind,
     DocumentSource,
+    SellerDetails,
     StoredDocument,
 )
 from quotation_app.domain.jobs import JobKind
@@ -34,6 +35,7 @@ from quotation_app.persistence.models import (
     QuotationVersion,
     Tenant,
     TenantPricingPolicy,
+    TenantProfile,
 )
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.documents import DeliveryWork
@@ -124,6 +126,12 @@ def _source_query(tenant_id: UUID, quotation_id: UUID, version: int) -> Any:
             ApprovalDecision.decided_at,
             Quotation.status,
             Quotation.current_version,
+            TenantProfile.legal_name,
+            TenantProfile.address,
+            TenantProfile.tax_id_label,
+            TenantProfile.tax_id,
+            TenantProfile.logo_storage_key,
+            TenantProfile.logo_sha256,
         )
         .join(
             Quotation,
@@ -135,6 +143,7 @@ def _source_query(tenant_id: UUID, quotation_id: UUID, version: int) -> Any:
             (Enquiry.tenant_id == Quotation.tenant_id) & (Enquiry.id == Quotation.enquiry_id),
         )
         .join(Tenant, Tenant.id == QuotationVersion.tenant_id)
+        .outerjoin(TenantProfile, TenantProfile.tenant_id == QuotationVersion.tenant_id)
         .outerjoin(
             ApprovalDecision,
             (ApprovalDecision.tenant_id == QuotationVersion.tenant_id)
@@ -152,6 +161,17 @@ def _source_query(tenant_id: UUID, quotation_id: UUID, version: int) -> Any:
 
 
 def _source(row: Row[Any], quotation_id: UUID, version: int) -> DocumentSource:
+    """The business's PDF details are read at render time; a document already rendered keeps
+    the details it was made with (approved PDFs are stored once)."""
+    seller = None
+    if row.legal_name:
+        seller = SellerDetails(
+            legal_name=row.legal_name,
+            address_lines=tuple((row.address or "").splitlines()),
+            tax_id_label=row.tax_id_label,
+            tax_id=row.tax_id,
+        )
+    logo = None if row.logo_storage_key is None else (row.logo_storage_key, row.logo_sha256)
     return DocumentSource(
         tenant_name=row.name,
         quotation_id=quotation_id,
@@ -160,6 +180,8 @@ def _source(row: Row[Any], quotation_id: UUID, version: int) -> DocumentSource:
         content_sha256=row.content_sha256,
         customer_reference=row.customer_reference,
         approved_at=row.decided_at,
+        seller=seller,
+        seller_logo_ref=logo if seller is not None else None,
     )
 
 

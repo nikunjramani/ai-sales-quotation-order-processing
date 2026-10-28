@@ -19,7 +19,7 @@
 - **Use cases:** [application/intake.py](../../src/quotation_app/application/intake.py) and [application/api_keys.py](../../src/quotation_app/application/api_keys.py).
 - **Rules:** [domain/intake.py](../../src/quotation_app/domain/intake.py), [domain/attachments.py](../../src/quotation_app/domain/attachments.py) and [domain/jobs.py](../../src/quotation_app/domain/jobs.py).
 - **Storage and database:** [persistence/intake.py](../../src/quotation_app/persistence/intake.py), [persistence/jobs.py](../../src/quotation_app/persistence/jobs.py), [persistence/api_keys.py](../../src/quotation_app/persistence/api_keys.py), [adapters/storage/local.py](../../src/quotation_app/adapters/storage/local.py) and [migration 0003](../../migrations/versions/0003_intake.py).
-- **Key management:** [scripts/create_api_key.py](../../scripts/create_api_key.py).
+- **Key management:** in the portal, **Settings -> API keys** (phase 2, [accounts and onboarding](accounts-and-onboarding.md)). A key sees only the enquiries and quotations it submitted itself (user answer P1-Q9); another key of the same business gets 404. A suspended business's keys get 403.
 
 ## Inputs and validation
 - **Header `Authorization`:** `Bearer qk_<32 hex>_<secret>`. A missing, malformed, unknown, revoked or wrong key returns the same 401.

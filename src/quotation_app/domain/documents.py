@@ -166,6 +166,9 @@ class DocumentSource:
     approved_at: datetime | None
     valid_until: datetime | None = None  # set for the customer document (M6), not previews
     seller: SellerDetails | None = None  # phase 2; None prints the business name only
+    # Where the seller's logo is stored, as (storage key, SHA-256); read and checked just before
+    # rendering, because the stores that build this source cannot read files.
+    seller_logo_ref: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
         if self.approved_at is not None:

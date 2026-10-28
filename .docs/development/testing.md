@@ -62,6 +62,7 @@ Shared fixtures in [tests/conftest.py](../../tests/conftest.py):
 | `owner_engine`, `runtime_engine`, `worker_engine` | One engine per database role; `runtime_engine` also seeds demo data |
 | `clean_intake_tables` (automatic) | Truncates intake and job tables before each test |
 | `make_api_key(tenant_id, role)` | Creates a key with owner credentials and returns its token |
+| `fresh_accounts` | For tests that create people and businesses: afterwards truncates tenants and users (CASCADE) and seeds the demo again |
 | `storage` | LocalObjectStorage under the temporary storage folder |
 
 ## Current checks (M0-M6)

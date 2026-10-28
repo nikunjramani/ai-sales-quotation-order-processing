@@ -109,3 +109,28 @@ def test_a_changed_stored_file_is_never_served(harness: Any) -> None:
         harness.documents().approved(harness.context(MANAGER), quotation)
     with pytest.raises(DocumentIntegrityError):
         harness.documents().download(intake_client(harness), enquiry, "api")
+
+
+def test_the_logo_is_added_only_when_stored_and_unchanged(
+    memory_storage: Any, make_image: Any
+) -> None:
+    import hashlib
+    from dataclasses import replace as copy
+
+    from quotation_app.application.documents import with_logo
+    from quotation_app.domain.documents import DocumentSource, SellerDetails
+
+    png = make_image("PNG", 40, 20)
+    digest = hashlib.sha256(png).hexdigest()
+    source = DocumentSource(
+        "Demo", uuid4(), 1, {}, "c" * 64, None, None,
+        seller=SellerDetails("Demo Pvt Ltd", ("1 Road",)),
+        seller_logo_ref=("tenants/t/profile/logo.png", digest),
+    )  # fmt: skip
+    assert with_logo(memory_storage, source).seller.logo_png is None  # type: ignore[union-attr]
+    memory_storage.put("tenants/t/profile/logo.png", png)
+    assert with_logo(memory_storage, source).seller.logo_png == png  # type: ignore[union-attr]
+    changed = copy(source, seller_logo_ref=("tenants/t/profile/logo.png", "0" * 64))
+    assert with_logo(memory_storage, changed).seller.logo_png is None  # type: ignore[union-attr]
+    plain = copy(source, seller=None)
+    assert with_logo(memory_storage, plain) is plain

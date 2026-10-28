@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-27 (phase 1 merged to main through PR #6; phase 2 accounts in progress on `feat/phase-2-accounts`).
+Updated: 2026-10-28 (phase 1 merged through PR #6; phase 2 accounts implemented on `feat/phase-2-accounts`, PR #7, awaiting review).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -284,7 +284,7 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Cosmetic, dev databases only:** a connection created by the 0008 backfill keeps its generated name (e.g. "simulated simulated-local"), because the seed does not rename existing connections.
 - **Merged:** the user allowed the merge on 2026-10-27; PR #6 was green (`verify` and `portal`).
 
-## Phase 2 accounts and onboarding (in progress, branch `feat/phase-2-accounts`)
+## Phase 2 accounts and onboarding (implemented, branch `feat/phase-2-accounts`, PR #7)
 - **User (2026-10-27):** "work on phase two". All of Q1-Q27 and P1-Q9 were answered; see [phase 2 plan, user answers](plan/platform/implementation/phase-2-accounts.md#user-answers-2026-10-27). Same commit arrangement as phase 1 (one commit per work item, pushed, draft PR; the user merges).
 - **Answers that change the plan:**
   - no account lockout; the rate limits are the only guard against guessing;
@@ -292,6 +292,39 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - demo people also get a password, from `QUOTATION_DEMO_PASSWORD` in `.env`;
   - an API key sees only the enquiries and quotations it submitted itself (was: any key of the business).
 - **W0 done:** answers recorded in the plan, [07 decisions](plan/platform/07-decisions-needed.md) and here.
+- **W1-W11 done** (ADR [0019](adr/0019-accounts-and-onboarding.md), feature doc [accounts and onboarding](features/accounts-and-onboarding.md)):
+  - **Domain/ports/migration `0010_accounts`:** users, credentials, email links, account notices, invitations, admin events (append-only), tenant profiles, rate-limit counters, business status with a Go-live-only trigger, pricing "set later", portal key grants, and the four SECURITY DEFINER functions. Full downgrade.
+  - **Services and API:** sign-up, verification, password login, forgot/reset/change, profile, create business, settings, PDF details and logo, pricing, setup checklist and Go live, members, invitations, portal API keys; `send_account_email` with the `console` mailer (files in `var/storage/dev-mail/`).
+  - **Gates:** suspended keys 403 and jobs wait; nothing pushed to customers before Go live (API pull and manager messages still work).
+  - **P1-Q9:** an API key reads only its own enquiries and quotations.
+  - **Portal:** features `account` and `business`; no business -> `/start`; setting-up businesses open `/setup`; browser storage only in the tenant store (architecture test).
+  - **Removed:** `scripts/create_api_key.py` (keys come from the portal); `QUOTATION_AUTH_PROVIDER` (now `QUOTATION_DEV_LOGIN`).
+  - **PDF renderer v2:** seller details and logo from the business profile.
+- **After pulling:** `uv sync --all-extras`, `uv run python scripts/init_local_env.py --add-missing` (adds `QUOTATION_DEMO_PASSWORD`), `uv run alembic upgrade head`, `uv run python -m quotation_app.persistence.seed`. See [setup](development/setup.md#accounts-and-onboarding-phase-2).
+- **Bugs found and fixed during verification:**
+  1. The "account exists" notice allowance was used up by every sign-up (found by the end-to-end test); it is now asked only when the address exists.
+  2. Approved PDFs did not show the PDF details (found by the live run): the document source now loads the profile and the logo is read and hash-checked before rendering.
+  3. The pricing API printed a zero tax rate as `0E-6`; now fixed notation.
+- **Deviations from the plan (for review):**
+  1. Two extra tables: `account_notices` (emails without a link) and `rate_limit_counters` (Q5). Recorded in the [contracts change log](plan/platform/implementation/00-shared-contracts.md).
+  2. No "all six pricing values or none" check: currency or tax can be saved alone at creation (Q14); "complete" = all six set.
+  3. `create_business` does not create a catalogue connection (no in-portal catalogue provider before phase 3).
+  4. Changing your password keeps the current session (others are signed out); the plan said "new cookie".
+  5. The "account exists" notice uses the resend allowance (1 per minute, 5 per day per address); the plan did not name a limit.
+  6. A missing or changed logo file is logged and the PDF is made without it (the logo is decoration).
+  7. The common-password list has only 10 entries of 12+ characters, so with a 12-character minimum it adds little. A bigger list would help (open point for the user).
+  8. Account email wording was written by Claude (plain, fixed templates in `domain/messages.py`); the user may want to review it.
+- **Verification (2026-10-27/28):**
+  - **Static:** ruff, mypy (217 files).
+  - **Unit:** 509 passed.
+  - **PostgreSQL:** `check_database.py --cycle` 584 passed, then downgrade to empty, upgrade, 585 passed; after the PDF fix the full suite again 586 passed. Includes definer-function abuse tests, isolation of two self-created businesses, concurrent removal of two administrators, single-use links, the end-to-end API flow with the real worker, and the 0010 migration round trip with data.
+  - **Evaluation:** 14/14 (rules).
+  - **Portal:** typecheck, 67 tests, build (422 kB JS, 128 kB gzip).
+  - **CI:** green on PR #7 for the W10-W11 commit.
+  - **Live run** (API on :8010 serving the built portal, real worker, dev database): 32 steps from sign-up to Go live, invitation, role change, removal, demo password login, isolation and refusals, all OK; then an approved demo quotation whose PDF shows the legal name, address and GSTIN (profile restored afterwards). API log: no keys, tokens, passwords or email addresses.
+  - **Not run:** the portal was not clicked through in a real browser (no browser tool here); the logo is covered by unit tests only.
+  - **Watch:** one setup error in `test_expiry_closes_an_unanswered_quotation` appeared once in a full run and did not repeat in four later runs (phase 1 saw a similar one-off).
+- **Next:** the user reviews PR #7 (and the deviations above). Phase 3 (product catalogue) needs its open questions first.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

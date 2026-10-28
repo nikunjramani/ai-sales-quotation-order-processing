@@ -1,5 +1,5 @@
 # Documentation index
-Status 2026-10-23: M0-M6 are complete (local and CI). Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
+Status 2026-10-27: M0-M6 and platform phase 1 are complete (local and CI); phase 2 (accounts) is implemented on `feat/phase-2-accounts`. Business workflow documents describe planned behaviour. See the handoff for verified implementation status.
 
 ## Planning
 - [Product scope and acceptance criteria](plan/product.md)
@@ -33,6 +33,7 @@ Status 2026-10-23: M0-M6 are complete (local and CI). Business workflow document
 - [Customer acceptance (M6)](features/customer-acceptance.md)
 - [Adding a provider (email, Telegram, ERP...)](development/adding-providers.md)
 - [Connections (phase 1)](features/connections.md)
+- [Accounts and onboarding (phase 2)](features/accounts-and-onboarding.md)
 - [Documentation policy and templates](development/documentation-policy.md)
 - [Testing and evaluation](development/testing.md)
 - [Security and privacy](operations/security.md)

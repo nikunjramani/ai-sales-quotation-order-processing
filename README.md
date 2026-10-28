@@ -55,8 +55,7 @@ uv run python -m quotation_app.persistence.seed
 # 6. See a priced quotation, a blocked request and access checks
 uv run python scripts/demo_quotation.py
 
-# 7. Create an API key for intake (token printed once) and run the background worker
-uv run python scripts/create_api_key.py --tenant 11111111-1111-4111-8111-111111111111 --role intake_service --name "local test"
+# 7. Run the background worker (API keys are created in the portal: Settings -> API keys)
 uv run python -m quotation_app.worker
 
 # 8. Score the enquiry interpreter on the synthetic dataset (free rules interpreter by default)
