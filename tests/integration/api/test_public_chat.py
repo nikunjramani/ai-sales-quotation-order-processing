@@ -307,3 +307,12 @@ def test_staff_see_the_inbox_merge_contacts_and_switch_off_the_acknowledgement(
 
 def thread_of(client: TestClient, handle: str, token: str) -> list[dict[str, Any]]:
     return thread(client, handle, token)
+
+
+def test_the_hosted_chat_page_loads_the_widget_in_page_mode(client: TestClient) -> None:
+    handle = enable_chat(client)
+    page = client.get(f"/chat/{handle}")
+    assert page.status_code == 200
+    assert f"data-chat='{handle}' data-mode='page'" in page.text
+    assert "frame-ancestors 'self'" in page.headers["content-security-policy"]
+    assert client.get("/chat/no-such-chat").status_code == 404

@@ -21,6 +21,7 @@ import binascii
 import html
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -196,9 +197,48 @@ def _uploads(files: list[FileIn]) -> tuple[AttachmentUpload, ...]:
 
 
 def build_public_chat_router(
-    chats: HostedChatService, actions: CustomerActionService, own_origin: str | None
+    chats: HostedChatService,
+    actions: CustomerActionService,
+    own_origin: str | None,
+    widget_file: Path | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=["public chat"])
+
+    # --- the widget file and our hosted chat page -----------------------------------------
+    @router.get("/chat/widget.js", include_in_schema=False)
+    def widget() -> Response:
+        if widget_file is None or not widget_file.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+        return Response(
+            widget_file.read_bytes(),
+            media_type="text/javascript",
+            headers={"Cache-Control": "public, max-age=300"},
+        )
+
+    @router.get("/chat/{handle}", response_class=HTMLResponse, include_in_schema=False)
+    def chat_page(handle: str, request: Request) -> HTMLResponse:
+        found = guarded(lambda: chats.endpoint(handle, None))
+        # Only the business's own websites (and our own pages) may frame this page.
+        ancestors = " ".join(["'self'", *chats.allowed_origins(found)])
+        safe = html.escape(handle, quote=True)
+        name = html.escape(found.business_name)
+        body = (
+            "<!doctype html><html><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>Chat with {name}</title><style>body{{margin:0}}</style></head><body>"
+            f"<script src='/chat/widget.js' data-chat='{safe}' data-mode='page'></script>"
+            "</body></html>"
+        )
+        return HTMLResponse(
+            body,
+            headers={
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "Content-Security-Policy": "default-src 'self'; script-src 'self'; "
+                "style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self'; "
+                f"frame-ancestors {ancestors}",
+            },
+        )
 
     def guarded[T](action: Callable[[], T]) -> T:
         try:
@@ -228,8 +268,14 @@ def build_public_chat_router(
         except (ErpError, SQLAlchemyError):
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Try again later") from None
 
+    def foreign_origin(request: Request) -> str | None:
+        """The Origin header, unless it is this API's own address (our hosted chat page)."""
+        origin = request.headers.get("origin")
+        own = f"{request.url.scheme}://{request.url.netloc}"
+        return None if origin is None or origin.lower() == own.lower() else origin
+
     def endpoint(handle: str, request: Request) -> ChatEndpoint:
-        return guarded(lambda: chats.endpoint(handle, request.headers.get("origin")))
+        return guarded(lambda: chats.endpoint(handle, foreign_origin(request)))
 
     def signed_in(handle: str, request: Request) -> tuple[ChatEndpoint, ChatSession]:
         found = endpoint(handle, request)

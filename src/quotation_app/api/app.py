@@ -280,6 +280,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             customer_actions,
             base_url,
+            None
+            if configuration.portal_dist_dir is None
+            else configuration.portal_dist_dir / "widget" / "widget.js",
         )
     )
     # Provider callbacks (ADR 0018): one generic route for every provider with webhooks.

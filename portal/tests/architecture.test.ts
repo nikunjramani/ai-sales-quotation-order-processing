@@ -61,13 +61,17 @@ function violations(): string[] {
     const from = parts(file);
     const source = readFileSync(file, "utf8");
     const label = from.join("/");
-    if (/\bfetch\(/.test(source) && label !== "shared/api/httpClient.ts") {
+    // The website chat widget (phase 4) is a separate customer-side app with its own client.
+    const fetchers = ["shared/api/httpClient.ts", "widget/api/chatClient.ts"];
+    if (/\bfetch\(/.test(source) && !fetchers.includes(label)) {
       problems.push(`${label} calls fetch directly; use a repository and shared/api/httpClient`);
     }
     // Phase 2: tokens (API keys, email links) must never end up in browser storage. Only the
     // selected business is remembered, in the tenant store.
-    if (/\b(localStorage|sessionStorage|indexedDB)\b/.test(source) && !label.startsWith("features/tenant/store/")) {
-      problems.push(`${label} uses browser storage; only features/tenant/store may`);
+    // The widget keeps only the visitor's own chat session token (scoped to one chat).
+    const storers = ["features/tenant/store/", "widget/state/"];
+    if (/\b(localStorage|sessionStorage|indexedDB)\b/.test(source) && !storers.some((p) => label.startsWith(p))) {
+      problems.push(`${label} uses browser storage; only features/tenant/store and widget/state may`);
     }
     for (const specifier of imports(source)) {
       const to = target(file, specifier);
@@ -76,6 +80,12 @@ function violations(): string[] {
           problems.push(`${label} (${featureLayer(from)}) must not import ${specifier}`);
         }
         continue;
+      }
+      if (from[0] === "widget" && to[0] !== "widget") {
+        problems.push(`${label}: the widget must not import portal code (${specifier})`);
+      }
+      if (from[0] !== "widget" && to[0] === "widget") {
+        problems.push(`${label}: the portal must not import the widget (${specifier})`);
       }
       if (from[0] === "shared" && to[0] !== "shared") {
         problems.push(`${label}: shared code must not import ${specifier}`);
