@@ -11,9 +11,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection, exists, func, select, text, update
+from sqlalchemy import Connection, Engine, exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
+from quotation_app.domain.contacts import ConsentStatus
 from quotation_app.domain.conversations import BEING_READ, Author, Direction, OpenEnquiry
 from quotation_app.domain.intake import EnquiryStatus
 from quotation_app.persistence.models import (
@@ -23,8 +24,11 @@ from quotation_app.persistence.models import (
     ConversationMessage,
     Enquiry,
     Quotation,
+    Tenant,
     WorkflowRun,
 )
+from quotation_app.persistence.tenancy import tenant_transaction
+from quotation_app.ports.conversations import CustomerTarget
 
 MAX_DISPLAY_NAME = 200
 _ROUTABLE = [status.value for status in (*BEING_READ, EnquiryStatus.NEEDS_CLARIFICATION)]
@@ -204,3 +208,79 @@ def append_inbound(
                 last_inbound_at=func.greatest(func.coalesce(Conversation.last_inbound_at, at), at),
             )
         )
+
+
+def append_outbound(
+    connection: Connection,
+    tenant_id: UUID,
+    conversation_id: UUID,
+    enquiry_id: UUID | None,
+    outbound_message_id: UUID,
+    template_key: str,
+    body: str,
+) -> None:
+    """Our message in the thread, written with its outbox row (same transaction)."""
+    connection.execute(
+        insert(ConversationMessage).values(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            enquiry_id=enquiry_id,
+            direction=Direction.OUTBOUND.value,
+            author=Author.SYSTEM.value,
+            text=body,
+            template_key=template_key,
+            outbound_message_id=outbound_message_id,
+            at=func.now(),
+        )
+    )
+    connection.execute(
+        update(Conversation)
+        .where(Conversation.tenant_id == tenant_id, Conversation.id == conversation_id)
+        .values(last_message_at=func.now())
+    )
+
+
+class SqlCustomerTargets:
+    """Where to write about an enquiry, and an identity's consent (either database role)."""
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def for_enquiry(self, tenant_id: UUID, enquiry_id: UUID) -> CustomerTarget | None:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            row = connection.execute(
+                select(
+                    Conversation.id,
+                    Conversation.connection_ref,
+                    ContactIdentity.id.label("identity_id"),
+                    ContactIdentity.external_id,
+                    ContactIdentity.consent_status,
+                    Tenant.acknowledge_enquiries,
+                )
+                .join(Enquiry, Enquiry.conversation_id == Conversation.id)
+                .join(ContactIdentity, ContactIdentity.id == Conversation.identity_id)
+                .join(Tenant, Tenant.id == Conversation.tenant_id)
+                .where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
+            ).one_or_none()
+        if row is None:
+            return None
+        return CustomerTarget(
+            row.id,
+            row.connection_ref,
+            row.identity_id,
+            row.external_id,
+            ConsentStatus(row.consent_status),
+            row.acknowledge_enquiries,
+        )
+
+    def consent(self, tenant_id: UUID, connection_id: UUID, external_id: str) -> ConsentStatus:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            status = connection.execute(
+                select(ContactIdentity.consent_status).where(
+                    ContactIdentity.tenant_id == tenant_id,
+                    ContactIdentity.connection_ref == connection_id,
+                    ContactIdentity.external_id == external_id,
+                )
+            ).scalar_one_or_none()
+        return ConsentStatus.IMPLIED if status is None else ConsentStatus(status)

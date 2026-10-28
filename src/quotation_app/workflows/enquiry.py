@@ -31,6 +31,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from quotation_app.domain.catalogue import Product
 from quotation_app.domain.jobs import PermanentJobError
+from quotation_app.domain.messages import TemplateKey
 from quotation_app.domain.requirements import (
     ExtractedRequirements,
     ExtractionOutcome,
@@ -43,6 +44,7 @@ from quotation_app.domain.requirements import (
     unverified_items,
 )
 from quotation_app.domain.tenancy import Role, TenantContext
+from quotation_app.ports.conversations import CustomerNotifier
 from quotation_app.ports.erp import CatalogueSourceMissing, ErpReader
 from quotation_app.ports.interpretation import (
     DocumentReader,
@@ -88,6 +90,8 @@ class EnquiryWorkflowDeps:
     reader: DocumentReader
     interpreter: EnquiryInterpreter
     erp: ErpReader
+    # Writes the questions to the customer's tool (phase 4); None in offline evaluations.
+    notifier: CustomerNotifier | None = None
 
 
 # Checkpointed state uses plain strings so it serialises safely and stays readable.
@@ -262,7 +266,7 @@ def build_enquiry_graph(
             "review_reasons": list(result.review_reasons),
         }
 
-    def record(state: EnquiryState, outcome: ExtractionOutcome) -> EnquiryState:
+    def record(state: EnquiryState, outcome: ExtractionOutcome) -> bool:
         tenant_id, enquiry_id = _ids(state)
         details: dict[str, object] = {
             "graph_version": GRAPH_VERSION,
@@ -274,18 +278,34 @@ def build_enquiry_graph(
             "unsupported_documents": state.get("unsupported_documents", []),
             "message_seq_upto": state.get("seq_upto"),
         }
-        deps.store.record_outcome(tenant_id, enquiry_id, UUID(state["run_id"]), outcome, details)
-        return {}
+        return deps.store.record_outcome(
+            tenant_id, enquiry_id, UUID(state["run_id"]), outcome, details
+        )
 
     def ready(state: EnquiryState) -> EnquiryState:
-        return record(state, ExtractionOutcome.READY_FOR_QUOTATION)
+        record(state, ExtractionOutcome.READY_FOR_QUOTATION)
+        return {}
 
     def clarify(state: EnquiryState) -> EnquiryState:
-        # Recording queues the questions message to the customer's tool (phase 4).
-        return record(state, ExtractionOutcome.NEEDS_CLARIFICATION)
+        applied = record(state, ExtractionOutcome.NEEDS_CLARIFICATION)
+        questions = state.get("questions", [])
+        if applied and questions and deps.notifier is not None:
+            # Our fixed questions go to the customer's tool. A repeat of this step (after a
+            # crash) reuses the key, so the outbox never sends them twice.
+            tenant_id, enquiry_id = _ids(state)
+            deps.notifier.send(
+                tenant_id,
+                enquiry_id,
+                TemplateKey.CLARIFICATION_QUESTIONS,
+                {"questions": questions},
+                f"questions:{state['run_id']}",
+                UUID(state["run_id"]),
+            )
+        return {}
 
     def review(state: EnquiryState) -> EnquiryState:
-        return record(state, ExtractionOutcome.NEEDS_REVIEW)
+        record(state, ExtractionOutcome.NEEDS_REVIEW)
+        return {}
 
     graph = StateGraph(EnquiryState)
     graph.add_node("extract", extract)

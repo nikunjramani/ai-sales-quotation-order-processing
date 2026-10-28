@@ -49,7 +49,6 @@ _RESPONSE_COLUMNS = (
     QuotationResponse.revised_version,
     QuotationResponse.created_at,
 )
-_NOTIFIED = frozenset({ResponseOutcome.ACCEPTED, ResponseOutcome.DECLINED})
 
 
 def _response(row: Row[Any]) -> RecordedResponse:
@@ -252,14 +251,15 @@ class SqlResponseStore:
                 },
                 link.correlation_id,
             )
-            if response.outcome in _NOTIFIED:
-                queue_job(
-                    connection,
-                    tenant_id,
-                    JobKind.NOTIFY_RESPONSE,
-                    {"response_id": str(response_id)},
-                    link.correlation_id,
-                )
+            # Every answer is announced: managers hear of accept/decline, the customer gets
+            # the matching confirmation or notice on their tool (phase 4).
+            queue_job(
+                connection,
+                tenant_id,
+                JobKind.NOTIFY_RESPONSE,
+                {"response_id": str(response_id)},
+                link.correlation_id,
+            )
         return RecordedResponse(
             response_id=response_id,
             quotation_id=offer.quotation_id,

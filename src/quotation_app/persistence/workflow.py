@@ -127,7 +127,7 @@ class SqlWorkflowStore:
         run_id: UUID,
         outcome: ExtractionOutcome,
         details: Mapping[str, object],
-    ) -> None:
+    ) -> bool:
         with tenant_transaction(self._engine, tenant_id) as connection:
             lock_conversation_of(connection, tenant_id, enquiry_id)
             enquiry = connection.execute(
@@ -141,7 +141,8 @@ class SqlWorkflowStore:
                 .values(status=outcome.value, outcome=dict(details), updated_at=func.now())
             )
             if enquiry.status != EnquiryStatus.READY_FOR_EXTRACTION.value:
-                return  # a repeat after the first recording moved it on
+                # A repeat after the first recording moved it on.
+                return bool(enquiry.status == outcome.value)
             if _changed_since_read(connection, tenant_id, enquiry_id, details):
                 # The customer wrote again while this round was reading (Q3): this result is
                 # history only; the enquiry is prepared and read again with every message.
@@ -157,7 +158,7 @@ class SqlWorkflowStore:
                     {"enquiry_id": str(enquiry_id)},
                     enquiry.correlation_id,
                 )
-                return
+                return False
             connection.execute(
                 update(Enquiry)
                 .where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
@@ -172,6 +173,7 @@ class SqlWorkflowStore:
                     {"enquiry_id": str(enquiry_id)},
                     enquiry.correlation_id,
                 )
+        return True
 
 
 def _changed_since_read(

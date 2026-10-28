@@ -23,6 +23,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
+from quotation_app.application.customer_messages import CustomerMessenger
 from quotation_app.application.documents import read_verified, with_logo
 from quotation_app.application.messaging import OutboundService
 from quotation_app.domain.acceptance import valid_until
@@ -40,7 +41,8 @@ from quotation_app.domain.documents import (
     document_key,
 )
 from quotation_app.domain.jobs import PermanentJobError
-from quotation_app.domain.messages import OutboundMessage, TemplateKey
+from quotation_app.domain.messages import OutboundMessage, TemplateKey, format_valid_until
+from quotation_app.domain.quotations import quotation_number
 from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.documents import DeliveryStore, DeliveryWork, QuotationRenderer
 from quotation_app.ports.jobs import ClaimedJob
@@ -66,7 +68,9 @@ class QuotationDeliveryHandler:
         connections: ConnectionStore,
         outbound: OutboundService,
         clock: Callable[[], datetime] = utc_now,
+        customers: CustomerMessenger | None = None,
     ) -> None:
+        self._customers = customers
         self._store = store
         self._storage = storage
         self._renderer = renderer
@@ -113,6 +117,42 @@ class QuotationDeliveryHandler:
             fail("The stored document file is missing")
             return
         record = work.record
+        target = (
+            None
+            if self._customers is None
+            else self._customers.push_target(tenant_id, work.enquiry_id)
+        )
+        if target is not None and target.connection_id == connection.connection_id:
+            # A chat-like tool (phase 4): our fixed covering text, with the PDF attached at
+            # send time and Accept/Decline offered by the send hook.
+            source = self._store.approved_source(tenant_id, record.quotation_id, record.version)
+            if source is None or document.valid_until is None:
+                fail("This version is not approved or no longer current")
+                return
+            self._outbound.queue(
+                connection,
+                template=TemplateKey.QUOTATION_READY,
+                render={
+                    "number": quotation_number(record.quotation_id),
+                    "version": record.version,
+                    "total": source.content["total"],
+                    "currency": source.content["currency"],
+                    "date": format_valid_until(document.valid_until),
+                },
+                params={"delivery_id": str(delivery_id)},
+                recipient=target.external_id,
+                idempotency_key=f"quotation-delivery:{delivery_id}",
+                links=MessageLinks(
+                    document_id=document.document_id,
+                    quotation_id=record.quotation_id,
+                    version=record.version,
+                    enquiry_id=work.enquiry_id,
+                    delivery_id=delivery_id,
+                    conversation_id=target.conversation_id,
+                ),
+                correlation_id=work.correlation_id,
+            )
+            return
         self._outbound.queue(
             connection,
             template=TemplateKey.QUOTATION_DOCUMENT,

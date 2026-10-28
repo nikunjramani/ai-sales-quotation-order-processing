@@ -47,8 +47,11 @@ class WorkflowStore(Protocol):
         run_id: UUID,
         outcome: ExtractionOutcome,
         details: Mapping[str, object],
-    ) -> None:
+    ) -> bool:
         """Store the result and move the enquiry to the matching status. Safe to repeat.
+
+        Returns True when the enquiry has this outcome (now or from an earlier recording),
+        False when the result is history only (superseded, see below).
 
         If the customer wrote again after this round read the messages (details
         "message_seq_upto"), or a file is still in quarantine, the result stays as history

@@ -118,8 +118,9 @@ class InMemoryWorkflowStore:
         run_id: UUID,
         outcome: ExtractionOutcome,
         details: Mapping[str, object],
-    ) -> None:
+    ) -> bool:
         self.outcomes[enquiry_id] = (outcome, details)
+        return True
 
 
 class _NoAttachments:
