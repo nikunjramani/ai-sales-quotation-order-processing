@@ -76,6 +76,19 @@ def test_all_staff_see_the_catalogue_and_administrators_and_sales_edit_it(
     assert holders(Permission.MANAGE_CATALOGUE) == {Role.ADMINISTRATOR, Role.SALES_OPERATOR}
 
 
+def test_conversation_permissions_mask_viewers_and_let_sales_merge(
+    make_context: ContextFactory, industrial_tenant: UUID
+) -> None:
+    """Phase 4: every staff role sees the inbox; viewers get masked details (Q12); D13."""
+
+    def holders(permission: Permission) -> set[Role]:
+        return {r for r in Role if permission in make_context(industrial_tenant, r).permissions}
+
+    assert holders(Permission.VIEW_CONVERSATIONS) == set(PEOPLE_ROLES)
+    assert holders(Permission.VIEW_CONTACT_DETAILS) == set(PEOPLE_ROLES) - {Role.VIEWER}
+    assert holders(Permission.MERGE_CONTACTS) == {Role.ADMINISTRATOR, Role.SALES_OPERATOR}
+
+
 @pytest.mark.parametrize(
     ("status", "intake", "customers", "pull", "changes"),
     [

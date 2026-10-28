@@ -1,8 +1,10 @@
 """What a customer asked for, as interpreted by a model, and the checks that keep it honest.
 
 A model may only *read*: it reports each requested item together with a verbatim quote from
-the customer's text. verify_against_sources() then checks that the quote really exists and
-contains the product words and the quantity, so invented items or numbers are caught.
+the customer's text. unverified_items() then checks that the quote really exists and contains
+the product words and the quantity, so invented items or numbers are caught. In a conversation
+the quantity may come from a later message ("cables price?" ... "10 meter"): it is then quoted
+separately (quantity_quote) and must be inside one customer message (phase 4).
 Units are normalised with a fixed table; nothing is converted or guessed.
 """
 
@@ -48,10 +50,14 @@ class RequestedItem:
     product_text: str
     quantity: Decimal | None
     unit: str | None
+    # The customer's words with the quantity, when they are in another message than the product.
+    quantity_quote: str | None = None
 
     def __post_init__(self) -> None:
         require_text(self.source_quote, "source_quote", 500)
         require_text(self.product_text, "product_text", 200)
+        if self.quantity_quote is not None:
+            require_text(self.quantity_quote, "quantity_quote", 200)
         if self.quantity is not None:
             require_decimal(self.quantity, "quantity")
         if self.unit is not None:
@@ -74,16 +80,34 @@ def _number_appears(quantity: Decimal, quote: str) -> bool:
     return quantity in numbers
 
 
-def unverified_items(requirements: ExtractedRequirements, sources: Sequence[str]) -> list[int]:
-    """Indexes of items whose quote, product words or quantity are not in the sources."""
+def unverified_items(
+    requirements: ExtractedRequirements,
+    sources: Sequence[str],
+    customer_messages: Sequence[str] | None = None,
+) -> list[int]:
+    """Indexes of items whose quote, product words or quantity are not in the sources.
+
+    sources are the customer's texts, each checked on its own (every message and document), so
+    a quote may never span two of them. customer_messages (default: sources) are where a
+    separate quantity_quote may come from. Our own questions are never a source: otherwise a
+    model could quote our product description back and look verified.
+    """
     haystack = [_plain(source) for source in sources]
+    messages = haystack if customer_messages is None else [_plain(m) for m in customer_messages]
     failures = []
     for index, item in enumerate(requirements.items):
         quote = _plain(item.source_quote)
+        if item.quantity is None or item.quantity_quote is None:
+            quantity_supported = item.quantity is None or _number_appears(item.quantity, quote)
+        else:
+            quantity_quote = _plain(item.quantity_quote)
+            quantity_supported = any(
+                quantity_quote in message for message in messages
+            ) and _number_appears(item.quantity, quantity_quote)
         supported = (
             any(quote in source for source in haystack)
             and _plain(item.product_text) in quote
-            and (item.quantity is None or _number_appears(item.quantity, quote))
+            and quantity_supported
         )
         if not supported:
             failures.append(index)

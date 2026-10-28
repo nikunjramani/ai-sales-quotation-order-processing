@@ -18,7 +18,7 @@ approval tokens are never part of a stored message: they are created at send tim
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
@@ -60,6 +60,16 @@ class TemplateKey(StrEnum):
     ACCOUNT_INVITATION = "account_invitation"
     ACCOUNT_EXISTS = "account_exists"
     ACCOUNT_PASSWORD_CHANGED = "account_password_changed"
+    # Phase 4 messages to customers on their own tool (wording confirmed by the user, Q7/Q10).
+    ENQUIRY_RECEIVED = "enquiry_received"
+    CLARIFICATION_QUESTIONS = "clarification_questions"
+    QUOTATION_READY = "quotation_ready"
+    ANSWER_ACCEPTED = "answer_accepted"
+    ANSWER_DECLINED = "answer_declined"
+    PRICES_CHANGED = "prices_changed"
+    QUOTATION_WITHDRAWN = "quotation_withdrawn"
+    QUOTATION_EXPIRED = "quotation_expired"
+    OPTED_OUT = "opted_out"
 
 
 ACCOUNT_TEMPLATES: Mapping[AccountEmailPurpose, TemplateKey] = {
@@ -134,7 +144,60 @@ def render_template(key: TemplateKey, params: Mapping[str, object]) -> Rendered:
         return Rendered("", {"quotation": quotation_number(quotation_id), "version": str(version)})
     if key in _ACCOUNT_WORDING:
         return _account_email(key, params)
+    if key is TemplateKey.CLARIFICATION_QUESTIONS:
+        questions = params["questions"]
+        assert isinstance(questions, (list, tuple)) and questions
+        lines = "\n".join(f"- {_single_line(str(question))}" for question in questions)
+        return Rendered(f"We need a bit more information:\n{lines}", {})
+    if key in CUSTOMER_WORDING:
+        return _customer_message(key, params)
     raise ValueError(f"Unknown template {key}")
+
+
+# Fixed customer wording (Q7, Q10, D15). {number} is the quotation number, {date} its "valid
+# until" (same format as the PDF), {business} the business name. The staff withdrawal reason
+# is never shown to the customer (Q10).
+CUSTOMER_WORDING: Mapping[TemplateKey, str] = {
+    TemplateKey.ENQUIRY_RECEIVED: "Thanks, we are preparing your quotation.",
+    TemplateKey.QUOTATION_READY: (
+        "Your quotation {number} (version {version}) is ready: total {total} {currency}, "
+        "valid until {date}."
+    ),
+    TemplateKey.ANSWER_ACCEPTED: "Thank you, we received your acceptance of {number}.",
+    TemplateKey.ANSWER_DECLINED: "Thank you, we recorded that you declined {number}.",
+    TemplateKey.PRICES_CHANGED: (
+        "Prices have changed since quotation {number}. "
+        "We are preparing an updated quotation for you."
+    ),
+    TemplateKey.QUOTATION_WITHDRAWN: (
+        "Quotation {number} has been withdrawn. Please contact us if you still need it."
+    ),
+    TemplateKey.QUOTATION_EXPIRED: (
+        "Quotation {number} has expired (it was valid until {date}). "
+        "Send us a message if you would like an updated quotation."
+    ),
+    TemplateKey.OPTED_OUT: (
+        "You will not receive more messages from {business}. Reply START to receive messages again."
+    ),
+}
+CUSTOMER_TEMPLATES = frozenset(CUSTOMER_WORDING) | {TemplateKey.CLARIFICATION_QUESTIONS}
+
+
+def format_valid_until(moment: datetime) -> str:
+    """The quotation PDF's "valid until" format, with the time zone named."""
+    return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M") + " UTC"
+
+
+def _customer_message(key: TemplateKey, params: Mapping[str, object]) -> Rendered:
+    """Fill the placeholders; a missing one is a programming error (KeyError)."""
+    values = {name: _single_line(str(value)) for name, value in params.items()}
+    metadata = {name: values[name] for name in ("number", "version") if name in values}
+    return Rendered(CUSTOMER_WORDING[key].format_map(_Strict(values)), metadata)
+
+
+class _Strict(dict[str, str]):
+    def __missing__(self, name: str) -> str:
+        raise KeyError(f"Template parameter {name!r} is missing")
 
 
 def _lifetime(purpose: AccountEmailPurpose) -> str:
