@@ -4,7 +4,6 @@ Each tenant has its own catalogue. Tests can inject failures per operation to pr
 surface ERP errors instead of inventing values.
 """
 
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -12,6 +11,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from quotation_app.domain.catalogue import PriceQuote, Product, StockLevel
+from quotation_app.domain.catalogue_search import best_matches, product_terms, query_terms
 from quotation_app.domain.money import Money
 from quotation_app.domain.tenancy import TenantContext
 from quotation_app.domain.validation import require_aware
@@ -35,17 +35,6 @@ class SimulatedCatalogue:
     # A SKU missing here has no stock record; a None value means "ERP cannot say".
     stock: dict[str, Decimal | None] = field(default_factory=dict)
     warehouse: str = "MAIN"
-
-
-def _search_words(text: str) -> set[str]:
-    """Lower-case words of 2+ characters, with a simple plural 's' removed (fans -> fan)."""
-    words = set()
-    for word in re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)*", text.casefold()):
-        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
-            word = word[:-1]
-        if len(word) >= 2:
-            words.add(word)
-    return words
 
 
 def _utc_now() -> datetime:
@@ -84,20 +73,12 @@ class SimulatedErp:
         if not query.strip() or not 1 <= limit <= 50:
             raise ErpError(ErpErrorCode.INVALID_REQUEST, "Query and a limit of 1-50 required")
         catalogue = self._catalogue(context, "search_products")
-        # "IND-FAN" also searches "IND" and "FAN", like the SKU side below.
-        wanted = _search_words(f"{query} {query.replace('-', ' ')}")
-        scored = []
-        for sku, product in sorted(catalogue.products.items()):
-            words = _search_words(
-                f"{sku} {sku.replace('-', ' ')} {product.description} {product.category or ''}"
-            )
-            score = len(wanted & words)
-            if score:
-                scored.append((-score, sku, product))
-        # Only the best word overlap, like a typical ERP keyword search: "IND-FAN" matches the
-        # fans on "ind" and "fan", not every IND- product on "ind" alone.
-        best = min((score for score, _, _ in scored), default=0)
-        return [product for score, _, product in sorted(scored) if score == best][:limit]
+        wanted = query_terms(query)
+        scored = (
+            (len(wanted & product_terms(sku, product.description, product.category)), sku, product)
+            for sku, product in catalogue.products.items()
+        )
+        return best_matches(scored, limit)
 
     def list_categories(self, context: TenantContext) -> Sequence[str]:
         catalogue = self._catalogue(context, "list_categories")
