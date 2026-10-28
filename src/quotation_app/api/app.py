@@ -1,5 +1,6 @@
 """Application factory. Startup does not mutate or migrate the database."""
 
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -24,6 +25,7 @@ from quotation_app.api.connections import build_connection_router
 from quotation_app.api.enquiries import build_enquiry_router
 from quotation_app.api.hooks import build_hook_router
 from quotation_app.api.portal import build_portal_router
+from quotation_app.api.public_chat import build_public_chat_router
 from quotation_app.application.acceptance import QuotationResponseService
 from quotation_app.application.accounts import (
     ApiKeyAdminService,
@@ -38,7 +40,10 @@ from quotation_app.application.api_keys import ApiKeyAuthenticator
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_admin import ProductService
 from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.chat import HostedChatService
 from quotation_app.application.connections import ConnectionService
+from quotation_app.application.conversations import default_router
+from quotation_app.application.customer_actions import CustomerActionService
 from quotation_app.application.documents import QuotationDocumentService
 from quotation_app.application.inbound import InboundService, ManagerActionRoute
 from quotation_app.application.intake import EnquiryIntakeService, EnquiryListService
@@ -46,7 +51,12 @@ from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.sessions import SessionService
 from quotation_app.application.tenancy import TenantContextResolver
-from quotation_app.composition import build_catalogue, build_runtime, default_catalogue_source
+from quotation_app.composition import (
+    DEV_PUBLIC_BASE_URL,
+    build_catalogue,
+    build_runtime,
+    default_catalogue_source,
+)
 from quotation_app.config import Settings
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.accounts import (
@@ -58,7 +68,13 @@ from quotation_app.persistence.accounts import (
 from quotation_app.persistence.api_keys import SqlApiKeyAdminStore, SqlApiKeyReader
 from quotation_app.persistence.catalogue import SqlCatalogueStore
 from quotation_app.persistence.channels import SqlChannelStore
-from quotation_app.persistence.connections import SqlConnectionStore, SqlHookLookup
+from quotation_app.persistence.chat import SqlChatStore
+from quotation_app.persistence.connections import (
+    SqlConnectionStore,
+    SqlHookLookup,
+    SqlHostedChatAdmin,
+)
+from quotation_app.persistence.customer_actions import SqlCustomerActionStore
 from quotation_app.persistence.database import build_engine, database_ready
 from quotation_app.persistence.documents import SqlDocumentReader
 from quotation_app.persistence.inbound import SqlInboundStore
@@ -218,8 +234,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     app.include_router(build_catalogue_router(auth, products))
+    base_url = (configuration.public_base_url or DEV_PUBLIC_BASE_URL).rstrip("/")
     app.include_router(
-        build_connection_router(auth, ConnectionService(connections, runtime.registry), channels)
+        build_connection_router(
+            auth,
+            ConnectionService(connections, runtime.registry, SqlHostedChatAdmin(engine)),
+            channels,
+            base_url,
+        )
+    )
+    # Hosted customer chat (phase 4): the public chat API and the secure answer links.
+    customer_actions = CustomerActionService(SqlCustomerActionStore(engine), responses)
+    ip_key = configuration.chat_ip_key
+    app.include_router(
+        build_public_chat_router(
+            HostedChatService(
+                SqlChatStore(engine),
+                SqlIntakeStore(engine),
+                SqlInboundStore(engine),
+                storage,
+                limiter,
+                runtime.registry,
+                customer_actions,
+                default_router(),
+                ip_key.get_secret_value().encode() if ip_key else secrets.token_bytes(32),
+                base_url,
+            ),
+            customer_actions,
+            base_url,
+        )
     )
     # Provider callbacks (ADR 0018): one generic route for every provider with webhooks.
     inbox = SqlInboundStore(engine)

@@ -76,6 +76,7 @@ The user answered every question below on 2026-10-28 and confirmed the summary (
 | Live run | The user has a Gemini key in `.env`: the live run and conversation evaluation use `google_genai:gemini-3.5-flash-lite` with synthetic data only |
 | Cap reached (asked mid-work, 2026-10-28) | When the 200 website-chat reading rounds per day are used up, the message is stored as usual but the enquiry goes to `needs_review` ("daily reading limit reached") instead of being read; no AI call |
 | START reply (asked mid-work) | Yes, fixed text: "You will receive messages from {business} again." |
+| Form time (asked mid-work) | The chat start form must be open at least 2 seconds (a setting); faster submits get a generic "please try again" |
 | Repeated messages (asked mid-work) | Not dropped: every message is kept (the widget's idempotency key already makes a retried send harmless; rate limits stop floods) |
 | Git | Same as phases 1-3: branch `feat/phase-4-conversations`, one commit per work item, pushed, draft PR to `main`; the user merges |
 

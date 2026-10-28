@@ -62,6 +62,10 @@ _BACKFILL_TABLES = (
     "conversations",
     "conversation_messages",
 )
+_EVENT_KINDS_OLD = (
+    "'created', 'migrated', 'status_changed', 'tested', 'provisioned', 'deprovisioned'"
+)
+_EVENT_KINDS_NEW = _EVENT_KINDS_OLD + ", 'settings_changed'"
 _CHECKPOINT_TABLES = ("checkpoint_writes", "checkpoint_blobs", "checkpoints")
 
 
@@ -391,6 +395,11 @@ def upgrade() -> None:
         "connections",
         "public_handle IS NULL OR public_handle ~ '^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])$'",
     )
+    # Hosted chat address and settings changes are audited like other connection changes.
+    op.drop_constraint("ck_connection_events_kind", "connection_events", type_="check")
+    op.create_check_constraint(
+        "ck_connection_events_kind", "connection_events", f"kind IN ({_EVENT_KINDS_NEW})"
+    )
     op.add_column(
         "tenants",
         sa.Column(
@@ -472,7 +481,8 @@ def upgrade() -> None:
     op.execute("GRANT SELECT ON customer_sessions TO quotation_worker")
     op.execute("GRANT UPDATE (acknowledge_enquiries) ON tenants TO quotation_app")
     op.execute(
-        "GRANT UPDATE (public_handle, public_handle_changed_at) ON connections TO quotation_app"
+        "GRANT UPDATE (public_handle, public_handle_changed_at, config) ON connections "
+        "TO quotation_app"
     )
 
     for table in _BACKFILL_TABLES:
@@ -586,11 +596,21 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION guard_enquiry_reopen()")
     op.execute("REVOKE UPDATE (status, updated_at, contact_id) ON enquiries FROM quotation_app")
     op.execute(
-        "REVOKE UPDATE (public_handle, public_handle_changed_at) ON connections FROM quotation_app"
+        "REVOKE UPDATE (public_handle, public_handle_changed_at, config) ON connections "
+        "FROM quotation_app"
     )
     op.execute("REVOKE UPDATE (acknowledge_enquiries) ON tenants FROM quotation_app")
     op.execute("DROP POLICY connection_handle_lookup ON connections")
 
+    op.execute("ALTER TABLE connection_events NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE connection_events DISABLE TRIGGER connection_events_immutable")
+    op.execute("DELETE FROM connection_events WHERE kind = 'settings_changed'")
+    op.execute("ALTER TABLE connection_events ENABLE TRIGGER connection_events_immutable")
+    op.execute("ALTER TABLE connection_events FORCE ROW LEVEL SECURITY")
+    op.drop_constraint("ck_connection_events_kind", "connection_events", type_="check")
+    op.create_check_constraint(
+        "ck_connection_events_kind", "connection_events", f"kind IN ({_EVENT_KINDS_OLD})"
+    )
     op.drop_column("tenants", "acknowledge_enquiries")
     op.drop_constraint("ck_connections_public_handle", "connections", type_="check")
     op.drop_constraint("uq_connections_public_handle", "connections", type_="unique")

@@ -70,6 +70,26 @@ class World:
     def consent(self, tenant_id: UUID, connection_id: UUID, external_id: str) -> ConsentStatus:
         return self.consents.get((connection_id, external_id), ConsentStatus.IMPLIED)
 
+    def for_identity(
+        self, tenant_id: UUID, connection_id: UUID, external_id: str
+    ) -> CustomerTarget | None:
+        return next(
+            (t for t in self.targets.values() if (t.connection_id, t.external_id)
+             == (connection_id, external_id)),
+            None,
+        )  # fmt: skip
+
+    def set_consent(
+        self,
+        tenant_id: UUID,
+        connection_id: UUID,
+        external_id: str,
+        status: ConsentStatus,
+        source: str,
+    ) -> bool:
+        self.consents[(connection_id, external_id)] = status
+        return True
+
     # MessageOutbox (only enqueue is used)
     def enqueue(self, message: NewMessage) -> UUID:
         self.queued.append(message)
@@ -81,7 +101,7 @@ class World:
         enquiry_id = uuid4()
         self.targets[enquiry_id] = CustomerTarget(
             uuid4(), conn.connection_id, uuid4(), f"visitor-{provider}", ConsentStatus.IMPLIED,
-            acknowledge,
+            acknowledge, "Acme",
         )  # fmt: skip
         return enquiry_id
 

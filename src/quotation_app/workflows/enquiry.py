@@ -53,13 +53,14 @@ from quotation_app.ports.interpretation import (
 )
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.storage import ObjectStorage
-from quotation_app.ports.workflow import WorkflowStore
+from quotation_app.ports.workflow import ReadingCap, WorkflowStore
 
 GRAPH_VERSION = "enquiry-extraction-v1"
 SYSTEM_SUBJECT = "system:enquiry-workflow"
 SEARCH_LIMIT = 5
 INVALID_MODEL_ANSWER = "The model's answer was not in the required format"
 NO_PRODUCT_SOURCE = "No product source is connected"
+READING_LIMIT = "Daily reading limit reached; a person should read this enquiry"
 
 
 class EnquiryState(TypedDict, total=False):
@@ -333,11 +334,19 @@ def build_enquiry_graph(
 
 
 class ExtractionJobHandler:
-    """Job handler: start the graph for an enquiry, or resume it from its last checkpoint."""
+    """Job handler: start the graph for an enquiry, or resume it from its last checkpoint.
 
-    def __init__(self, graph: EnquiryGraph, store: WorkflowStore) -> None:
+    With a ReadingCap, a new reading of an enquiry from a capped tool (hosted chat) is not
+    started once the business used its daily budget: the enquiry goes to review with
+    READING_LIMIT instead, and the model is not called (user answer, 2026-10-28).
+    """
+
+    def __init__(
+        self, graph: EnquiryGraph, store: WorkflowStore, cap: ReadingCap | None = None
+    ) -> None:
         self._graph = graph
         self._store = store
+        self._cap = cap
 
     def __call__(self, job: ClaimedJob) -> None:
         try:
@@ -357,6 +366,23 @@ class ExtractionJobHandler:
             return  # finished on an earlier attempt
         if snapshot.next:
             self._graph.invoke(None, config)  # resume after a crash
+        elif self._over_cap(job.require_tenant(), enquiry_id, run_id):
+            self._store.record_outcome(
+                job.require_tenant(),
+                enquiry_id,
+                run_id,
+                ExtractionOutcome.NEEDS_REVIEW,
+                {
+                    "graph_version": GRAPH_VERSION,
+                    "items": [],
+                    "matches": [],
+                    "lines": [],
+                    "questions": [],
+                    "review_reasons": [READING_LIMIT],
+                    "unsupported_documents": [],
+                    "reading_limit": True,
+                },
+            )
         else:
             start: EnquiryState = {
                 "tenant_id": str(job.require_tenant()),
@@ -364,3 +390,9 @@ class ExtractionJobHandler:
                 "run_id": str(run_id),
             }
             self._graph.invoke(start, config)
+
+    def _over_cap(self, tenant_id: UUID, enquiry_id: UUID, run_id: UUID) -> bool:
+        if self._cap is None:
+            return False
+        used = self._store.readings_today(tenant_id, enquiry_id, run_id, self._cap.provider_keys)
+        return used is not None and used >= self._cap.per_business_day

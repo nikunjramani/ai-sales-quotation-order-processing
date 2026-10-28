@@ -29,6 +29,7 @@ dependencies = [
 api = "quotation_app.adapters.providers.api:build"
 simulated = "quotation_app.adapters.providers.simulated:build"
 local_catalogue = "quotation_app.adapters.providers.local_catalogue:build"
+web_chat = "quotation_app.adapters.providers.web_chat:build"
 
 [project.entry-points."quotation_app.secret_stores"]
 local = "quotation_app.adapters.secrets.local:build"

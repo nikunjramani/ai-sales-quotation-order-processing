@@ -28,7 +28,22 @@ class EnquiryContent:
     last_message_seq: int = 0  # the newest message read; later ones trigger another round
 
 
+@dataclass(frozen=True)
+class ReadingCap:
+    """Daily reading budget for enquiries from some tools (hosted chat, user answer Q9)."""
+
+    provider_keys: frozenset[str]
+    per_business_day: int
+
+
 class WorkflowStore(Protocol):
+    def readings_today(
+        self, tenant_id: UUID, enquiry_id: UUID, run_id: UUID, provider_keys: frozenset[str]
+    ) -> int | None:
+        """How many other readings of the business's enquiries from these tools started today
+        (UTC), or None if this enquiry did not come from one of them."""
+        ...
+
     def enquiry_content(self, tenant_id: UUID, enquiry_id: UUID) -> EnquiryContent | None: ...
 
     def start_run(

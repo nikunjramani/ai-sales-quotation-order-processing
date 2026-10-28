@@ -47,6 +47,7 @@ def _wanted(existing: dict[str, str]) -> dict[str, str]:
         or urlsafe_b64encode(token_bytes(32)).decode("ascii"),
         # Password of the seeded demo people (phase 2, Q24); development only, never in Git.
         "QUOTATION_DEMO_PASSWORD": secret("QUOTATION_DEMO_PASSWORD"),
+        "QUOTATION_CHAT_IP_KEY": secret("QUOTATION_CHAT_IP_KEY"),
     }
 
 

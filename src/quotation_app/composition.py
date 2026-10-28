@@ -28,7 +28,7 @@ from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.customer_actions import QuotationReadyHook
 from quotation_app.application.customer_messages import CustomerConsentHook, CustomerMessenger
 from quotation_app.application.delivery import QuotationDeliveryHandler, QuotationDocumentHook
-from quotation_app.application.inbound import ProcessInboundHandler, routes_for
+from quotation_app.application.inbound import ConsentRoute, ProcessInboundHandler, routes_for
 from quotation_app.application.jobs import JobHandler, PauseWhileSuspended
 from quotation_app.application.messaging import OutboundService, SendMessageHandler
 from quotation_app.application.notifications import (
@@ -41,6 +41,7 @@ from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.providers import ProviderRegistry
 from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
+from quotation_app.domain.chat import ChatLimits
 from quotation_app.domain.connections import Purpose
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.messages import CUSTOMER_TEMPLATES, TemplateKey
@@ -64,6 +65,7 @@ from quotation_app.ports.interpretation import EnquiryInterpreter
 from quotation_app.ports.messages import SendHook
 from quotation_app.ports.providers import ProviderEnvironment
 from quotation_app.ports.secrets import SecretStore, SecretStoreEnvironment
+from quotation_app.ports.workflow import ReadingCap
 from quotation_app.workflows.enquiry import (
     EnquiryWorkflowDeps,
     ExtractionJobHandler,
@@ -254,7 +256,14 @@ def build_job_handlers(
         JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(
             SqlPreparationStore(engine), storage, customers
         ),
-        JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(enquiry_graph, workflow_store),
+        JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(
+            enquiry_graph,
+            workflow_store,
+            ReadingCap(
+                frozenset(p.key for p in runtime.registry.all() if p.capabilities.hosted_chat),
+                ChatLimits().readings_per_business_day,
+            ),
+        ),
         JobKind.DRAFT_QUOTATION: quotations,
         JobKind.RESUME_QUOTATION: quotations,
         JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(notifications, connections, outbound),
@@ -291,7 +300,8 @@ def build_job_handlers(
             routes_for(
                 ChannelActionService(
                     SqlChannelStore(engine), approvals, connections, runtime.registry
-                )
+                ),
+                ConsentRoute(targets, customers),
             ),
         ),
     }

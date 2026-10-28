@@ -84,10 +84,28 @@ class CustomerMessenger:
         target = self._targets.for_enquiry(tenant_id, enquiry_id)
         if target is None:
             return None
+        return self.send_to(
+            tenant_id, target, template, render, idempotency_key, correlation_id, links, enquiry_id
+        )
+
+    def send_to(
+        self,
+        tenant_id: UUID,
+        target: CustomerTarget,
+        template: TemplateKey,
+        render: Mapping[str, object],
+        idempotency_key: str,
+        correlation_id: UUID,
+        links: MessageLinks | None = None,
+        enquiry_id: UUID | None = None,
+    ) -> UUID | None:
+        """Queue one message to a known conversation (push tools only)."""
         connection = self._connections.get(tenant_id, target.connection_id)
         provider = None if connection is None else self._registry.find(connection.provider_key)
         if connection is None or provider is None:
-            logger.warning("Enquiry %s: its tool is gone; %s not queued", enquiry_id, template)
+            logger.warning(
+                "Conversation %s: tool gone; %s not queued", target.conversation_id, template
+            )
             return None
         if provider.capabilities.delivery_mode is DeliveryMode.PULL:
             return None
@@ -96,7 +114,7 @@ class CustomerMessenger:
             connection,
             template=template,
             render=render,
-            params={"enquiry_id": str(enquiry_id)},
+            params={} if enquiry_id is None else {"enquiry_id": str(enquiry_id)},
             recipient=target.external_id,
             idempotency_key=idempotency_key,
             links=MessageLinks(

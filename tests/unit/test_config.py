@@ -12,6 +12,8 @@ PRODUCTION: dict[str, Any] = {
     "mailer": "real_mailer",
     "mail_from": "no-reply@quotes.example",
     "public_portal_url": "https://quotes.example/portal/",
+    "public_base_url": "https://quotes.example",
+    "chat_ip_key": "0123456789abcdef0123456789abcdef",
 }
 
 
@@ -72,6 +74,8 @@ def test_account_settings_defaults_in_development() -> None:
         ({"mailer": "console"}, "console mailer"),
         ({"mail_from": None}, "MAIL_FROM"),
         ({"public_portal_url": "http://quotes.example/portal/"}, "https"),
+        ({"chat_ip_key": None}, "CHAT_IP_KEY"),
+        ({"public_base_url": "http://quotes.example"}, "PUBLIC_BASE_URL"),
     ],
 )
 def test_production_refuses_development_account_settings(

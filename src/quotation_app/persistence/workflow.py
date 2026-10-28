@@ -92,6 +92,37 @@ class SqlWorkflowStore:
             max((row.seq for row in messages), default=0),
         )
 
+    def readings_today(
+        self, tenant_id: UUID, enquiry_id: UUID, run_id: UUID, provider_keys: frozenset[str]
+    ) -> int | None:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            channel = connection.execute(
+                select(Enquiry.channel).where(
+                    Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id
+                )
+            ).scalar_one_or_none()
+            if channel not in provider_keys:
+                return None
+            count: int = connection.execute(
+                select(func.count())
+                .select_from(WorkflowRun)
+                .join(
+                    Enquiry,
+                    (Enquiry.tenant_id == WorkflowRun.tenant_id)
+                    & (Enquiry.id == WorkflowRun.enquiry_id),
+                )
+                .where(
+                    WorkflowRun.tenant_id == tenant_id,
+                    WorkflowRun.graph_version.like(EXTRACTION_GRAPHS),
+                    WorkflowRun.id != run_id,
+                    WorkflowRun.created_at >= func.date_trunc("day", func.now(), "UTC"),
+                    Enquiry.channel.in_(sorted(provider_keys)),
+                    # Readings the cap itself stopped did not use the model.
+                    func.coalesce(WorkflowRun.outcome["reading_limit"].astext, "") != "true",
+                )
+            ).scalar_one()
+        return count
+
     def start_run(
         self, tenant_id: UUID, enquiry_id: UUID, graph_version: str, round: int = 1
     ) -> UUID:

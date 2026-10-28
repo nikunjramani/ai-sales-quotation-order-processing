@@ -21,7 +21,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from quotation_app.application.approvals import DecisionResult
 from quotation_app.application.channel_actions import (
@@ -30,9 +30,12 @@ from quotation_app.application.channel_actions import (
     ChannelEvent,
     ChannelEventKind,
 )
+from quotation_app.application.customer_messages import CustomerMessenger
 from quotation_app.application.providers import ProviderRegistry
 from quotation_app.domain.connections import Connection
+from quotation_app.domain.contacts import ConsentStatus
 from quotation_app.domain.intake import (
+    ConsentChange,
     InboundEvent,
     InboundEventType,
     ManagerAction,
@@ -40,6 +43,7 @@ from quotation_app.domain.intake import (
     validate_event,
 )
 from quotation_app.domain.jobs import PermanentJobError
+from quotation_app.domain.messages import TemplateKey
 from quotation_app.domain.quotations import (
     ApprovalAction,
     DecisionConflict,
@@ -49,6 +53,7 @@ from quotation_app.domain.quotations import (
 from quotation_app.domain.tenancy import AuthorizationError
 from quotation_app.ports.channels import ChannelBinding
 from quotation_app.ports.connections import HookLookup
+from quotation_app.ports.conversations import CustomerTargets
 from quotation_app.ports.inbound import InboundStore
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.providers import InboundRequest, InvalidInbound
@@ -199,6 +204,53 @@ class ProcessInboundHandler:
         self._store.mark_processed(job.require_tenant(), inbox_event_id, outcome[:300])
 
 
-def routes_for(actions: ChannelActionService) -> Mapping[InboundEventType, InboundRoute]:
-    """The routes available in phase 1; customer messages and receipts arrive in later items."""
-    return {InboundEventType.MANAGER_ACTION: ManagerActionRoute(actions)}
+class ConsentRoute:
+    """STOP / START from a customer (D15): update the identity's consent, then confirm.
+
+    The confirmation is the only message an opted-out identity may still receive. Its key
+    (consent:<event>) makes a retried job harmless.
+    """
+
+    def __init__(self, targets: CustomerTargets, messenger: CustomerMessenger) -> None:
+        self._targets = targets
+        self._messenger = messenger
+
+    def __call__(self, connection: Connection, event: InboundEvent) -> str:
+        assert isinstance(event, ConsentChange)
+        status = ConsentStatus.OPTED_IN if event.opted_in else ConsentStatus.OPTED_OUT
+        tenant_id = connection.tenant_id
+        self._targets.set_consent(
+            tenant_id,
+            connection.connection_id,
+            event.sender_external_id,
+            status,
+            f"{connection.provider_key}:{event.provider_event_id}",
+        )
+        target = self._targets.for_identity(
+            tenant_id, connection.connection_id, event.sender_external_id
+        )
+        if target is None:
+            return "unknown sender"
+        template = TemplateKey.OPTED_IN if event.opted_in else TemplateKey.OPTED_OUT
+        self._messenger.send_to(
+            tenant_id,
+            target,
+            template,
+            {"business": target.business_name},
+            f"consent:{connection.connection_id}:{event.provider_event_id}",
+            uuid4(),
+        )
+        return status.value
+
+
+def routes_for(
+    actions: ChannelActionService, consent: ConsentRoute | None = None
+) -> Mapping[InboundEventType, InboundRoute]:
+    """Manager actions (phase 1) and consent changes (phase 4). Customer messages from
+    webhook providers are routed here in phase 5; the API and website chat route at once."""
+    routes: dict[InboundEventType, InboundRoute] = {
+        InboundEventType.MANAGER_ACTION: ManagerActionRoute(actions)
+    }
+    if consent is not None:
+        routes[InboundEventType.CONSENT_CHANGE] = consent
+    return routes

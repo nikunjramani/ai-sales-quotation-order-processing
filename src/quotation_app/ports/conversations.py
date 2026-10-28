@@ -19,6 +19,7 @@ class CustomerTarget:
     external_id: str
     consent: ConsentStatus
     acknowledge_enquiries: bool  # the business setting (D14)
+    business_name: str
 
 
 class CustomerTargets(Protocol):
@@ -28,6 +29,23 @@ class CustomerTargets(Protocol):
 
     def consent(self, tenant_id: UUID, connection_id: UUID, external_id: str) -> ConsentStatus:
         """The identity's consent now (implied for an unknown identity)."""
+        ...
+
+    def for_identity(
+        self, tenant_id: UUID, connection_id: UUID, external_id: str
+    ) -> CustomerTarget | None:
+        """The conversation of one identity (for consent confirmations)."""
+        ...
+
+    def set_consent(
+        self,
+        tenant_id: UUID,
+        connection_id: UUID,
+        external_id: str,
+        status: ConsentStatus,
+        source: str,
+    ) -> bool:
+        """Change the identity's consent; False if unknown or already in that state."""
         ...
 
 

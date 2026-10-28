@@ -120,6 +120,7 @@ SAMPLES: dict[str, Sample] = {
         _hmac_header("x-simulated-signature"),
     ),
     "local_catalogue": Sample(b"{}", None),
+    "web_chat": Sample(b"{}", None),
     "echo": Sample(
         json.dumps({"id": "evt-1", "from": "phone", "code": "X"}).encode(),
         _hmac_header("x-echo-signature"),
