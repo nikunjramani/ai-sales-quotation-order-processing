@@ -66,6 +66,16 @@ def test_only_administrators_manage_members(
     assert Role.INTAKE_SERVICE not in PEOPLE_ROLES
 
 
+def test_all_staff_see_the_catalogue_and_administrators_and_sales_edit_it(
+    make_context: ContextFactory, industrial_tenant: UUID
+) -> None:
+    def holders(permission: Permission) -> set[Role]:
+        return {r for r in Role if permission in make_context(industrial_tenant, r).permissions}
+
+    assert holders(Permission.VIEW_CATALOGUE) == set(PEOPLE_ROLES)
+    assert holders(Permission.MANAGE_CATALOGUE) == {Role.ADMINISTRATOR, Role.SALES_OPERATOR}
+
+
 @pytest.mark.parametrize(
     ("status", "intake", "customers", "pull", "changes"),
     [
