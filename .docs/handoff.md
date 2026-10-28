@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-28 (phase 1 merged through PR #6; phase 2 accounts implemented on `feat/phase-2-accounts`, PR #7, awaiting review).
+Updated: 2026-10-28 (phases 1 and 2 merged through PRs #6 and #7; phase 3 catalogue in progress on `feat/phase-3-catalogue`).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -284,7 +284,7 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Cosmetic, dev databases only:** a connection created by the 0008 backfill keeps its generated name (e.g. "simulated simulated-local"), because the seed does not rename existing connections.
 - **Merged:** the user allowed the merge on 2026-10-27; PR #6 was green (`verify` and `portal`).
 
-## Phase 2 accounts and onboarding (implemented, branch `feat/phase-2-accounts`, PR #7)
+## Phase 2 accounts and onboarding (complete, merged to main through PR #7, merge commit e76b7e7, 2026-10-28)
 - **User (2026-10-27):** "work on phase two". All of Q1-Q27 and P1-Q9 were answered; see [phase 2 plan, user answers](plan/platform/implementation/phase-2-accounts.md#user-answers-2026-10-27). Same commit arrangement as phase 1 (one commit per work item, pushed, draft PR; the user merges).
 - **Answers that change the plan:**
   - no account lockout; the rate limits are the only guard against guessing;
@@ -324,7 +324,11 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Live run** (API on :8010 serving the built portal, real worker, dev database): 32 steps from sign-up to Go live, invitation, role change, removal, demo password login, isolation and refusals, all OK; then an approved demo quotation whose PDF shows the legal name, address and GSTIN (profile restored afterwards). API log: no keys, tokens, passwords or email addresses.
   - **Not run:** the portal was not clicked through in a real browser (no browser tool here); the logo is covered by unit tests only.
   - **Watch:** one setup error in `test_expiry_closes_an_unanswered_quotation` appeared once in a full run and did not repeat in four later runs (phase 1 saw a similar one-off).
-- **Next:** the user reviews PR #7 (and the deviations above). Phase 3 (product catalogue) needs its open questions first.
+- **Merged:** the user asked for the merge on 2026-10-28 ("merge phase 2 pr"); PR #7 was green (`verify` and `portal`).
+
+## Phase 3 product catalogue (in progress, branch `feat/phase-3-catalogue`)
+- **User (2026-10-28):** "continue with phase 3". All Q1-Q23 and the default-source question were answered with the proposals and the summary confirmed; see [phase 3 plan, user answers](plan/platform/implementation/phase-3-catalogue.md#user-answers-2026-10-28) and [07 decisions](plan/platform/07-decisions-needed.md). Same commit arrangement as phases 1 and 2 (one commit per work item, pushed, draft PR; the user merges).
+- **W0 done:** answers recorded.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

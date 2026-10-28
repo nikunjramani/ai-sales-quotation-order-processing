@@ -209,7 +209,7 @@ The existing `tenant:manage` covers business settings.
 ## 8. Points for the user (raised by the phase plans, not decided here)
 | # | Question | Proposal | Where |
 |---|---|---|---|
-| U1 | Who may edit products: administrators only (02 doc) or also sales operators (this file)? | Administrators and sales operators | Phase 3 Q14 |
+| U1 | Who may edit products: administrators only (02 doc) or also sales operators (this file)? | **Decided (user, 2026-10-28):** administrators and sales operators | Phase 3 Q14 |
 | U2 | Should viewers see customer names, emails and phone numbers in conversations? | Masked for viewers | Phase 4 Q12 |
 | U3 | Phase 1 replaces two internal classes, so their unit tests change. Is "all behaviour tests (API, PostgreSQL, evaluation, demo) unchanged" the right promise instead of "all tests unchanged"? | Yes | Phase 1 Q1 |
 
