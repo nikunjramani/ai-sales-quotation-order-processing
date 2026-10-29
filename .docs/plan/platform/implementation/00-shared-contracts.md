@@ -162,7 +162,8 @@ class Provider(Protocol):
 | `0011_catalogue` | 3 | `catalogue_categories`, `catalogue_products` (with `source`, `external_id`, `synced_at` for later sync), `catalogue_prices` (history; `price_list`, `revision`, effective dates), `catalogue_stock` (as-of, source, unknown allowed), `catalogue_changes` (append-only audit).<br>Also: `pg_trgm` and full-text indexes; `create_business` updated; a `local_catalogue` connection backfilled for tenants without a catalogue connection |
 | `0012_conversations` | 4 | **New tables:** `contacts`, `contact_identities` (verified flag, consent), `conversations`, `conversation_messages` (append-only), `customer_sessions`, `customer_action_refs`.<br>**`enquiries` gains:** `conversation_id`, `contact_id`, and a narrow `UPDATE (status, updated_at)` for `quotation_app` with the `guard_enquiry_reopen` trigger.<br>**Other changes:** `workflow_runs.round`; `acknowledge_enquiries` setting if D14 makes it per business |
 | `0013_provider_state` | 5 | **As built (rev 6):** `connection_routes` (global unique (provider_key, routing_key), optional expiry; lookup **policy** `connection_route_lookup`, not a function); `approval_reply_prompts` (reason and confirm prompts; replaces the planned `approval_reason_prompts`); `manager_reply_classifications` (append-only); `media_links`; `outbound_messages.action_ref_id` and `resent_from_id`; `connections.pending_action`; event types `manager_reply`, `customer_action`, `connection_update`; connection event kind `resumed`; policy `approval_link_lookup`; grants as in the configuration reference |
-| `0014_orders` | 7 | Provisional; decided in the orders phase (questions first). A sync-run table for phase 6, if needed, goes in its own migration before it |
+| `0014_catalogue_sync` | 6 | **As built (rev 7):** `catalogue_sync_runs`; source `sync` on products, prices and stock; worker INSERT on the catalogue tables and column-level UPDATE of synced product columns; one waiting "Sync now" per business (`uq_jobs_manual_sync`; the API still cannot read jobs) |
+| `0015_orders` | 7 | **As built (rev 7):** `orders`, `order_lines` (immutable), `order_events` (append-only), `order_operations`; `tenants.order_creation`; `uq_connections_one_orders`; event type `order_status_request`; admin action `order_settings_changed` |
 
 ## 6. Job kinds (added to `domain/jobs.py` `JobKind`)
 | Kind | Phase | Purpose |
@@ -173,8 +174,8 @@ class Provider(Protocol):
 | `send_account_email` | 2 | Verification, invitation and password-reset emails (no tenant) |
 | `poll_connection` | 5 | Providers that poll instead of using webhooks |
 | `classify_manager_reply` | 5 | AI classification of a manager's free-text reply (D10), outside the webhook request |
-| `sync_catalogue` | 6 | ERP/shop sync into our catalogue tables (if sync mode is chosen) |
-| `create_order`, `reconcile_order_operation` | 7 | Provisional |
+| `sync_catalogue` | 6 | Copy a synced source's catalogue (repeats every `sync_minutes`; manual runs do not repeat) |
+| `create_order`, `erp_order_operation`, `reconcile_order_operation`, `refresh_order_status`, `notify_order` | 7 | Create after acceptance (if automatic), write to the ERP, look up an unknown write, follow ERP statuses, tell the customer |
 
 The existing kinds stay. `deliver_quotation`, `notify_approvers` and `notify_response` are re-implemented on top of `send_message` in phase 1, without changing their external behaviour.
 
@@ -187,7 +188,8 @@ The existing kinds stay. `deliver_quotation`, `notify_approvers` and `notify_res
 | `catalogue:manage` | administrator, sales_operator (**to confirm, §8**) | 3 |
 | `conversations:view` | administrator, sales_operator, approver, viewer (viewer sees masked contact details, **to confirm, §8**) | 4 |
 | `messages:resend` | administrator, sales_operator (user answer 2026-10-29) | 5 |
-| `orders:view`, `orders:manage` | Decided in phase 7 | 7 |
+| `orders:view` | administrator, sales_operator, approver, viewer | 7 |
+| `orders:manage` | administrator, sales_operator, approver (user answer Q2, 2026-10-29) | 7 |
 
 The existing `tenant:manage` covers business settings.
 
@@ -198,7 +200,7 @@ The existing `tenant:manage` covers business settings.
 | `business` | 2 | Create business, settings (business, pricing, validity, PDF details), members and invitations, API keys, setup checklist, Go live |
 | `catalogue` | 3 | Product list with search, add/edit product, categories, prices, stock |
 | `conversations` | 4 | Inbox, conversation detail, contacts |
-| `orders` | 7 | Provisional |
+| `orders` | 7 | Orders list (status and "needs attention" filters, creation setting), order detail (lines, ERP write, next steps, timeline), the order panel on quotations |
 | Widget `portal/src/widget/` | 4 | Built by `portal/vite.widget.config.ts` to `dist/widget/widget.js`, served at `/chat/widget.js`; must not import portal features |
 
 **Settings changes** (generic, never provider-named):
@@ -229,3 +231,4 @@ The existing `tenant:manage` covers business settings.
 | 4 | 2026-10-28 | **Phase 3 as built:** `create_business` gains `p_catalogue_provider` and `p_catalogue_name` (default NULL); the API passes `QUOTATION_DEFAULT_CATALOGUE_PROVIDER`. **C7 was not quite true:** the 0008 backfill gives the simulated connection only manager approvals; the seed adds the catalogue purpose. So the seed now disables any other active catalogue source on the two ERP demo businesses, and a third dev-only business uses the local list. `ProviderEnvironment.catalogue_store` (each process's store) instead of a registry-level dependency hook. `InMemoryCatalogueStore` ships in `adapters/catalogue/memory.py` (tests and `evaluate_extraction.py --source local`). `CatalogueReadStore.search` returns the best matches already ranked. The catalogue summary also returns the business time zone (a scheduled price starts at midnight there) | Phase 3 implementation |
 | 5 | 2026-10-28 | **Phase 4 as built:** permissions `contacts:details` (not viewers, Q12) and `contacts:merge` (administrators, sales operators, D13) besides `conversations:view`; capability `hosted_chat`; one `customer_action_refs` row per offered version and identity (button ID or secure-link token hash), not one per action; `connections.public_handle_changed_at`, `tenants.acknowledge_enquiries`; extra connection event kind `settings_changed` and admin actions `contacts_merged`, `customer_messages_changed`; the API role may update a connection's `config` (chat settings); `IntakeStore.record(..., router)` replaces a separate `ConversationStore`; `WorkflowStore.record_outcome` returns whether the outcome applies and gains `readings_today`; customer messages from webhook providers are routed in phase 5 | Phase 4 implementation |
 | 6 | 2026-10-29 | **Phase 5 as built (framework + Telegram, user answers 2026-10-29):** `ProviderDefaults` (explicit unsupported operations); `Provider.cost`, `platform_setup`, `unrouted`, `fetch_file`, `enrollment_hint`; `deprovision` returns steps; capabilities `self_service`, `platform_webhooks`, `attachments_by_url`; `ProvisionResult` statuses ready / needs_action / working / failed with config, secrets, routes and `poll_after`; `PendingAction.once` (one-time values never stored); `RenderedMessage.purpose`, `link`, `attachment_url`; `SendReceipt.routing_keys`; `ManagerAction` kind `confirm`; `CustomerMessage.files`, `skipped`, `from_business`; `IntakeStore.record(hold_for_review)`; routes as a lookup policy; prompts in `approval_reply_prompts`; job kinds `poll_connection`, `classify_manager_reply` (`provision_connection` unused: Enable provisions in the request); permission `messages:resend`; settings `QUOTATION_MEDIA_LINK_MINUTES` (no provider-named settings; company settings in the platform secret namespace); `httpx` only inside provider packages | Phase 5 implementation |
+| 7 | 2026-10-29 | **Phases 6 and 7 as built (ERPNext; ADR 0023, 0024):** capabilities `catalogue: CatalogueCapabilities` and `orders: OrderCapabilities` (with `sync` and `order_status` added to the planned flags; `catalogue_editable` kept); purpose `orders`; `Provider.fetch_catalogue` (full feed) next to `catalogue_reader` and `order_writer`; `ErpWriter` = `create_sales_order`, `get_order_by_external_reference`, `get_order_status` (no reservation port: Q6 needs none); generic config key `sync_minutes`; `ConnectionChange.exclusive_purposes`, `restore_replaced`, `jobs` (one product source and one order destination per business); event `OrderStatusRequest`; templates `order_confirmed`, `order_shipped`, `order_delivered`, `order_cancelled`, `order_status`, `order_none`; migrations renumbered `0014_catalogue_sync` and `0015_orders` (§4) | Phase 6-7 implementation |

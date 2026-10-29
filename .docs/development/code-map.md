@@ -239,6 +239,20 @@ See the [phase 3 plan](../plan/platform/implementation/phase-3-catalogue.md) and
 | Portal | `features/connections` (`OneClickToolsCard`, `PendingActionPanel`, `ConnectionList` test/disable, `store/connectionSetup.ts`), `features/conversations` (Send again), `features/approvals` |
 | Migration | `migrations/versions/0013_provider_state.py` |
 
+## Phases 6 and 7: ERPNext product source and orders (ADR 0023, 0024)
+| Area | Files |
+|---|---|
+| Contract | `domain/connections.py` (`CatalogueCapabilities`, `OrderCapabilities`, `StockSemantics`, purpose `orders`), `ports/providers.py` (`fetch_catalogue`, `order_writer`), `ports/erp.py` (`ErpWriter`, `SalesOrderRequest`, `ErpOrder`, `ErpOrderState`) |
+| ERPNext package | `adapters/providers/erpnext/` (`provider.py` form and checks, `config.py` form and settings, `client.py` Frappe REST and error mapping, `catalogue.py` hybrid reader and feed, `orders.py` writer) |
+| Sync | `domain/catalogue_sync.py` (feed, unit map, stock sums, runs), `ports/catalogue_sync.py`, `persistence/catalogue_sync.py`, `application/catalogue_sync.py` (handler, "Sync now"), `api/catalogue.py` (`/sync`) |
+| One source per business | `application/lifecycle.py` (`EXCLUSIVE_PURPOSES`, first copy), `persistence/provider_state.py` (`_replace_others`, `_restore_replaced`), `ports/connections.ConnectionChange` |
+| Orders | `domain/orders.py`, `ports/orders.py`, `persistence/orders.py`, `application/orders.py` (service, five job handlers, `OrderStatusRoute`, `OrderDestinations`), `api/orders.py`, `api/enquiries.py` (`/order`), `domain/messages.py` (order templates), `persistence/acceptance.py` (queues `create_order`) |
+| Track my order | `domain/orders.order_status_command`, `domain/intake.OrderStatusRequest`, `application/customer_inbox.py`, `application/chat.py`, `application/inbound.routes_for(orders=...)` |
+| Test doubles | `adapters/erp/simulated_orders.py` (fault modes) |
+| Sandbox | `infra/erpnext/compose.yaml`, `scripts/seed_erpnext_sandbox.py` |
+| Portal | `features/orders` (list, detail, `QuotationOrderPanel`), `features/catalogue/ui/components/CatalogueSyncPanel.tsx`, `features/connections/services/connectionService.formDefaults` |
+| Migrations | `0014_catalogue_sync.py`, `0015_orders.py` |
+
 ## Planned modules
 
 | Proposed location | Responsibility |

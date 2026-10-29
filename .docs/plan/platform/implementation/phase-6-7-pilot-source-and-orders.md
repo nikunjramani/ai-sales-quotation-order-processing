@@ -1,5 +1,48 @@
 # Implementation plan, phases 6 and 7: pilot product source and orders
-**Status:** planning document (2026-10-23). Nothing here is built. Phase 6 needs decision D21 (which system). Phase 7 needs **every** question in [section 6.11](#611-the-question-list-ask-before-phase-7-starts) answered first. Phase 7 designs are **provisional**: they show structure and options, not business rules.
+**Status:** implemented on `feat/phase-6-7-erp-and-orders` (2026-10-29). D21 and Q1-Q4 were answered by the user; for the rest the user said "for this specific phase you will answer all questions, don't ask me", so Claude decided them. See [Answers](#answers-2026-10-29), [ADR 0023](../../../adr/0023-erpnext-product-source.md) and [ADR 0024](../../../adr/0024-orders.md). Where an answer differs from the provisional designs below, the answers win. Migration numbering follows contracts §4: `0014_catalogue_sync` (phase 6), `0015_orders` (phase 7).
+
+### Answers (2026-10-29)
+**Phase 6 (user):**
+- D21: **ERPNext**, sandbox only (no pilot business yet), as a local Docker sandbox.
+- Read mode: hybrid (a synced copy for search, live prices and stock).
+- Sync interval: configurable per business (5-1440 minutes, default 15).
+- "In stock": a setting, default available (on hand minus reserved).
+- Tax-inclusive prices: refused.
+- Warehouses: a chosen list, summed.
+- Items: enabled sales items of chosen item groups (empty = all).
+- Price list: one selling price list.
+- Delivery: one PR for both phases.
+
+**Phase 6 (Claude):**
+- A full feed every run.
+- Synced products go into our catalogue tables (source `sync`); typed products with the same SKU are adopted; products no longer offered are archived.
+- Enabling a product source replaces the previous one; Disable restores it.
+- Exact unit renames, then the known unit words.
+- Negative stock means 0; non-stock items have unknown stock.
+- Item Price days start at 00:00 UTC.
+- In production only public https addresses are accepted.
+- Settings change by Disable and Enable again.
+- Pilot questions §5.6 stay open as settings.
+
+**Phase 7 (user):**
+- Q1: per-business setting, default staff confirm.
+- Q2: operators, approvers and administrators manage orders.
+- Q3: staff may enter the ERP customer; otherwise the connection default.
+- Q4: one order per quotation.
+
+**Phase 7 (Claude):**
+- Q5: stock re-check only.
+- Q6: no reservation by us.
+- Q7: cancel local orders before they ship; ERP orders are cancelled in the ERP; changes need a new quotation.
+- Q8: placed, confirmed, in_progress, shipped, delivered, cancelled, on_hold.
+- Q9: customers are told about confirmed, shipped, delivered and cancelled (fixed wording).
+- Q10: fixed phrases or an order number; the same contact only; number, status and total.
+- Q11: a shortfall holds the order (not sent to the ERP until released).
+- Q12: no partial delivery.
+- Q13: no payments.
+- Q14: staff may create orders for earlier acceptances; no backfill.
+- Q15: look-ups every 5 minutes for 1 hour, then needs attention in the portal (no message).
+- Q16: writes off until an administrator turns them on in the connection form; drafts unless "submit orders".
 
 Binding names, tables, job kinds and migration numbers come from [00-shared-contracts.md](00-shared-contracts.md). Changes this plan needs are listed in [section 9](#9-proposed-changes-to-shared-contracts) and must be made there before work starts.
 

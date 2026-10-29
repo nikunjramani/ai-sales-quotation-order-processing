@@ -75,5 +75,13 @@ A provider is one package. It never changes the API, the worker, the application
 ## How a second tool of a kind is added
 A second chat or email tool is one more package with its own key and entry point. Nothing else changes: its settings live in its own platform config, and its keys in `connection_routes` under its own provider key.
 
+## Product sources and order destinations (phases 6 and 7)
+- **Product source:** declares purpose `catalogue` and `Capabilities(catalogue=CatalogueCapabilities(...))`, and implements `catalogue_reader`. With `sync=True` it also implements `fetch_catalogue` (a full `CatalogueFeed` in our words) and keeps its interval under the config key `sync_minutes`.
+- **Order destination:** declares purpose `orders` with `OrderCapabilities(create_order=True, ...)` and implements `order_writer` (an `ErpWriter`). It raises `OperationUnsupported` when the business has not turned order writing on.
+
+The core does the rest, by flags only: it copies the catalogue, checks prices live, writes orders with intent before call, reconciles by reference (if `reference_lookup`) and follows statuses (if `order_status`).
+
+A second ERP or shop (Odoo, Zoho, Shopify...) is one more package that passes the ERP read and write contract suites; see `adapters/providers/erpnext/` and [ADR 0023](../adr/0023-erpnext-product-source.md).
+
 ## Hosted customer tools (phase 4)
 A provider with `Capabilities(hosted_chat=True)` (website chat is the first) is served by our own public chat API and widget: administrators enable it with one click (`POST /connections/hosted-chat`), it gets a public handle, and the core routes its visitors' messages like any customer message. Nothing in the core or portal names the provider; `GET /connections/available` lists what can be enabled.
