@@ -153,6 +153,23 @@ CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Action
 - **Portal:** `portal/tests/features/conversations`, `portal/tests/widget` (text-only rendering, start form, blocked storage); the architecture test keeps the widget separate.
 - **Live run (2026-10-28, Gemini):** see the handoff.
 
+### Phase 5 one-click tools and approval by message (ADR 0022)
+- **Unit:**
+  - `tests/unit/application/test_lifecycle.py` (Enable, cost tick, one-time code, re-enable, setup events, `RouteTaken` rollback with secret clean-up, poll, disable, test, isolation);
+  - `test_platform_inbound.py` (secret first, unrouted, setup-only while setting up, keys per business, replay);
+  - `test_media.py`, `test_resend.py`;
+  - `tests/unit/api/test_hooks_security.py` (HTTP answers of the platform route);
+  - `tests/unit/domain/test_manager_replies.py`: the 80-case [evaluation set](../../evals/manager_replies.jsonl). The guards alone must block every `guard_blocks` case against a reader that always says "approve", and let every clear approval through.
+  - `tests/unit/adapters/providers/telegram/test_telegram.py`: documented updates in `tests/data/providers/telegram/updates.json`, a fake Bot API through `httpx.MockTransport`, send outcome mapping, linking, and the whole link flow through the core.
+  - `tests/unit/adapters/providers/email_common/`, `tests/unit/test_ops.py`; the provider contract test covers platform-webhook providers.
+- **PostgreSQL:**
+  - `tests/integration/persistence/test_migrations_0013.py` (exact-key lookup, global uniqueness, append-only audit, downgrade);
+  - `test_provider_state.py` (both roles apply steps, rollback, message routes, staff messages, webhook customer messages with limits);
+  - `test_messages.py` (Resend as the API role);
+  - `tests/integration/workflows/test_manager_replies.py` (written approval only after YES, reason prompt after Reject, unclear reply asks, rules mode does not read, the signed link with sign-in and CSRF).
+- **Portal:** `portal/tests/features/connections` (one-click rules, cards for an unknown tool, cost tick, steps with the code, forms with password fields), `portal/tests/features/approvals`, the conversation thread's Send again.
+- **Live:** none (no accounts, user answer). `scripts/evaluate_replies.py --model ...` evaluates a model on the reply set when the user wants a live run.
+
 ## Planned business suites
 - Domain unit tests: Decimal totals, rounding, quantity/unit validation, expiry, pricing policies, missing values.
 - PostgreSQL integration tests: real migrations, tenant policies, unique constraints, transactional inbox/outbox, job leases.

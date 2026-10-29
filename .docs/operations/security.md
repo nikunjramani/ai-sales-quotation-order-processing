@@ -32,6 +32,31 @@
 - **API keys:** created in the portal, shown once with `no-store`, audited; each key reads only its own enquiries.
 - **Release gate:** production refuses the console mailer, so phase 2 cannot be deployed before a real sender exists (phase 5).
 
+## Implemented controls (phase 5, one-click tools and approval by message)
+- **Platform webhooks:**
+  - the company secret is checked (constant time) before anything is read;
+  - the business comes only from exact routing keys, unique across businesses (a key of another business rolls a setup step back);
+  - genuine requests are answered 200, so tools do not retry them; only bad secrets get 401.
+- **Setup:**
+  - one-time link codes are stored only as SHA-256 route keys (10 minutes);
+  - provider secrets go to the secret store, and connections keep references;
+  - company settings live in the platform namespace, are set by an operator command and are never shown in the portal.
+- **Approval by message (D10):**
+  - only the linked account, only a reply to one request;
+  - deterministic guards (conditional, negated, questioning or other-quotation replies never approve);
+  - the AI sees only the reply, number and version, inside a data tag;
+  - every AI-read decision needs the manager's exact YES;
+  - Yes/No and approval buttons carry single-use tokens created at send time;
+  - the signed link needs sign-in as the intended manager, and a POST with CSRF decides;
+  - every written reply is audited (append-only).
+- **Customer messages from tools:**
+  - website chat limits per sender;
+  - one daily reading cap per business;
+  - files type- and size-checked into quarantine;
+  - the business's own messages are never read as the customer's.
+- **Public PDF links:** random token (hash stored), 15 minutes, one document, content hash re-checked, `no-store`.
+- **HTTP clients** only inside provider packages (architecture test). **Not live-verified** (no accounts in phase 5).
+
 ## Implemented controls (phase 1, connector framework)
 - **Provider secrets** live in a secret store (D8), never in the database. `connections.secret_refs` holds references only. The development `local` store encrypts each secret with AES-256-GCM, bound to its tenant and reference, so a copied or renamed file does not decrypt. Production uses `none` until hosting is chosen (D24); `local` is refused there.
 - **Generic webhooks** (`/api/v1/hooks/{connection}/{token}`):

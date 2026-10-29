@@ -120,6 +120,14 @@ All five tables: forced RLS on `app.tenant_id`; the worker reads only. `pg_trgm`
 - New columns: `enquiries.conversation_id`, `enquiries.contact_id`; `workflow_runs.round`; `connections.public_handle`, `public_handle_changed_at`; `tenants.acknowledge_enquiries`.
 - Lookup policies (one row by a presented value before the tenant is known): `customer_session_lookup`, `connection_handle_lookup`, `customer_action_lookup`. The trigger `guard_enquiry_reopen` lets the API role change an enquiry's status only `needs_clarification -> received`.
 
+### Added in phase 5 (migration 0013, ADR 0022)
+- `connection_routes`: a routing key (unique per provider across all businesses, may expire) naming one connection, for platform-wide webhooks; lookup policy `connection_route_lookup` reveals only the exact key presented.
+- `approval_reply_prompts`: a question to a linked manager about one approval request: `reason` after a Reject/Change button, or `confirm` ("You want to …? YES / NO") after an AI reading. Holds the action, reason, button token hash, message and the reply that led to it. At most one open per request.
+- `manager_reply_classifications`: append-only audit of every written manager reply (text, SHA-256, suggested intent, model, guard, outcome).
+- `media_links`: short-lived public links to one approved PDF (token hash, document, content hash, expiry); lookup policy `media_link_lookup`.
+- New columns: `outbound_messages.action_ref_id` (the approval request a message belongs to) and `resent_from_id` (Resend); `connections.pending_action` (the step left, without one-time values).
+- New inbox event types `manager_reply`, `customer_action`, `connection_update`; connection event kind `resumed`; lookup policy `approval_link_lookup` (one action reference by its link token).
+
 ## Planned entities
 | Entity | Important contents |
 |---|---|

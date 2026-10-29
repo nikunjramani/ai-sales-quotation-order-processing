@@ -224,6 +224,21 @@ See the [phase 3 plan](../plan/platform/implementation/phase-3-catalogue.md) and
 | Widget | `portal/src/widget/` (`api/chatClient.ts`, `state/session.ts`, `ui/chatView.ts`, `main.ts`), `portal/vite.widget.config.ts` |
 | Migration | `migrations/versions/0012_conversations.py` |
 
+## Phase 5 one-click tools, platform webhooks and approval by message (ADR 0022)
+| Area | Files |
+|---|---|
+| Contract | `ports/providers.py` (lifecycle, platform webhooks, `ProviderDefaults`, `PendingAction`, `ProvisionResult`), `domain/connections.py` (capabilities `self_service`, `platform_webhooks`, `attachments_by_url`; `pending_action`), `domain/intake.py` (`ManagerReply`, `CustomerAction`, `ConnectionUpdate`, `InboundFile`), `ports/secrets.py` (platform namespace) |
+| Lifecycle | `application/lifecycle.py` (Enable, resume, setup events, poll, test, disable), `persistence/provider_state.py` (lifecycle store, routes), `api/connections.py` (enable, actions, provider page, test, disable) |
+| Inbound | `application/inbound.py` (platform route, handshakes, staff, customer action, setup and reply routes), `application/customer_inbox.py` (webhook customer messages, limits, files), `api/hooks.py`, `persistence/conversations.SqlStaffMessages`, `persistence/workflow.py` (staff text as context) |
+| Approval by message | `domain/manager_replies.py` (guards, YES/NO), `application/manager_replies.py` (`ManagerReplyService`, `ApprovalPromptHook`), `ports/manager_replies.py`, `persistence/manager_replies.py`, `ports/reply_classification.py`, `adapters/interpreters/reply_classifier.py`, `adapters/interpreters/factory.py` (`build_chat_model`, `build_reply_classifier`), `application/channel_actions.py` (`check`, `decide_reference`), `domain/messages.py` (manager templates) |
+| Signed link | `application/approval_links.py`, `api/approval_links.py`; `application/notifications.py` (the link in approval requests); portal `features/approvals` |
+| Outbox extras | `application/media.py`, `persistence/media.py`, `api/media.py` (public PDF links); `application/resend.py`, `persistence/messages.resend`, `api/conversations.py` (Resend); `application/messaging.py` (routes from receipts, purpose, link) |
+| Telegram | `adapters/providers/telegram/` (`provider.py`, `client.py`, `mapping.py`, `config.py`) |
+| Email helpers | `adapters/providers/email_common/__init__.py` (unused until an email package) |
+| Operators | `ops.py` (`platform-config`, `platform-setup`) |
+| Portal | `features/connections` (`OneClickToolsCard`, `PendingActionPanel`, `ConnectionList` test/disable, `store/connectionSetup.ts`), `features/conversations` (Send again), `features/approvals` |
+| Migration | `migrations/versions/0013_provider_state.py` |
+
 ## Planned modules
 
 | Proposed location | Responsibility |

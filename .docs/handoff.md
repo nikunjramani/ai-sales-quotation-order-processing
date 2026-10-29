@@ -407,6 +407,38 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
 - **Scope (narrowed by the user):** the generic provider framework (platform webhooks, resume and pending actions, hosted provider pages, public media links, company-level provider settings, AI reading of manager replies with a "Yes" confirmation, signed approval link with sign-in, Enable cards and pending-action screens, Resend of failed customer messages, email parsing helpers) plus **Telegram** as the only real provider. No SendGrid, Twilio or Meta code. **No live accounts and no live run**: fixtures from the providers' documentation and fakes only.
 - One branch, one commit per work item, one draft PR at the end (user answer).
 - **W0 done:** answers recorded in the phase 5 plan, 07 decisions and here.
+- **Asked mid-work (2026-10-29):**
+  - Telegram customers get the website chat limits (10/min, 100/day per sender; the 200 readings a day are shared by all push customer tools); over a limit a message is stored but held for review;
+  - files: PDF, text, PNG and JPEG up to 5 MB; other kinds skipped and noted;
+  - an answer other than YES/NO to "You want to …?" is read as a new reply;
+  - a manager writing to the bot without reply-to gets a generic hint.
+- **W1 done:** migration `0013_provider_state` (routes, reply prompts, reply audit, media links, outbox action reference and resend link, pending step, grants). `test_migrations_0013.py`.
+- **W2 done:** provider contract (`ProviderDefaults`, lifecycle, platform webhooks, handshakes, files, hints, provider pages, cost notes), new events, platform secret namespace, `InMemorySecretStore`.
+- **W3-W4 done:** `application/lifecycle.py` (Enable with cost tick, pending steps, setup events, poll, test, disable); platform route `/api/v1/hooks/p/{key}` and GET handshakes; `CustomerInbox` (webhook customer messages through intake, limits, files, `hold_for_review`); staff messages as reader context; public PDF links (`/api/v1/media/{token}`); Resend (`messages:resend`).
+- **W5-W6 done:** approval by message: guards, YES/NO confirmation, reason prompts, recorded/state confirmations, rules mode not reading replies, reply audit, `classify_manager_reply`, `evals/manager_replies.jsonl` (80 cases) and `scripts/evaluate_replies.py`. Signed link API `/api/v1/approval-links/{token}` (sign-in, CSRF); approval requests carry `<portal>#/approve/<token>`.
+- **W7 done:** `adapters/providers/email_common` (threading, new text, automatic mail, DKIM/SPF trust), unused.
+- **W8 done:** `adapters/providers/telegram` (business connection for customers, bot chat for managers, `/link` code, deep-link enrollment, buttons, replies, files, 24 h refusals), `python -m quotation_app.ops platform-config|platform-setup`, `httpx` limited to provider packages. Fixtures written from the Bot API docs (`tests/data/providers/telegram/updates.json`).
+- **W9 done:** portal: one-click cards (cost tick), pending step panel (steps, page, provider page, form), Test, Disable with typed name, polling while setting up, linking hints, Send again, `#/approve/:token` page.
+- **W10-W11 done:** platform route HTTP tests; docs: [ADR 0022](adr/0022-one-click-providers-and-approval-by-message.md), [connections](features/connections.md), [Telegram](features/telegram.md), [approval by message](features/approval-by-message.md), [provider setup](operations/provider-setup.md), configuration, setup, code map, testing, data model, approvals, security, adding providers, contracts rev 6.
+- **Final checks (2026-10-29):**
+  - ruff lint and format, strict mypy (290 files);
+  - 856 unit tests passed;
+  - `check_database.py --cycle`: 1008 passed, then downgrade to empty, upgrade, 1008 passed again;
+  - portal: typecheck, 119 tests, build (471 kB JS / 140 kB gzip; widget about 3 KB gzip).
+- **Not run:**
+  - no live run (no accounts, user answer); nothing has touched Telegram's real API;
+  - no model evaluation of the reply set;
+  - the portal was not clicked through in a browser.
+- **Deviations and choices (for review):**
+  1. Enable provisions in the request (no `provision_connection` job); long tool reviews use `poll_connection`.
+  2. Routes use a lookup policy (like the other cross-tenant lookups), not a `SECURITY DEFINER` function.
+  3. One `approval_reply_prompts` table for both reason and confirm prompts (instead of `approval_reason_prompts`).
+  4. A conditional approval becomes "unclear" (asked again), not "revise" as the plan suggested: the safer reading.
+  5. Every message decision (buttons too) gets the recorded confirmation (D10 rule 4); decisions through the deprecated simulated alias route do not.
+  6. The 200 readings a day are shared by all push customer tools of a business (website chat + Telegram), not per tool.
+  7. Over-limit messages that join an enquiry still being read are not held (that round re-runs once); the daily cap still applies.
+  8. Telegram's rate limit is handled by retrying on 429; no shared limiter.
+- **Next:** the user reviews the draft PR; for a live Telegram run, create a bot and follow [provider setup](operations/provider-setup.md#telegram) with a tunnel; optionally run `scripts/evaluate_replies.py` with a model.
 
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).

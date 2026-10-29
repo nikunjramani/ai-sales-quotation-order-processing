@@ -48,3 +48,11 @@ Price objections and counteroffers are not acceptance. See the [deferred negotia
 ## Planned portal views
 Tenant inbox, enquiry detail, quote/version comparison, pending approvals, order status, exception queue, connection settings and audit history.
 Review messages provide the authorized manager enough detail to decide in-channel, with tenant-controlled disclosure. The portal remains an optional review surface.
+
+## Approval by message (phase 5, D10)
+Implemented in [approval by message](../features/approval-by-message.md) ([ADR 0022](../adr/0022-one-click-providers-and-approval-by-message.md)):
+- **Buttons** decide through `ChannelActionService` (Reject/Change ask for the reason first).
+- **Written replies** are read only with a model, guarded deterministically and recorded only after the manager's exact YES.
+- **The signed link** reuses the request's single-use token on a portal page that needs sign-in as the intended manager; opening it changes nothing, and a POST with CSRF decides.
+- Every message decision is confirmed with what was recorded. Confirmation failures never undo a decision.
+- The reply evaluation set is [evals/manager_replies.jsonl](../../evals/manager_replies.jsonl).
