@@ -13,13 +13,25 @@ from quotation_app.application.lifecycle import (
     CostsNotAccepted,
 )
 from quotation_app.application.providers import ProviderRegistry
-from quotation_app.domain.connections import ConnectionStatus
+from quotation_app.domain.connections import (
+    Capabilities,
+    CatalogueCapabilities,
+    Connection,
+    ConnectionStatus,
+    Purpose,
+)
 from quotation_app.domain.intake import ConnectionUpdate
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.tenancy import PermissionDenied, Role, TenantContext
 from quotation_app.ports.connections import RouteTaken
 from quotation_app.ports.jobs import ClaimedJob
-from quotation_app.ports.providers import CostNote, PendingActionKind
+from quotation_app.ports.providers import (
+    CostNote,
+    PendingActionKind,
+    ProvisionResult,
+    ProvisionStatus,
+)
+from quotation_app.ports.secrets import SecretStore
 from tests.unit.conftest import MemoryConnections
 from tests.unit.one_click import TOOL, MemoryLifecycle, OneClickTool
 
@@ -203,3 +215,38 @@ def test_another_business_cannot_touch_the_connection(
     started = setup.service.enable(admin(industrial_tenant), TOOL, accept_costs=False)
     with pytest.raises(ConnectionNotFound):
         setup.service.disable(admin(office_tenant), started.connection.connection_id)
+
+
+class CopyingSource(OneClickTool):
+    """A product source enabled with one click that copies its catalogue (phase 6)."""
+
+    key = "copying_source"
+    display_name = "Copying source"
+    purposes = frozenset({Purpose.CATALOGUE, Purpose.ORDERS})
+    capabilities = Capabilities(self_service=True, catalogue=CatalogueCapabilities(sync=True))
+
+    def provision(self, conn: Connection, secrets: SecretStore) -> ProvisionResult:
+        return ProvisionResult(ProvisionStatus.READY, config={"sync_minutes": 15})
+
+
+def test_a_new_product_source_replaces_the_old_and_starts_its_first_copy(
+    now: datetime, industrial_tenant: UUID
+) -> None:
+    connections = MemoryConnections(now, industrial_tenant)
+    store = MemoryLifecycle(connections, now)
+    service = ConnectionLifecycle(
+        connections, store, ProviderRegistry([CopyingSource(now)]), InMemorySecretStore(),
+        clock=lambda: now,
+    )  # fmt: skip
+    outcome = service.enable(admin(industrial_tenant), "copying_source", accept_costs=False)
+    assert outcome.connection.active
+    [change] = store.changes
+    assert change.exclusive_purposes == ("catalogue", "orders")
+    [(kind, payload)] = change.jobs
+    assert kind == JobKind.SYNC_CATALOGUE.value
+    assert payload == {
+        "connection_id": str(outcome.connection.connection_id),
+        "trigger": "connected",
+    }
+    service.disable(admin(industrial_tenant), outcome.connection.connection_id)
+    assert store.changes[-1].restore_replaced is True

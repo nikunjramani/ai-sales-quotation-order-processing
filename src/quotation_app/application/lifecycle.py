@@ -26,9 +26,14 @@ from uuid import UUID
 
 from quotation_app.application.channel_actions import ConnectionNotFound
 from quotation_app.application.providers import ProviderRegistry
-from quotation_app.domain.connections import Connection, ConnectionStatus, validate_purposes
+from quotation_app.domain.connections import (
+    Connection,
+    ConnectionStatus,
+    Purpose,
+    validate_purposes,
+)
 from quotation_app.domain.intake import ConnectionUpdate
-from quotation_app.domain.jobs import PermanentJobError
+from quotation_app.domain.jobs import JobKind, PermanentJobError
 from quotation_app.domain.tenancy import Permission, TenantContext
 from quotation_app.ports.connections import (
     ConnectionChange,
@@ -250,6 +255,7 @@ class ConnectionLifecycle:
                 pending_action=None,
                 event_kind="deprovisioned",
                 remove_all_routes=True,
+                restore_replaced=True,
             ),
             context.subject,
         )
@@ -275,6 +281,7 @@ class ConnectionLifecycle:
         pending = result.pending if result.status is ProvisionStatus.NEEDS_ACTION else None
         if pending is not None and not _ACTION_ID.fullmatch(pending.action_id):
             raise ValueError("A pending step needs a short identifier")
+        becomes_active = status is ConnectionStatus.ACTIVE and not connection.active
         change = ConnectionChange(
             status=status,
             config=config,
@@ -286,6 +293,8 @@ class ConnectionLifecycle:
             remove_routes=result.remove_routes,
             poll_at=poll_at,
             detail={"result": result.status.value},
+            exclusive_purposes=_exclusive(connection) if status is ConnectionStatus.ACTIVE else (),
+            jobs=self._first_jobs(connection) if becomes_active else (),
         )
         try:
             self._store.apply(connection.tenant_id, connection.connection_id, change, actor)
@@ -297,6 +306,15 @@ class ConnectionLifecycle:
             self._secrets.delete(connection.tenant_id, reference)
         updated = self._load(connection.tenant_id, connection.connection_id)
         return EnableOutcome(updated, pending, _detail(updated))
+
+    def _first_jobs(self, connection: Connection) -> tuple[tuple[str, Mapping[str, str]], ...]:
+        """A product source that copies its catalogue starts with a first copy at once."""
+        provider = self._registry.find(connection.provider_key)
+        abilities = None if provider is None else provider.capabilities.catalogue
+        if Purpose.CATALOGUE not in connection.purposes or abilities is None or not abilities.sync:
+            return ()
+        payload = {"connection_id": str(connection.connection_id), "trigger": "connected"}
+        return ((JobKind.SYNC_CATALOGUE.value, payload),)
 
     def _own(self, context: TenantContext, connection_id: UUID) -> Connection:
         connection = self._connections.get(context.tenant_id, connection_id)
@@ -326,6 +344,15 @@ class ConnectionLifecycle:
             return action()
         except OperationUnsupported as error:
             raise ValueError(str(error) or "This tool cannot do that") from None
+
+
+# A business has one product source and one order destination (ADR 0023): enabling another
+# replaces the active one.
+EXCLUSIVE_PURPOSES = (Purpose.CATALOGUE, Purpose.ORDERS)
+
+
+def _exclusive(connection: Connection) -> tuple[str, ...]:
+    return tuple(item.value for item in EXCLUSIVE_PURPOSES if item in connection.purposes)
 
 
 def _status(result: ProvisionResult) -> tuple[ConnectionStatus, str | None]:

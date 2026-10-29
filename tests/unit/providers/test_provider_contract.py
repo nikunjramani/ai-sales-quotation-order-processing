@@ -110,6 +110,7 @@ class Sample:
     Platform-webhook providers (phase 5) sign with company-level secrets instead
     (platform_sign, platform_secrets). network: sending calls the tool's real API, so the
     send outcome mapping is tested in the package's own tests with recorded answers.
+    config and secret_refs: what an enabled connection of this provider holds (phase 6).
     """
 
     body: bytes
@@ -117,6 +118,8 @@ class Sample:
     platform_sign: Callable[[bytes, str], dict[str, str]] | None = None
     platform_secrets: dict[str, str] = field(default_factory=dict)
     network: bool = False
+    config: dict[str, object] = field(default_factory=dict)
+    secret_refs: dict[str, str] = field(default_factory=dict)
 
 
 class SampleSecrets(OneSecret):
@@ -176,6 +179,19 @@ SAMPLES: dict[str, Sample] = {
         },
         network=True,
     ),
+    "erpnext": Sample(
+        b"{}",
+        None,
+        network=True,
+        config={
+            "erpnext": {
+                "base_url": "https://erp.example",
+                "price_list": "Standard Selling",
+                "warehouses": ["Stores - EX"],
+            }
+        },
+        secret_refs={"api_key": "local:signing", "api_secret": "local:signing"},
+    ),
     "echo": Sample(
         json.dumps({"id": "evt-1", "from": "phone", "code": "X"}).encode(),
         _hmac_header("x-echo-signature"),
@@ -198,9 +214,11 @@ PROVIDERS = installed()
 
 
 def connection(provider: Provider, tenant_id: UUID = A) -> Connection:
+    sample = SAMPLES[provider.key]
     return Connection(
         uuid4(), tenant_id, provider.key, provider.display_name, provider.purposes,
-        {"catalogue": "industrial"}, {"signing_secret": "local:signing"}, "account-1",
+        {"catalogue": "industrial", **sample.config},
+        {"signing_secret": "local:signing", **sample.secret_refs}, "account-1",
         ConnectionStatus.ACTIVE, None, "test", NOW, NOW,
     )  # fmt: skip
 
