@@ -402,7 +402,7 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   7. Enabling a chat that lost its address (after a downgrade/upgrade) assigns a new one.
 - **Next:** the user reviews PR #9 (deviations above, open points of phase 3 still open); click through the portal and the demo in a browser; then ask every open question for phase 5 first.
 
-## Phase 5 provider framework and Telegram (in progress, branch `feat/phase-5-providers`)
+## Phase 5 provider framework and Telegram (implemented, branch `feat/phase-5-providers`, draft PR #10)
 - **User (2026-10-29):** "start working on phase 5, phase 4 has been merged". All open questions were asked in six rounds and the summary confirmed ("Yes, start"); see [phase 5 plan, user answers](plan/platform/implementation/phase-5-one-click-providers.md#user-answers-2026-10-29) and [07 decisions](plan/platform/07-decisions-needed.md) (D5, D9, D10).
 - **Scope (narrowed by the user):** the generic provider framework (platform webhooks, resume and pending actions, hosted provider pages, public media links, company-level provider settings, AI reading of manager replies with a "Yes" confirmation, signed approval link with sign-in, Enable cards and pending-action screens, Resend of failed customer messages, email parsing helpers) plus **Telegram** as the only real provider. No SendGrid, Twilio or Meta code. **No live accounts and no live run**: fixtures from the providers' documentation and fakes only.
 - One branch, one commit per work item, one draft PR at the end (user answer).
