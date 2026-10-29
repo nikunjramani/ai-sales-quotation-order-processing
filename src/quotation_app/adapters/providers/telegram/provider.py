@@ -107,7 +107,7 @@ class TelegramProvider(ProviderDefaults):
         manager_enrollment="deep_link",
         max_inbound_bytes=256 * 1024,
     )
-    platform_config_model = TelegramPlatformConfig
+    platform_config_model: type | None = TelegramPlatformConfig
 
     def __init__(self, http: httpx.Client | None = None) -> None:
         self._http = http
