@@ -1,0 +1,162 @@
+{
+  "_about": "Telegram Bot API updates written from the official documentation (https://core.telegram.org/bots/api), not recorded: phase 5 had no live accounts. Synthetic IDs only.",
+  "business_connection_enabled": {
+    "update_id": 1001,
+    "business_connection": {
+      "id": "bc-AAAA",
+      "user": {"id": 7001, "is_bot": false, "first_name": "Acme", "username": "acme_supplies"},
+      "user_chat_id": 7001,
+      "date": 1793000000,
+      "rights": {"can_reply": true, "can_read_messages": true},
+      "is_enabled": true
+    }
+  },
+  "business_connection_without_reply": {
+    "update_id": 1002,
+    "business_connection": {
+      "id": "bc-AAAA",
+      "user": {"id": 7001, "is_bot": false, "first_name": "Acme"},
+      "user_chat_id": 7001,
+      "date": 1793000100,
+      "can_reply": false,
+      "is_enabled": true
+    }
+  },
+  "customer_message": {
+    "update_id": 1003,
+    "business_message": {
+      "message_id": 41,
+      "business_connection_id": "bc-AAAA",
+      "from": {"id": 15005550101, "is_bot": false, "first_name": "Ravi"},
+      "chat": {"id": 15005550101, "type": "private", "first_name": "Ravi"},
+      "date": 1793000200,
+      "text": "Please quote 10 metre of 2-core cable"
+    }
+  },
+  "customer_photo_and_voice": {
+    "update_id": 1004,
+    "business_message": {
+      "message_id": 42,
+      "business_connection_id": "bc-AAAA",
+      "from": {"id": 15005550101, "is_bot": false, "first_name": "Ravi"},
+      "chat": {"id": 15005550101, "type": "private"},
+      "date": 1793000300,
+      "caption": "our parts list",
+      "photo": [
+        {"file_id": "photo-small", "file_unique_id": "u1", "width": 90, "height": 90, "file_size": 1200},
+        {"file_id": "photo-large", "file_unique_id": "u2", "width": 1280, "height": 960, "file_size": 98000}
+      ],
+      "voice": {"file_id": "voice-1", "file_unique_id": "u3", "duration": 4}
+    }
+  },
+  "owner_message": {
+    "update_id": 1005,
+    "business_message": {
+      "message_id": 43,
+      "business_connection_id": "bc-AAAA",
+      "from": {"id": 7001, "is_bot": false, "first_name": "Acme"},
+      "chat": {"id": 15005550101, "type": "private"},
+      "date": 1793000400,
+      "text": "We can deliver on Friday"
+    }
+  },
+  "our_own_business_message": {
+    "update_id": 1006,
+    "business_message": {
+      "message_id": 44,
+      "business_connection_id": "bc-AAAA",
+      "from": {"id": 7001, "is_bot": false, "first_name": "Acme"},
+      "sender_business_bot": {"id": 9000, "is_bot": true, "username": "quote_bot"},
+      "chat": {"id": 15005550101, "type": "private"},
+      "date": 1793000500,
+      "text": "Your quotation Q-1A2B3C4D is ready"
+    }
+  },
+  "edited_customer_message": {
+    "update_id": 1007,
+    "edited_business_message": {
+      "message_id": 41,
+      "business_connection_id": "bc-AAAA",
+      "from": {"id": 15005550101, "is_bot": false},
+      "chat": {"id": 15005550101, "type": "private"},
+      "date": 1793000200,
+      "edit_date": 1793000600,
+      "text": "Please quote 20 metre"
+    }
+  },
+  "link_code": {
+    "update_id": 1008,
+    "message": {
+      "message_id": 5,
+      "from": {"id": 7001, "is_bot": false, "first_name": "Acme"},
+      "chat": {"id": 7001, "type": "private"},
+      "date": 1793000700,
+      "text": "/link 0A1B2C3D4E"
+    }
+  },
+  "manager_start": {
+    "update_id": 1009,
+    "message": {
+      "message_id": 6,
+      "from": {"id": 8001, "is_bot": false, "first_name": "Priya"},
+      "chat": {"id": 8001, "type": "private"},
+      "date": 1793000800,
+      "text": "/start 1a2b3c4d_ABCDEF0123"
+    }
+  },
+  "manager_reply": {
+    "update_id": 1010,
+    "message": {
+      "message_id": 12,
+      "from": {"id": 8001, "is_bot": false},
+      "chat": {"id": 8001, "type": "private"},
+      "date": 1793000900,
+      "text": "approved",
+      "reply_to_message": {
+        "message_id": 11,
+        "from": {"id": 9000, "is_bot": true},
+        "chat": {"id": 8001, "type": "private"},
+        "date": 1793000850,
+        "text": "Demo Industrial Supplies: approval needed for quotation Q-1A2B3C4D version 1"
+      }
+    }
+  },
+  "manager_without_reply": {
+    "update_id": 1011,
+    "message": {
+      "message_id": 13,
+      "from": {"id": 8001, "is_bot": false},
+      "chat": {"id": 8001, "type": "private"},
+      "date": 1793001000,
+      "text": "hello?"
+    }
+  },
+  "manager_button": {
+    "update_id": 1012,
+    "callback_query": {
+      "id": "cb-1",
+      "from": {"id": 8001, "is_bot": false},
+      "message": {"message_id": 11, "chat": {"id": 8001, "type": "private"}, "date": 1793000850},
+      "chat_instance": "ci-1",
+      "data": "1a2b3c4d:a:token-abcdefghijklmnopqrstuvwxyz012"
+    }
+  },
+  "manager_yes_button": {
+    "update_id": 1013,
+    "callback_query": {
+      "id": "cb-2",
+      "from": {"id": 8001, "is_bot": false},
+      "chat_instance": "ci-1",
+      "data": "1a2b3c4d:y:token-yes"
+    }
+  },
+  "customer_accept_button": {
+    "update_id": 1014,
+    "callback_query": {
+      "id": "cb-3",
+      "from": {"id": 15005550101, "is_bot": false},
+      "chat_instance": "ci-2",
+      "data": "1a2b3c4d:ca:6f1c2a3b4c5d4e6f8a9b0c1d2e3f4a5b"
+    }
+  }
+}

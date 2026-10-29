@@ -71,6 +71,9 @@ class RenderedMessage:
     # sign-in) and a short-lived public link to the attachment for tools that fetch by URL.
     link: str | None = None
     attachment_url: str | None = None
+    # Who it is for: a customer, or a manager about an approval (one connection may serve
+    # both, e.g. customers through the business's account and managers through our bot).
+    purpose: Purpose = Purpose.CUSTOMER_MESSAGES
 
 
 class ReceiptKind(StrEnum):
@@ -252,6 +255,11 @@ class Provider(Protocol):
         self, conn: Connection, secrets: SecretStore, code: str
     ) -> EnrollmentHint: ...
 
+    def platform_setup(self, secrets: SecretStore, public_base_url: str) -> str:
+        """Company-level setup run once by an operator (e.g. register our platform webhook
+        URL with the tool); returns what was done. Uses only the platform secrets."""
+        ...
+
     # --- inbound -------------------------------------------------------------------------
     def handshake(
         self, conn: Connection | None, secrets: SecretStore, request: InboundRequest
@@ -324,6 +332,9 @@ class ProviderDefaults:
 
     def enrollment_hint(self, conn: Connection, secrets: SecretStore, code: str) -> EnrollmentHint:
         return EnrollmentHint(f"Send the code {code} from your own account within 10 minutes.")
+
+    def platform_setup(self, secrets: SecretStore, public_base_url: str) -> str:
+        raise OperationUnsupported("This tool needs no company-level setup")
 
     def handshake(
         self, conn: Connection | None, secrets: SecretStore, request: InboundRequest

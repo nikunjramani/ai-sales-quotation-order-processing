@@ -28,6 +28,7 @@ THIRD_PARTY = {
         "pydantic",
         "argon2",  # phase 2: password hashing
         "PIL",  # phase 2: logo checks and re-encoding
+        "httpx",  # phase 5: provider packages only (see the test below)
     },
     "workflows": {"langgraph", "langchain_core"},
 }
@@ -60,6 +61,17 @@ def test_layer_imports_respect_boundaries(layer: str) -> None:
             if not allowed:
                 violations.append(f"{path.relative_to(PACKAGE)} imports {name}")
     assert violations == []
+
+
+def test_http_clients_stay_inside_provider_packages() -> None:
+    """A tool's API is called only from its own package (phase 5)."""
+    outside = [
+        str(path.relative_to(PACKAGE))
+        for path in sorted(PACKAGE.rglob("*.py"))
+        if any(name.split(".")[0] == "httpx" for name in _imports(path))
+        and "providers" not in path.relative_to(PACKAGE).parts[:2]
+    ]
+    assert outside == []
 
 
 # Provider names may appear in core code only here (ADR 0018): everything else decides by

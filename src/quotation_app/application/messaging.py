@@ -182,6 +182,7 @@ class SendMessageHandler:
             attachment=preparation.attachment,
             link=preparation.link,
             attachment_url=preparation.attachment_url,
+            purpose=message.purpose,
         )
         try:
             receipt = provider.send(connection, self._secrets, rendered)
