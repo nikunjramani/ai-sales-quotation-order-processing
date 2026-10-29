@@ -25,6 +25,9 @@ export interface ThreadMessage {
   template_key: string | null;
   outbound_status: string | null;
   outbound_error: string | null;
+  /** Phase 5: our message's ID, and whether staff may send it again (failed, not resent). */
+  outbound_message_id?: string | null;
+  can_resend?: boolean;
 }
 
 export interface Identity {

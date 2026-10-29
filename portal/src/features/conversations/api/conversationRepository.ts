@@ -33,6 +33,12 @@ export const conversationRepository = {
       body: { into_contact_id: intoContactId },
     }),
 
+  /** A failed customer message sent again as a new message (phase 5). */
+  resend: (tenantId: string, messageId: string) =>
+    http<{ message_id: string }>(tenantPath(tenantId, `/messages/${id(messageId)}/resend`), {
+      method: "POST",
+    }),
+
   customerMessages: (tenantId: string) =>
     http<CustomerMessages>(tenantPath(tenantId, "/customer-messages")),
 

@@ -85,3 +85,13 @@ export function useCustomerMessages() {
   });
   return { query, save };
 }
+
+/** Send a failed customer message again; the conversation reloads to show the new one. */
+export function useResendMessage() {
+  const tenantId = useTenantId();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: string) => conversationRepository.resend(tenantId, messageId),
+    onSettled: () => client.invalidateQueries({ queryKey: conversationKeys.all(tenantId) }),
+  });
+}

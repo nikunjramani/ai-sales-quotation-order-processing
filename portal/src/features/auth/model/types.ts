@@ -44,4 +44,5 @@ export type Permission =
   | "catalogue:manage"
   | "conversations:view"
   | "contacts:details"
-  | "contacts:merge";
+  | "contacts:merge"
+  | "messages:resend";

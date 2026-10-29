@@ -14,7 +14,9 @@ export function HostedChatCard({ connections }: { connections: Connection[] }) {
   const chat = useHostedChat();
   const enabled = connections.filter((item) => item.chat !== null);
   const missing = (available.data ?? []).filter(
-    (tool) => !enabled.some((item) => item.provider_key === tool.provider_key),
+    (tool) =>
+      tool.kind === "hosted_chat" &&
+      !enabled.some((item) => item.provider_key === tool.provider_key),
   );
   return (
     <section className="card">
