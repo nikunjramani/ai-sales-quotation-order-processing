@@ -120,6 +120,7 @@ def upgrade() -> None:
         sa.Column("reason", sa.Text(), nullable=True),
         sa.Column("token_sha256", sa.String(64), nullable=True),
         sa.Column("outbound_message_id", sa.Uuid(), nullable=True),
+        sa.Column("inbox_event_id", sa.Uuid(), nullable=True),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("outcome", sa.String(32), nullable=True),
@@ -136,6 +137,12 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("token_sha256", name="uq_approval_reply_prompts_token"),
         sa.UniqueConstraint("outbound_message_id", name="uq_approval_reply_prompts_message"),
+        sa.ForeignKeyConstraint(
+            ["tenant_id", "inbox_event_id"],
+            ["inbox_events.tenant_id", "inbox_events.id"],
+            name="fk_approval_reply_prompts_event",
+        ),
+        sa.UniqueConstraint("inbox_event_id", name="uq_approval_reply_prompts_event"),
         sa.CheckConstraint("kind IN ('reason', 'confirm')", name="ck_approval_reply_prompts_kind"),
         sa.CheckConstraint(
             "action IN ('approve', 'reject', 'request_revision')",
@@ -300,6 +307,7 @@ def downgrade() -> None:
         op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
     op.execute("DELETE FROM jobs WHERE kind IN ('classify_manager_reply', 'poll_connection')")
     op.drop_table("manager_reply_classifications")
+    op.drop_table("approval_reply_prompts")
     op.execute(
         "DELETE FROM inbox_events WHERE event_type IN "
         "('manager_reply', 'customer_action', 'connection_update')"
@@ -322,7 +330,6 @@ def downgrade() -> None:
     )
     op.drop_column("connections", "pending_action")
     op.drop_table("media_links")
-    op.drop_table("approval_reply_prompts")
     op.drop_index("ix_outbound_messages_action_ref", table_name="outbound_messages")
     op.drop_constraint("fk_outbound_messages_resent_from", "outbound_messages", type_="foreignkey")
     op.drop_constraint("fk_outbound_messages_action_ref", "outbound_messages", type_="foreignkey")

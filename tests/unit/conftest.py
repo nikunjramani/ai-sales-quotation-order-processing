@@ -252,6 +252,7 @@ class MemoryQuotations:
     enrollments: dict[UUID, EnrollmentRow] = field(default_factory=dict)
     binding_enrollment: dict[UUID, UUID] = field(default_factory=dict)
     references: dict[UUID, ReferenceRow] = field(default_factory=dict)
+    message_references: dict[UUID, UUID] = field(default_factory=dict)  # message -> reference
     sessions: dict[str, SessionRecord] = field(default_factory=dict)
     # enquiry -> (channel, recipient) of whoever sent it; default: an API client.
     senders: dict[UUID, tuple[str, str]] = field(default_factory=dict)
@@ -564,6 +565,9 @@ class MemoryQuotations:
     def mark_sent(self, tenant_id: UUID, reference_id: UUID) -> None:
         self.references[reference_id].sent_at = self.clock()
 
+    def link_message(self, tenant_id: UUID, message_id: UUID, reference_id: UUID) -> None:
+        self.message_references[message_id] = reference_id
+
     # --- ChannelStore ---------------------------------------------------------------------
     def create_enrollment(
         self,
@@ -629,8 +633,18 @@ class MemoryQuotations:
     def find_reference(
         self, tenant_id: UUID, token_sha256: str
     ) -> tuple[ActionReference, ChannelBinding] | None:
+        return self._reference(tenant_id, lambda row: row.token_sha256 == token_sha256)
+
+    def get_reference(
+        self, tenant_id: UUID, reference_id: UUID
+    ) -> tuple[ActionReference, ChannelBinding] | None:
+        return self._reference(tenant_id, lambda row: row.reference_id == reference_id)
+
+    def _reference(
+        self, tenant_id: UUID, matches: Callable[[ReferenceRow], bool]
+    ) -> tuple[ActionReference, ChannelBinding] | None:
         for row in self.references.values():
-            if row.tenant_id == tenant_id and row.token_sha256 == token_sha256 and row.sent_at:
+            if row.tenant_id == tenant_id and matches(row) and row.sent_at:
                 task = self.tasks[row.task_id]
                 return (
                     ActionReference(

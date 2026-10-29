@@ -19,7 +19,7 @@ from quotation_app.application.providers import ProviderRegistry
 from quotation_app.domain.connections import Purpose
 from quotation_app.domain.quotations import ApprovalAction, DecisionCommand
 from quotation_app.domain.tenancy import Permission, TenantContext
-from quotation_app.ports.channels import ChannelBinding, ChannelStore
+from quotation_app.ports.channels import ActionReference, ChannelBinding, ChannelStore
 from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.providers import EnrollmentHint
 from quotation_app.ports.secrets import SecretStore
@@ -54,6 +54,9 @@ class ChannelEvent:
     reference: str | None = None  # action reference token from the review message
     action: ApprovalAction | None = None
     reason: str | None = None
+    # How the action was read, added to the decision's evidence (phase 5: "ai" when the AI
+    # read a written reply and the manager confirmed it with YES).
+    via: str | None = None
 
 
 @dataclass(frozen=True)
@@ -156,10 +159,30 @@ class ChannelActionService:
             return binding
         return self._decide(event)
 
-    def _decide(self, event: ChannelEvent) -> DecisionResult:
-        if not event.reference or event.action is None:
+    def check(self, event: ChannelEvent) -> tuple[ActionReference, ChannelBinding]:
+        """The request a button's token names, if this account may act on it now (phase 5:
+        a Reject/Change button first asks for the reason). Raises ChannelActionRejected."""
+        if not event.reference:
             raise ChannelActionRejected("Action not accepted")
         found = self._store.find_reference(event.tenant_id, hash_secret(event.reference))
+        return self._checked(event, found)
+
+    def decide_reference(self, event: ChannelEvent, reference_id: UUID) -> DecisionResult:
+        """Decide a request known by its ID (a reply to its message, a confirmed reading)
+        with exactly the same checks as a button press."""
+        if event.action is None:
+            raise ChannelActionRejected("Action not accepted")
+        found = self._store.get_reference(event.tenant_id, reference_id)
+        return self._record(event, *self._checked(event, found))
+
+    def _decide(self, event: ChannelEvent) -> DecisionResult:
+        if event.action is None:
+            raise ChannelActionRejected("Action not accepted")
+        return self._record(event, *self.check(event))
+
+    def _checked(
+        self, event: ChannelEvent, found: tuple[ActionReference, ChannelBinding] | None
+    ) -> tuple[ActionReference, ChannelBinding]:
         if found is None:
             raise ChannelActionRejected("Action not accepted")
         reference, binding = found
@@ -172,6 +195,16 @@ class ChannelActionService:
             or (reference.consumed_at is None and reference.expires_at <= now)
         ):
             raise ChannelActionRejected("Action not accepted")
+        return reference, binding
+
+    def _record(
+        self, event: ChannelEvent, reference: ActionReference, binding: ChannelBinding
+    ) -> DecisionResult:
+        assert event.action is not None
+        now = self._clock()
+        evidence = f"{event.channel}:{event.connection_id}:{event.event_id}"
+        if event.via:
+            evidence += f":{event.via}"
         # A consumed reference reaches the approval service only to return an exact replay
         # or a conflict: its task is no longer pending, so it can never create a new decision.
         command = DecisionCommand(
@@ -184,7 +217,7 @@ class ChannelActionService:
             action=event.action,
             reason=event.reason,
             transport=event.channel,
-            evidence_ref=f"{event.channel}:{event.connection_id}:{event.event_id}"[:300],
+            evidence_ref=evidence[:300],
             received_at=now,
         )
         return self._approvals.decide(binding.subject, command, reference.reference_id)

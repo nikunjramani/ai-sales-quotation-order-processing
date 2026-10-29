@@ -1553,6 +1553,12 @@ class ApprovalReplyPrompt(Base):
         ),
         UniqueConstraint("token_sha256", name="uq_approval_reply_prompts_token"),
         UniqueConstraint("outbound_message_id", name="uq_approval_reply_prompts_message"),
+        ForeignKeyConstraint(
+            ["tenant_id", "inbox_event_id"],
+            ["inbox_events.tenant_id", "inbox_events.id"],
+            name="fk_approval_reply_prompts_event",
+        ),
+        UniqueConstraint("inbox_event_id", name="uq_approval_reply_prompts_event"),
         CheckConstraint("kind IN ('reason', 'confirm')", name="ck_approval_reply_prompts_kind"),
         CheckConstraint(
             "action IN ('approve', 'reject', 'request_revision')",
@@ -1581,6 +1587,7 @@ class ApprovalReplyPrompt(Base):
     reason: Mapped[str | None] = mapped_column(Text)
     token_sha256: Mapped[str | None] = mapped_column(String(64))
     outbound_message_id: Mapped[UUID | None] = mapped_column()
+    inbox_event_id: Mapped[UUID | None] = mapped_column()  # the reply that led to it
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     outcome: Mapped[str | None] = mapped_column(String(32))

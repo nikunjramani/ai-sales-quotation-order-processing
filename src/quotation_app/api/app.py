@@ -17,6 +17,7 @@ from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.identity.dev import DevIdentityProvider
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.accounts import build_account_router
+from quotation_app.api.approval_links import build_approval_link_router
 from quotation_app.api.auth import PortalAuth, SessionView, build_auth_router
 from quotation_app.api.business import build_business_router
 from quotation_app.api.catalogue import build_catalogue_router
@@ -39,6 +40,7 @@ from quotation_app.application.accounts import (
     SignupService,
 )
 from quotation_app.application.api_keys import ApiKeyAuthenticator
+from quotation_app.application.approval_links import ApprovalLinkService
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_admin import ProductService
 from quotation_app.application.channel_actions import ChannelActionService
@@ -74,7 +76,7 @@ from quotation_app.persistence.accounts import (
 )
 from quotation_app.persistence.api_keys import SqlApiKeyAdminStore, SqlApiKeyReader
 from quotation_app.persistence.catalogue import SqlCatalogueStore
-from quotation_app.persistence.channels import SqlChannelStore
+from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.chat import SqlChatStore
 from quotation_app.persistence.connections import (
     SqlConnectionStore,
@@ -91,6 +93,7 @@ from quotation_app.persistence.database import build_engine, database_ready
 from quotation_app.persistence.documents import SqlDeliveryStore, SqlDocumentReader
 from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlEnquiryListReader, SqlIntakeStore
+from quotation_app.persistence.manager_replies import SqlApprovalLinks, SqlReplyStore
 from quotation_app.persistence.media import SqlMediaLinks
 from quotation_app.persistence.messages import SqlMessageOutbox
 from quotation_app.persistence.provider_state import (
@@ -259,6 +262,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     app.include_router(build_catalogue_router(auth, products))
+    # The signed approval link page (phase 5, P5-14): sign-in, then one click.
+    app.include_router(
+        build_approval_link_router(
+            auth,
+            ApprovalLinkService(
+                SqlApprovalLinks(engine),
+                SqlReplyStore(engine),
+                SqlNotificationStore(engine),
+                approvals,
+            ),
+        )
+    )
     base_url = (configuration.public_base_url or DEV_PUBLIC_BASE_URL).rstrip("/")
     app.include_router(
         build_connection_router(

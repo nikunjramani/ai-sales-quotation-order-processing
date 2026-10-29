@@ -71,6 +71,14 @@ class TemplateKey(StrEnum):
     QUOTATION_EXPIRED = "quotation_expired"
     OPTED_OUT = "opted_out"
     OPTED_IN = "opted_in"  # START confirmation (asked mid-work, 2026-10-28)
+    # Phase 5: approval by message (D10). To linked managers, about one approval request.
+    APPROVAL_CONFIRM = "approval_confirm"  # "You want to approve ...? YES / NO" (P5-13)
+    APPROVAL_REASON = "approval_reason"  # after a Reject/Change button: "reply with the reason"
+    APPROVAL_CLARIFY = "approval_clarify"  # the reply was not clear (D10 rule 3)
+    APPROVAL_RECORDED = "approval_recorded"  # what was recorded (D10 rule 4)
+    APPROVAL_CANCELLED = "approval_cancelled"  # the manager answered NO
+    APPROVAL_STATE = "approval_state"  # already decided, changed or expired
+    APPROVAL_HELP = "approval_help"  # no reply-to, or written replies are not read
 
 
 ACCOUNT_TEMPLATES: Mapping[AccountEmailPurpose, TemplateKey] = {
@@ -152,6 +160,8 @@ def render_template(key: TemplateKey, params: Mapping[str, object]) -> Rendered:
         return Rendered(f"We need a bit more information:\n{lines}", {})
     if key in CUSTOMER_WORDING:
         return _customer_message(key, params)
+    if key in MANAGER_WORDING:
+        return _manager_message(key, params)
     raise ValueError(f"Unknown template {key}")
 
 
@@ -183,6 +193,64 @@ CUSTOMER_WORDING: Mapping[TemplateKey, str] = {
     TemplateKey.OPTED_IN: "You will receive messages from {business} again.",
 }
 CUSTOMER_TEMPLATES = frozenset(CUSTOMER_WORDING) | {TemplateKey.CLARIFICATION_QUESTIONS}
+
+
+# Fixed manager wording for approval by message (phase 5, plan section 7.2 as confirmed).
+# Each template has variants chosen by params["variant"]: the action (approve, reject,
+# request_revision) or the state. {number} and {version} name the one request; {business}
+# starts every message because one bot may serve managers of several businesses.
+MANAGER_WORDING: Mapping[TemplateKey, Mapping[str, str]] = {
+    TemplateKey.APPROVAL_CONFIRM: {
+        "approve": "{business}: you want to approve quotation {number} version {version}? "
+        "Reply YES to record it or NO to cancel.",
+        "reject": "{business}: you want to reject quotation {number} version {version} "
+        'with the reason "{reason}"? Reply YES to record it or NO to cancel.',
+        "request_revision": "{business}: you want to request a revision of quotation "
+        '{number} version {version}: "{reason}"? Reply YES to record it or NO to cancel.',
+    },
+    TemplateKey.APPROVAL_REASON: {
+        "reject": "{business}: reply to this message with the reason for rejecting "
+        "quotation {number} version {version}.",
+        "request_revision": "{business}: reply to this message with what should change in "
+        "quotation {number} version {version}.",
+    },
+    TemplateKey.APPROVAL_CLARIFY: {
+        "unclear": "{business}: do you want to approve, reject or request a revision of "
+        "quotation {number} version {version}? Reply to this message with APPROVE, REJECT "
+        "and the reason, or CHANGE and what to change.",
+    },
+    TemplateKey.APPROVAL_RECORDED: {
+        "approve": "{business}: approved quotation {number} version {version}, total {total} "
+        "{currency}.",
+        "reject": "{business}: rejected quotation {number} version {version}. Reason: {reason}",
+        "request_revision": "{business}: revision requested for quotation {number} version "
+        "{version}: {reason}",
+    },
+    TemplateKey.APPROVAL_CANCELLED: {
+        "cancelled": "{business}: nothing was recorded for quotation {number} version {version}.",
+    },
+    TemplateKey.APPROVAL_STATE: {
+        "decided": "{business}: quotation {number} version {version} was already {state}.",
+        "changed": "{business}: quotation {number} has changed; you will get the new version "
+        "to review.",
+        "expired": "{business}: this approval request for quotation {number} has expired. "
+        "Please decide in the portal.",
+    },
+    TemplateKey.APPROVAL_HELP: {
+        "reply_to": "To answer an approval request, reply to its message (tap and hold it, "
+        "then Reply) or use its buttons.",
+        "not_read": "{business}: written replies are not read here. Please use the buttons "
+        "on the approval message or open its link.",
+    },
+}
+MANAGER_TEMPLATES = frozenset(MANAGER_WORDING)
+
+
+def _manager_message(key: TemplateKey, params: Mapping[str, object]) -> Rendered:
+    values = {name: _single_line(str(value)) for name, value in params.items()}
+    wording = MANAGER_WORDING[key][values["variant"]]
+    metadata = {name: values[name] for name in ("number", "version") if name in values}
+    return Rendered(wording.format_map(_Strict(values)), metadata)
 
 
 def format_valid_until(moment: datetime) -> str:

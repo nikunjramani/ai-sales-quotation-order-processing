@@ -63,6 +63,10 @@ class NotificationStore(Protocol):
 
     def mark_sent(self, tenant_id: UUID, reference_id: UUID) -> None: ...
 
+    def link_message(self, tenant_id: UUID, message_id: UUID, reference_id: UUID) -> None:
+        """The review message carries this reference (phase 5: replies to it find it)."""
+        ...
+
 
 class ChannelStore(Protocol):
     def create_enrollment(
@@ -96,6 +100,12 @@ class ChannelStore(Protocol):
     def find_reference(
         self, tenant_id: UUID, token_sha256: str
     ) -> tuple[ActionReference, ChannelBinding] | None: ...
+
+    def get_reference(
+        self, tenant_id: UUID, reference_id: UUID
+    ) -> tuple[ActionReference, ChannelBinding] | None:
+        """The same, by the reference's ID (phase 5: a reply names the request it answers)."""
+        ...
 
     def bindings_for(self, tenant_id: UUID, subject: str | None) -> list[ChannelBinding]:
         """A subject's bindings, or all of the tenant's bindings when subject is None."""

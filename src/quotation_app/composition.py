@@ -39,6 +39,10 @@ from quotation_app.application.inbound import (
 )
 from quotation_app.application.jobs import JobHandler, PauseWhileSuspended
 from quotation_app.application.lifecycle import ConnectionLifecycle
+from quotation_app.application.manager_replies import (
+    ApprovalPromptHook,
+    ManagerReplyService,
+)
 from quotation_app.application.media import MediaLinkHook
 from quotation_app.application.messaging import OutboundService, SendMessageHandler
 from quotation_app.application.notifications import (
@@ -65,6 +69,7 @@ from quotation_app.persistence.customer_actions import SqlCustomerActionStore
 from quotation_app.persistence.documents import SqlDeliveryStore
 from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlPreparationStore
+from quotation_app.persistence.manager_replies import SqlReplyStore
 from quotation_app.persistence.media import SqlMediaLinks
 from quotation_app.persistence.messages import SqlMessageOutbox
 from quotation_app.persistence.provider_state import SqlConnectionLifecycle, SqlRouteWriter
@@ -76,6 +81,7 @@ from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.interpretation import EnquiryInterpreter
 from quotation_app.ports.messages import SendHook
 from quotation_app.ports.providers import ProviderEnvironment
+from quotation_app.ports.reply_classification import ReplyClassifier
 from quotation_app.ports.secrets import SecretStore, SecretStoreEnvironment
 from quotation_app.ports.workflow import ReadingCap
 from quotation_app.workflows.enquiry import (
@@ -233,10 +239,12 @@ def build_job_handlers(
     checkpointer: BaseCheckpointSaver[str],
     interpreter: EnquiryInterpreter,
     catalogue: ErpReader | None = None,
+    reply_classifier: ReplyClassifier | None = None,
 ) -> dict[JobKind, JobHandler]:
     """Every job the worker runs, wired to the worker-role engine.
 
     `catalogue` defaults to each business's own source; tests may pass a fixed reader.
+    `reply_classifier` reads managers' written replies (None: they are not read, P5-5).
     """
     if catalogue is None:
         catalogue = build_catalogue(engine, runtime)
@@ -281,7 +289,9 @@ def build_job_handlers(
             settings.public_base_url or DEV_PUBLIC_BASE_URL,
         ),
     )
-    send_hooks[TemplateKey.APPROVAL_REQUEST] = ApprovalRequestHook(notifications)
+    send_hooks[TemplateKey.APPROVAL_REQUEST] = ApprovalRequestHook(
+        notifications, portal_url=settings.portal_url
+    )
     send_hooks[TemplateKey.QUOTATION_DOCUMENT] = document_hook
     quotations = QuotationJobHandler(
         build_quotation_graph(
@@ -293,6 +303,26 @@ def build_job_handlers(
         SqlApprovalStore(engine), TenantContextResolver(SqlMembershipReader(engine))
     )
     statuses = SqlBusinessStore(engine)
+    channel_actions = ChannelActionService(
+        SqlChannelStore(engine),
+        approvals,
+        connections,
+        runtime.registry,
+        secrets=runtime.secrets,
+    )
+    # Approval by message (D10, phase 5): buttons, written replies and confirmations.
+    reply_store = SqlReplyStore(engine)
+    replies = ManagerReplyService(
+        reply_store,
+        channel_actions,
+        outbound,
+        connections,
+        SqlInboundStore(engine),
+        reply_classifier,
+    )
+    prompt_hook = ApprovalPromptHook(reply_store)
+    send_hooks[TemplateKey.APPROVAL_CONFIRM] = prompt_hook
+    send_hooks[TemplateKey.APPROVAL_REASON] = prompt_hook
     lifecycle = ConnectionLifecycle(
         connections, SqlConnectionLifecycle(engine), runtime.registry, runtime.secrets
     )
@@ -343,13 +373,7 @@ def build_job_handlers(
         JobKind.PROCESS_INBOUND: ProcessInboundHandler(
             SqlInboundStore(engine),
             routes_for(
-                ChannelActionService(
-                    SqlChannelStore(engine),
-                    approvals,
-                    connections,
-                    runtime.registry,
-                    secrets=runtime.secrets,
-                ),
+                channel_actions,
                 ConsentRoute(targets, customers),
                 staff=StaffMessageRoute(SqlStaffMessages(engine)),
                 customer_actions=CustomerActionRoute(
@@ -360,9 +384,11 @@ def build_job_handlers(
                     ),
                 ),
                 setup=ConnectionUpdateRoute(lifecycle),
+                replies=replies,
             ),
         ),
         JobKind.POLL_CONNECTION: lifecycle.poll,
+        JobKind.CLASSIFY_MANAGER_REPLY: replies.classify,
     }
     # A suspended business's jobs wait instead of running (phase 2, Q13).
     return {kind: PauseWhileSuspended(handler, statuses) for kind, handler in handlers.items()}

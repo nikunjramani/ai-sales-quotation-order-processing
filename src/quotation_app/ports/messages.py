@@ -25,6 +25,8 @@ class MessageLinks:
     delivery_id: UUID | None = None  # the quotation_deliveries row this message carries out
     # A message to a customer is also a row of their conversation (phase 4).
     conversation_id: UUID | None = None
+    # A message to a manager about one approval request (phase 5): a reply to it finds it.
+    action_ref_id: UUID | None = None
 
 
 @dataclass(frozen=True)

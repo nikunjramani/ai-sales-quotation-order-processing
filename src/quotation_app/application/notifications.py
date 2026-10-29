@@ -88,10 +88,12 @@ class ApprovalRequestHook:
         store: NotificationStore,
         clock: Callable[[], datetime] = utc_now,
         token_factory: Callable[[], str] = new_action_token,
+        portal_url: str | None = None,
     ) -> None:
         self._store = store
         self._clock = clock
         self._token_factory = token_factory
+        self._portal = None if portal_url is None else portal_url.rstrip("/")
 
     def before_send(self, message: OutboundMessage) -> SendPreparation:
         task_id, binding_id = message.approval_task_id, message.binding_id
@@ -106,11 +108,16 @@ class ApprovalRequestHook:
         )
         if reference_id is None:
             return SendPreparation(already_sent=True)
+        self._store.link_message(message.tenant_id, message.message_id, reference_id)
+        # The signed link (phase 5): the same single-use token, on a portal page that needs
+        # sign-in as this manager (P5-14).
+        link = None if self._portal is None else f"{self._portal}/approve/{token}"
         return SendPreparation(
             action_reference=token,
             expires_at=expires_at,
             actions=APPROVAL_ACTIONS,
             context={"reference_id": str(reference_id)},
+            link=link,
         )
 
     def after_send(

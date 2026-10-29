@@ -77,9 +77,10 @@ def test_review_and_notice_files_match_the_old_notifier(tmp_path: Path) -> None:
     assert receipt.kind is ReceiptKind.SENT
     path = tmp_path / str(TENANT) / "manager_phone" / f"{TASK}.json"
     data = json.loads(path.read_text(encoding="utf-8"))
+    # The old keys stay; phase 5 adds message_id (a reply names it) and the signed link.
     assert list(data) == [
-        "tenant_id", "connection_id", "to", "task_id", "quotation", "version", "text",
-        "actions", "action_reference", "expires_at",
+        "tenant_id", "connection_id", "to", "message_id", "task_id", "quotation", "version",
+        "text", "actions", "action_reference", "expires_at", "link",
     ]  # fmt: skip
     assert (data["connection_id"], data["version"], data["expires_at"]) == (
         "simulated-local", 3, "2026-10-28T00:00:00+00:00",
@@ -87,8 +88,14 @@ def test_review_and_notice_files_match_the_old_notifier(tmp_path: Path) -> None:
     provider.send(connection(), OneSecret(), message(notice_id=NOTICE))
     notice = json.loads((path.parent / f"notice-{NOTICE}.json").read_text(encoding="utf-8"))
     assert list(notice) == ["tenant_id", "connection_id", "to", "notice_id", "text"]
+    # Phase 5: questions and confirmations about a request are files of their own.
+    question = message(quotation="Q-1")
+    provider.send(connection(), OneSecret(), question)
+    asked = path.parent / f"message-{question.message_id}.json"
+    assert json.loads(asked.read_text(encoding="utf-8"))["message_id"] == str(question.message_id)
+    review_without_token = RenderedMessage(uuid4(), "k", "manager/phone", "x", {"task_id": TASK})
     with pytest.raises(SendRejected):
-        provider.send(connection(), OneSecret(), message(quotation="Q-1"))
+        provider.send(connection(), OneSecret(), review_without_token)
 
 
 def test_signatures_use_the_connections_own_secret() -> None:

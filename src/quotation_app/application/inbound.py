@@ -33,7 +33,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID, uuid4
 
 from quotation_app.application.approvals import DecisionResult
@@ -66,6 +66,7 @@ from quotation_app.domain.intake import (
     InboundEvent,
     InboundEventType,
     ManagerAction,
+    ManagerReply,
     event_type,
     validate_event,
 )
@@ -96,6 +97,9 @@ from quotation_app.ports.providers import (
     Provider,
 )
 from quotation_app.ports.secrets import SecretStore
+
+if TYPE_CHECKING:
+    from quotation_app.application.manager_replies import ManagerReplyService
 
 logger = logging.getLogger(__name__)
 _DUMMY_HASH = "0" * 64
@@ -281,10 +285,17 @@ class InboundRoute(Protocol):
 
 
 class ManagerActionRoute:
-    """Enrollment codes and approval decisions from a linked manager account."""
+    """Enrollment codes and approval decisions from a linked manager account.
 
-    def __init__(self, actions: ChannelActionService) -> None:
+    With a ManagerReplyService (the worker, phase 5) decision and Yes/No buttons go through it:
+    Reject/Change first ask for the reason, and every decision is confirmed to the manager.
+    """
+
+    def __init__(
+        self, actions: ChannelActionService, replies: "ManagerReplyService | None" = None
+    ) -> None:
         self._actions = actions
+        self._replies = replies
 
     def handle(
         self, connection: Connection, action: ManagerAction
@@ -312,6 +323,8 @@ class ManagerActionRoute:
 
     def __call__(self, connection: Connection, event: InboundEvent, inbox_event_id: UUID) -> str:
         assert isinstance(event, ManagerAction)
+        if self._replies is not None and event.kind in ("decision", "confirm"):
+            return self._replies.on_button(connection, event, inbox_event_id)
         try:
             result = self.handle(connection, event)
         except (ChannelActionRejected, AuthorizationError, TaskNotFound, ValueError):
@@ -448,6 +461,17 @@ class CustomerActionRoute:
         return "replayed" if replayed else action.value
 
 
+class ManagerReplyRoute:
+    """A linked manager's written reply (D10): see application/manager_replies.py."""
+
+    def __init__(self, replies: "ManagerReplyService") -> None:
+        self._replies = replies
+
+    def __call__(self, connection: Connection, event: InboundEvent, inbox_event_id: UUID) -> str:
+        assert isinstance(event, ManagerReply)
+        return self._replies.on_reply(connection, event, inbox_event_id)
+
+
 class ConnectionUpdateRoute:
     """A setup event the tool sent (the business linked its account, switched us off...)."""
 
@@ -469,20 +493,20 @@ def routes_for(
     staff: StaffMessageRoute | None = None,
     customer_actions: CustomerActionRoute | None = None,
     setup: ConnectionUpdateRoute | None = None,
-    replies: InboundRoute | None = None,
+    replies: "ManagerReplyService | None" = None,
 ) -> Mapping[InboundEventType, InboundRoute]:
     """Manager actions (phase 1), consent changes (phase 4); phase 5 adds the business's own
     messages, customer buttons, setup events and written manager replies. Customer messages
     themselves are taken at once by the CustomerInbox (and the API and website chat)."""
     routes: dict[InboundEventType, InboundRoute] = {
-        InboundEventType.MANAGER_ACTION: ManagerActionRoute(actions)
+        InboundEventType.MANAGER_ACTION: ManagerActionRoute(actions, replies)
     }
     optional: dict[InboundEventType, InboundRoute | None] = {
         InboundEventType.CONSENT_CHANGE: consent,
         InboundEventType.CUSTOMER_MESSAGE: staff,
         InboundEventType.CUSTOMER_ACTION: customer_actions,
         InboundEventType.CONNECTION_UPDATE: setup,
-        InboundEventType.MANAGER_REPLY: replies,
+        InboundEventType.MANAGER_REPLY: None if replies is None else ManagerReplyRoute(replies),
     }
     routes.update({kind: route for kind, route in optional.items() if route is not None})
     return routes

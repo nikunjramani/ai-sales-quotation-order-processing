@@ -27,6 +27,7 @@ from quotation_app.domain.jobs import PermanentJobError
 from quotation_app.domain.messages import (
     CUSTOMER_TEMPLATES,
     FINAL_MESSAGE_STATUSES,
+    MANAGER_TEMPLATES,
     MessageStatus,
     OutboundMessage,
     TemplateKey,
@@ -61,6 +62,7 @@ _PURPOSE = {
     TemplateKey.RESPONSE_NOTICE: Purpose.MANAGER_APPROVALS,
     TemplateKey.QUOTATION_DOCUMENT: Purpose.CUSTOMER_MESSAGES,
     **{template: Purpose.CUSTOMER_MESSAGES for template in CUSTOMER_TEMPLATES},
+    **{template: Purpose.MANAGER_APPROVALS for template in MANAGER_TEMPLATES},
 }
 
 

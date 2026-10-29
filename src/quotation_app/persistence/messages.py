@@ -139,6 +139,7 @@ class SqlMessageOutbox:
                     enquiry_id=links.enquiry_id,
                     response_id=links.response_id,
                     correlation_id=message.correlation_id,
+                    action_ref_id=links.action_ref_id,
                 )
                 .on_conflict_do_nothing(constraint="uq_outbound_messages_idempotency")
                 .returning(OutboundMessageRow.id)
