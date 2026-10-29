@@ -81,6 +81,7 @@ class IntakeStore(Protocol):
         payload_sha256: str,
         enquiry_id: UUID,
         router: EnquiryRouter | None = None,
+        hold_for_review: bool = False,
     ) -> tuple[Receipt, bool]:
         """Atomically store the inbox event, the conversation message and its attachments, and
         either continue an open enquiry or create one (enquiry_id) with its preparation job.
@@ -89,6 +90,9 @@ class IntakeStore(Protocol):
         first contact; the conversation row is locked while router decides, so one customer's
         messages are routed one at a time. Without a sender, or without a router, the message
         always starts a new enquiry (Q5).
+
+        hold_for_review (a sender over its message limits, phase 5): the enquiry goes to
+        needs_review after preparation instead of being read, and no acknowledgement is sent.
 
         Returns (receipt, created). If another request already recorded the same provider event,
         nothing is written and the existing receipt is returned with created=False.

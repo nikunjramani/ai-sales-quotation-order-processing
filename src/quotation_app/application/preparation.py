@@ -55,7 +55,10 @@ class EnquiryPreparationHandler:
                     job.require_tenant(), attachment.attachment_id, attachment.declared_content_type
                 )
             all_clean = all_clean and status is AttachmentStatus.CLEAN
-        final = EnquiryStatus.READY_FOR_EXTRACTION if all_clean else EnquiryStatus.NEEDS_REVIEW
+        # "hold": the sender was over its message limits (phase 5); staff read it instead.
+        held = job.payload.get("hold") == "true"
+        ready = all_clean and not held
+        final = EnquiryStatus.READY_FOR_EXTRACTION if ready else EnquiryStatus.NEEDS_REVIEW
         self._store.finish_preparation(job.require_tenant(), enquiry_id, final, job.correlation_id)
 
     def _inspect(

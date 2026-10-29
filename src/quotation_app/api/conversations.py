@@ -7,6 +7,8 @@ GET  /api/v1/tenants/{t}/contacts?q=                   contacts (viewers: masked
 GET  /api/v1/tenants/{t}/contacts/{id}                 identities, enquiries, merge suggestions
 POST /api/v1/tenants/{t}/contacts/{id}/merge           {into_contact_id}; no undo (D13)
 GET|PUT /api/v1/tenants/{t}/customer-messages          {acknowledge_enquiries} (D14)
+POST /api/v1/tenants/{t}/messages/{id}/resend          a failed customer message again, as a
+                                                       new message (phase 5); 404 otherwise
 """
 
 from collections.abc import Callable
@@ -20,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from quotation_app.api.auth import PortalAuth
 from quotation_app.application.contacts import ContactNotFound, ContactService
+from quotation_app.application.resend import MessageNotResendable, ResendService
 from quotation_app.domain.tenancy import PermissionDenied, TenantContext
 from quotation_app.ports.contacts import (
     ContactEnquiry,
@@ -55,6 +58,12 @@ class MessageOut(BaseModel):
     template_key: str | None
     outbound_status: str | None
     outbound_error: str | None
+    outbound_message_id: UUID | None = None
+    can_resend: bool = False  # a failed customer message not resent yet (phase 5)
+
+
+class ResentOut(BaseModel):
+    message_id: UUID
 
 
 class IdentityOut(BaseModel):
@@ -115,7 +124,13 @@ def _conversation(item: ConversationSummary) -> ConversationOut:
 
 
 def _message(item: ThreadEntry) -> MessageOut:
-    return MessageOut(**vars(item))
+    values = vars(item)
+    return MessageOut(
+        **{name: value for name, value in values.items() if name in MessageOut.model_fields},
+        can_resend=item.outbound_status == "failed"
+        and item.outbound_purpose == "customer_messages"
+        and not item.resent,
+    )
 
 
 def _identity(item: IdentityView) -> IdentityOut:
@@ -130,7 +145,9 @@ def _enquiry(item: ContactEnquiry) -> ContactEnquiryOut:
     return ContactEnquiryOut(**vars(item))
 
 
-def build_conversation_router(auth: PortalAuth, contacts: ContactService) -> APIRouter:
+def build_conversation_router(
+    auth: PortalAuth, contacts: ContactService, resend: ResendService | None = None
+) -> APIRouter:
     router = APIRouter(prefix="/api/v1/tenants/{tenant_id}", tags=["portal conversations"])
     Context = Annotated[TenantContext, Depends(auth.tenant_context())]
 
@@ -139,7 +156,7 @@ def build_conversation_router(auth: PortalAuth, contacts: ContactService) -> API
             return action()
         except PermissionDenied as error:
             raise HTTPException(status.HTTP_403_FORBIDDEN, str(error) or "Not permitted") from None
-        except ContactNotFound:
+        except (ContactNotFound, MessageNotResendable):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found") from None
         except SQLAlchemyError:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Try again later") from None
@@ -201,5 +218,16 @@ def build_conversation_router(auth: PortalAuth, contacts: ContactService) -> API
     def set_customer_messages(body: CustomerMessagesIO, context: Context) -> CustomerMessagesIO:
         guarded(lambda: contacts.set_acknowledge_enquiries(context, body.acknowledge_enquiries))
         return body
+
+    @router.post(
+        "/messages/{message_id}/resend",
+        response_model=ResentOut,
+        status_code=status.HTTP_201_CREATED,
+        responses={403: {}, 404: {}},
+    )
+    def resend_message(message_id: UUID, context: Context) -> ResentOut:
+        if resend is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+        return ResentOut(message_id=guarded(lambda: resend.resend(context, message_id)))
 
     return router

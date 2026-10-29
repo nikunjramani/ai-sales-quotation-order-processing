@@ -265,6 +265,8 @@ def upgrade() -> None:
     op.execute("GRANT SELECT, INSERT ON media_links TO quotation_worker")
     op.execute("GRANT SELECT ON media_links TO quotation_app")
     op.execute("GRANT INSERT ON outbound_messages TO quotation_app")
+    # Resend points a failed quotation delivery at its new message.
+    op.execute("GRANT UPDATE (outbound_message_id) ON quotation_deliveries TO quotation_app")
     op.execute("GRANT UPDATE (action_ref_id) ON outbound_messages TO quotation_worker")
     op.execute(
         f"GRANT INSERT ({_APP_CONNECTION_INSERT_NEW}), UPDATE ({_CONNECTION_STATE}) "
@@ -272,9 +274,16 @@ def upgrade() -> None:
     )
     op.execute(f"GRANT UPDATE ({_CONNECTION_STATE}) ON connections TO quotation_worker")
     op.execute("GRANT INSERT ON connection_events TO quotation_worker")
+    # Customer Accept/Decline pressed in a webhook tool is answered in the worker.
+    op.execute(
+        "GRANT UPDATE (consumed_at, response_id) ON customer_action_refs TO quotation_worker"
+    )
 
 
 def downgrade() -> None:
+    op.execute(
+        "REVOKE UPDATE (consumed_at, response_id) ON customer_action_refs FROM quotation_worker"
+    )
     op.execute("REVOKE INSERT ON connection_events FROM quotation_worker")
     op.execute("REVOKE UPDATE ON connections FROM quotation_worker")
     op.execute("REVOKE INSERT, UPDATE ON connections FROM quotation_app")
@@ -284,6 +293,7 @@ def downgrade() -> None:
     )
     op.execute("REVOKE UPDATE (action_ref_id) ON outbound_messages FROM quotation_worker")
     op.execute("REVOKE INSERT ON outbound_messages FROM quotation_app")
+    op.execute("REVOKE UPDATE (outbound_message_id) ON quotation_deliveries FROM quotation_app")
     op.execute("DROP POLICY approval_link_lookup ON approval_action_refs")
 
     for table in ("inbox_events", "jobs", "connection_events"):

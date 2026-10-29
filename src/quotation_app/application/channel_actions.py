@@ -21,6 +21,8 @@ from quotation_app.domain.quotations import ApprovalAction, DecisionCommand
 from quotation_app.domain.tenancy import Permission, TenantContext
 from quotation_app.ports.channels import ChannelBinding, ChannelStore
 from quotation_app.ports.connections import ConnectionStore
+from quotation_app.ports.providers import EnrollmentHint
+from quotation_app.ports.secrets import SecretStore
 
 ENROLLMENT_LIFETIME = timedelta(minutes=10)
 
@@ -60,6 +62,7 @@ class NewEnrollment:
     expires_at: datetime
     provider_key: str
     connection_id: UUID | None  # set: the code works only on that connection
+    hint: EnrollmentHint | None = None  # how to send it, in the tool's words (phase 5)
 
 
 class ConnectionNotFound(Exception):
@@ -74,12 +77,14 @@ class ChannelActionService:
         connections: ConnectionStore,
         registry: ProviderRegistry,
         clock: Callable[[], datetime] = utc_now,
+        secrets: SecretStore | None = None,
     ) -> None:
         self._store = store
         self._approvals = approvals
         self._connections = connections
         self._registry = registry
         self._clock = clock
+        self._secrets = secrets
 
     def start_enrollment(
         self, context: TenantContext, provider_key: str, connection_id: UUID | None = None
@@ -91,6 +96,7 @@ class ChannelActionService:
         the business's active connections of that provider (the older portal request).
         """
         context.require(Permission.APPROVE_QUOTATIONS)
+        connection = None
         if connection_id is not None:
             connection = self._connections.get(context.tenant_id, connection_id)
             if connection is None:
@@ -119,7 +125,11 @@ class ChannelActionService:
             expires_at,
             connection_id,
         )
-        return NewEnrollment(code, expires_at, provider_key, connection_id)
+        provider = self._registry.find(provider_key)
+        hint = None
+        if connection is not None and provider is not None and self._secrets is not None:
+            hint = provider.enrollment_hint(connection, self._secrets, code)
+        return NewEnrollment(code, expires_at, provider_key, connection_id, hint)
 
     def bindings(self, context: TenantContext) -> list[ChannelBinding]:
         subject = None if Permission.MANAGE_TENANT in context.permissions else context.subject

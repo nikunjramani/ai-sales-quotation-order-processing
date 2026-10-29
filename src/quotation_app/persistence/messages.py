@@ -18,7 +18,11 @@ from quotation_app.domain.messages import MessageStatus, OutboundMessage, Templa
 from quotation_app.persistence.conversations import append_outbound
 from quotation_app.persistence.documents import queue_expiry
 from quotation_app.persistence.jobs import queue_job
-from quotation_app.persistence.models import OutboundMessageRow, QuotationDelivery
+from quotation_app.persistence.models import (
+    ConversationMessage,
+    OutboundMessageRow,
+    QuotationDelivery,
+)
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.messages import NewMessage
 
@@ -173,6 +177,87 @@ class SqlMessageOutbox:
                     )
                     .values(outbound_message_id=created, document_id=links.document_id)
                 )
+        return created
+
+    def resend(self, tenant_id: UUID, message_id: UUID, actor: str) -> UUID | None:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            row = connection.execute(
+                select(*OutboundMessageRow.__table__.columns).where(
+                    OutboundMessageRow.tenant_id == tenant_id,
+                    OutboundMessageRow.id == message_id,
+                    OutboundMessageRow.status == MessageStatus.FAILED.value,
+                    OutboundMessageRow.purpose == Purpose.CUSTOMER_MESSAGES.value,
+                )
+            ).one_or_none()
+            if row is None:
+                return None
+            created = connection.execute(
+                insert(OutboundMessageRow)
+                .values(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    connection_ref=row.connection_ref,
+                    provider_key=row.provider_key,
+                    purpose=row.purpose,
+                    template_key=row.template_key,
+                    params={**row.params, "resent_by": actor[:200]},
+                    body_text=row.body_text,
+                    metadata_=dict(row.metadata),
+                    recipient=row.recipient,
+                    idempotency_key=f"resend:{message_id}",
+                    status=MessageStatus.PENDING.value,
+                    document_id=row.document_id,
+                    quotation_id=row.quotation_id,
+                    version=row.version,
+                    approval_task_id=row.approval_task_id,
+                    binding_id=row.binding_id,
+                    enquiry_id=row.enquiry_id,
+                    response_id=row.response_id,
+                    correlation_id=row.correlation_id,
+                    resent_from_id=message_id,
+                )
+                .on_conflict_do_nothing(constraint="uq_outbound_messages_idempotency")
+                .returning(OutboundMessageRow.id)
+            ).scalar_one_or_none()
+            if created is None:  # already resent once: the same copy
+                existing: UUID = connection.execute(
+                    select(OutboundMessageRow.id).where(
+                        OutboundMessageRow.tenant_id == tenant_id,
+                        OutboundMessageRow.idempotency_key == f"resend:{message_id}",
+                    )
+                ).scalar_one()
+                return existing
+            queue_job(
+                connection,
+                tenant_id,
+                JobKind.SEND_MESSAGE,
+                {"message_id": str(created)},
+                row.correlation_id,
+            )
+            conversation_id = connection.execute(
+                select(ConversationMessage.conversation_id).where(
+                    ConversationMessage.tenant_id == tenant_id,
+                    ConversationMessage.outbound_message_id == message_id,
+                )
+            ).scalar_one_or_none()
+            if conversation_id is not None:
+                append_outbound(
+                    connection,
+                    tenant_id,
+                    conversation_id,
+                    row.enquiry_id,
+                    created,
+                    row.template_key,
+                    row.body_text,
+                )
+            connection.execute(
+                update(QuotationDelivery)
+                .where(
+                    QuotationDelivery.tenant_id == tenant_id,
+                    QuotationDelivery.outbound_message_id == message_id,
+                )
+                .values(outbound_message_id=created)
+            )
         return created
 
     def get(self, tenant_id: UUID, message_id: UUID) -> OutboundMessage | None:

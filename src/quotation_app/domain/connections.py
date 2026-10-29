@@ -85,6 +85,8 @@ class Connection:
     updated_at: datetime
     public_handle: str | None = None  # hosted chat address /chat/<handle> (phase 4, Q13)
     public_handle_changed: bool = False  # an administrator may change it once
+    # Phase 5: the step the business still has to do (PendingAction without one-time values).
+    pending_action: Mapping[str, object] | None = None
 
     @property
     def active(self) -> bool:

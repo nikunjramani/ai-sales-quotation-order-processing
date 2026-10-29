@@ -70,6 +70,12 @@ class MessageOutbox(Protocol):
         """
         ...
 
+    def resend(self, tenant_id: UUID, message_id: UUID, actor: str) -> UUID | None:
+        """A copy of a failed customer message as a new pending message (with its send job,
+        its conversation row and its quotation delivery pointed at it), once per failed
+        message. None if it is not a failed customer message. Phase 5."""
+        ...
+
     def apply_receipt(
         self,
         tenant_id: UUID,
@@ -93,6 +99,8 @@ class SendPreparation:
     actions: tuple[str, ...] = ()
     attachment: Attachment | None = None
     context: Mapping[str, str] = field(default_factory=dict)  # passed back to after_send
+    link: str | None = None  # a portal page for this message (phase 5: signed approval link)
+    attachment_url: str | None = None  # a short-lived public link to the attachment
 
 
 class SendHook(Protocol):

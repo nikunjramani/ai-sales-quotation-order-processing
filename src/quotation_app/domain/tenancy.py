@@ -43,6 +43,8 @@ class Permission(StrEnum):
     VIEW_CONVERSATIONS = "conversations:view"
     VIEW_CONTACT_DETAILS = "contacts:details"
     MERGE_CONTACTS = "contacts:merge"
+    # Send a failed customer message again (phase 5, user answer 2026-10-29).
+    RESEND_MESSAGES = "messages:resend"
 
 
 # Administrators do not approve by default: approval is a separate, explicitly granted role.
@@ -62,6 +64,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_CONVERSATIONS,
                 Permission.VIEW_CONTACT_DETAILS,
                 Permission.MERGE_CONTACTS,
+                Permission.RESEND_MESSAGES,
             }
         ),
         Role.SALES_OPERATOR: frozenset(
@@ -75,6 +78,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_CONVERSATIONS,
                 Permission.VIEW_CONTACT_DETAILS,
                 Permission.MERGE_CONTACTS,
+                Permission.RESEND_MESSAGES,
             }
         ),
         Role.APPROVER: frozenset(

@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     # never stored). Required in production; development without it uses a random key per
     # process (limits then reset on restart).
     chat_ip_key: SecretStr | None = None
+    # Phase 5: how long a public link to a quotation PDF works, for tools that download
+    # attachments from a URL instead of receiving them (minutes).
+    media_link_minutes: int = Field(default=15, ge=1, le=24 * 60)
     # Built React portal (portal/dist) to serve at /portal; unset = not served by the API.
     portal_dist_dir: Path | None = None
 

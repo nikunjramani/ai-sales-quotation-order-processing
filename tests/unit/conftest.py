@@ -1245,6 +1245,36 @@ class MemoryOutbox:
         found = self.messages.get(message_id)
         return found if found is not None and found.tenant_id == tenant_id else None
 
+    def resend(self, tenant_id: UUID, message_id: UUID, actor: str) -> UUID | None:
+        found = self.get(tenant_id, message_id)
+        if (
+            found is None
+            or found.status is not MessageStatus.FAILED
+            or found.purpose is not Purpose.CUSTOMER_MESSAGES
+        ):
+            return None
+        key = f"resend:{message_id}"
+        for existing in self.messages.values():
+            if (existing.tenant_id, existing.idempotency_key) == (tenant_id, key):
+                return existing.message_id
+        now = self.db.clock()
+        copy = replace(
+            found,
+            message_id=uuid4(),
+            params={**found.params, "resent_by": actor},
+            idempotency_key=key,
+            status=MessageStatus.PENDING,
+            provider_message_id=None,
+            last_error=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.messages[copy.message_id] = copy
+        self.db.jobs.append(
+            Job(tenant_id, JobKind.SEND_MESSAGE, {"message_id": str(copy.message_id)})
+        )
+        return copy.message_id
+
     def set_status(
         self,
         tenant_id: UUID,

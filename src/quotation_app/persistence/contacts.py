@@ -39,7 +39,9 @@ LEFT JOIN quotations q ON q.enquiry_id = e.id
 
 _THREAD = """
 SELECT m.seq, m.direction, m.author, m.text, m.at, m.enquiry_id, m.template_key,
-       o.status AS outbound_status, o.last_error AS outbound_error
+       o.status AS outbound_status, o.last_error AS outbound_error,
+       m.outbound_message_id, o.purpose AS outbound_purpose,
+       EXISTS (SELECT 1 FROM outbound_messages r WHERE r.resent_from_id = o.id) AS resent
 FROM conversation_messages m
 LEFT JOIN outbound_messages o ON o.id = m.outbound_message_id
 """

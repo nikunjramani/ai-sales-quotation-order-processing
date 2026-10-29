@@ -47,6 +47,7 @@ _COLUMNS = (
     ConnectionRow.updated_at,
     ConnectionRow.public_handle,
     ConnectionRow.public_handle_changed_at,
+    ConnectionRow.pending_action,
 )
 
 
@@ -67,6 +68,7 @@ def _connection(row: Row[Any]) -> Connection:
         updated_at=row.updated_at,
         public_handle=row.public_handle,
         public_handle_changed=row.public_handle_changed_at is not None,
+        pending_action=None if row.pending_action is None else dict(row.pending_action),
     )
 
 
