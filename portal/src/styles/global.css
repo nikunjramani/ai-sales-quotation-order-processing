@@ -339,3 +339,6 @@ fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12p
 .bubble.outbound { align-self: flex-end; background: #eef5ff; }
 .message-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.25rem 0; }
 .snippet { white-space: pre-wrap; overflow-wrap: anywhere; background: #f6f6f6; padding: 0.5rem; }
+
+/* Orders (phase 7) */
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }

@@ -7,6 +7,7 @@ const NAVIGATION: { to: string; label: string; show?: Permission[] }[] = [
   { to: "/inbox", label: "Inbox", show: ["conversations:view"] },
   { to: "/quotations", label: "Quotations" },
   { to: "/enquiries", label: "Enquiries" },
+  { to: "/orders", label: "Orders", show: ["orders:view"] },
   { to: "/catalogue", label: "Products", show: ["catalogue:view"] },
   { to: "/connections", label: "Connections" },
   { to: "/settings", label: "Settings", show: ["tenant:manage", "members:manage", "integrations:manage"] },

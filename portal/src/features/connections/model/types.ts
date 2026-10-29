@@ -55,6 +55,7 @@ export interface JsonSchemaField {
   format?: string;
   writeOnly?: boolean;
   enum?: string[];
+  default?: string | number | boolean;
 }
 
 export interface EnableResult {

@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router";
 
 import { EnquiryThread } from "@/features/conversations";
+import { QuotationOrderPanel } from "@/features/orders";
 import { useCurrentTenant } from "@/features/tenant";
 import { QueryState } from "@/shared/ui/QueryState";
 import { StatusBadge } from "@/shared/ui/StatusBadge";
@@ -54,6 +55,10 @@ export function QuotationDetailPage() {
             {current && <VersionTable version={current} />}
             <DocumentPanel detail={detail} />
             <CustomerPanel quotationId={detail.summary.quotation_id} />
+            <QuotationOrderPanel
+              quotationId={detail.summary.quotation_id}
+              accepted={detail.summary.status === "accepted"}
+            />
             {detail.can_decide && detail.pending_task && (
               // key: a new task (new version) starts with a fresh form and command IDs.
               <DecisionPanel key={detail.pending_task.task_id} task={detail.pending_task} />

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Connection } from "@/features/connections/model/types";
 import {
   canLink,
+  formDefaults,
   purposeText,
 } from "@/features/connections/services/connectionService";
 
@@ -28,5 +29,18 @@ describe("connectionService", () => {
 
   it("describes purposes in plain words", () => {
     expect(purposeText(PHONE)).toBe("Manager approvals, Product data");
+  });
+
+  it("prefills setup forms from their schema defaults, never secret fields", () => {
+    const schema = {
+      properties: {
+        sync_minutes: { type: "integer" as const, default: 15 },
+        stock_meaning: { type: "string" as const, enum: ["available", "on_hand"], default: "available" },
+        api_secret: { type: "string" as const, writeOnly: true, default: "x" },
+        price_list: { type: "string" as const },
+      },
+    };
+    expect(formDefaults(schema)).toEqual({ sync_minutes: 15, stock_meaning: "available" });
+    expect(formDefaults(null)).toEqual({});
   });
 });
