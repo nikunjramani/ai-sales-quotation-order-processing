@@ -11,6 +11,11 @@ from quotation_app.adapters.secrets.local import new_key
 
 @pytest.fixture(autouse=True)
 def local_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Settings needs a database URL even though this command never connects (CI has no .env).
+    monkeypatch.setenv(
+        "QUOTATION_DATABASE_URL",
+        "postgresql+psycopg://quotation_app:unused@127.0.0.1/quotation_dev",
+    )
     monkeypatch.setenv("QUOTATION_ENVIRONMENT", "development")
     monkeypatch.setenv("QUOTATION_SECRET_STORE", "local")
     monkeypatch.setenv("QUOTATION_SECRET_STORE_KEY", new_key())
