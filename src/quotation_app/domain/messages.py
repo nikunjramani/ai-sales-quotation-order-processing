@@ -79,6 +79,14 @@ class TemplateKey(StrEnum):
     APPROVAL_CANCELLED = "approval_cancelled"  # the manager answered NO
     APPROVAL_STATE = "approval_state"  # already decided, changed or expired
     APPROVAL_HELP = "approval_help"  # no reply-to, or written replies are not read
+    # Phase 7 orders, to customers (fixed wording, ADR 0024): a status change, and the answer
+    # to "where is my order?".
+    ORDER_CONFIRMED = "order_confirmed"
+    ORDER_SHIPPED = "order_shipped"
+    ORDER_DELIVERED = "order_delivered"
+    ORDER_CANCELLED = "order_cancelled"
+    ORDER_STATUS = "order_status"
+    ORDER_NONE = "order_none"
 
 
 ACCOUNT_TEMPLATES: Mapping[AccountEmailPurpose, TemplateKey] = {
@@ -158,6 +166,12 @@ def render_template(key: TemplateKey, params: Mapping[str, object]) -> Rendered:
         assert isinstance(questions, (list, tuple)) and questions
         lines = "\n".join(f"- {_single_line(str(question))}" for question in questions)
         return Rendered(f"We need a bit more information:\n{lines}", {})
+    if key is TemplateKey.ORDER_STATUS:
+        orders = params["orders"]
+        assert isinstance(orders, (list, tuple)) and orders
+        lines = "\n".join(f"- {_single_line(str(order))}" for order in orders)
+        business = _single_line(str(params["business"]))
+        return Rendered(CUSTOMER_WORDING[key].format(business=business, orders=lines), {})
     if key in CUSTOMER_WORDING:
         return _customer_message(key, params)
     if key in MANAGER_WORDING:
@@ -191,6 +205,16 @@ CUSTOMER_WORDING: Mapping[TemplateKey, str] = {
         "You will not receive more messages from {business}. Reply START to receive messages again."
     ),
     TemplateKey.OPTED_IN: "You will receive messages from {business} again.",
+    # Orders (phase 7). {order} is the order number, {number} the quotation number.
+    TemplateKey.ORDER_CONFIRMED: "Your order {order} (quotation {number}) is confirmed.",
+    TemplateKey.ORDER_SHIPPED: "Your order {order} has been shipped.",
+    TemplateKey.ORDER_DELIVERED: "Your order {order} has been delivered. Thank you!",
+    TemplateKey.ORDER_CANCELLED: (
+        "Your order {order} has been cancelled. Please contact us if you have questions."
+    ),
+    # {orders} is one "O-... (quotation Q-...): status, total 10.00 EUR" per line.
+    TemplateKey.ORDER_STATUS: "Your orders with {business}:\n{orders}",
+    TemplateKey.ORDER_NONE: "We could not find an order of yours with {business}.",
 }
 CUSTOMER_TEMPLATES = frozenset(CUSTOMER_WORDING) | {TemplateKey.CLARIFICATION_QUESTIONS}
 

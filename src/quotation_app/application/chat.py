@@ -43,8 +43,10 @@ from quotation_app.domain.intake import (
     ConsentChange,
     EnquirySubmission,
     InboundEnvelope,
+    OrderStatusRequest,
     validate_idempotency_key,
 )
+from quotation_app.domain.orders import order_status_command
 from quotation_app.domain.tenancy import accepts_intake
 from quotation_app.ports.accounts import RateLimiter
 from quotation_app.ports.chat import ChatEndpoint, ChatSession, ChatStore, ThreadMessage
@@ -255,6 +257,11 @@ class HostedChatService:
         if consent is not None and not attachments:
             change = ConsentChange(event_id, session.external_id, consent is ConsentStatus.OPTED_IN)
             recorded = self._inbound.record(connection, [change], now, queue_jobs=True)
+            return ChatReceipt(not recorded[0].new, now)
+        query = order_status_command(text)
+        if query is not None and not attachments:
+            ask = OrderStatusRequest(event_id, session.external_id, query.order_number)
+            recorded = self._inbound.record(connection, [ask], now, queue_jobs=True)
             return ChatReceipt(not recorded[0].new, now)
         records = tuple(
             AttachmentRecord(

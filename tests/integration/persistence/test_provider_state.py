@@ -210,6 +210,10 @@ def test_webhook_customer_messages_take_the_intake_road_and_limits_hold_them(
     assert not normal.receive(connection, CustomerMessage("m-1", "c-1", "50 fans please"))
     assert normal.receive(connection, CustomerMessage("m-2", "c-2", "STOP"))
     assert inbox(NoMessagesAllowed()).receive(connection, CustomerMessage("m-3", "c-3", "spam"))
+    # Phase 7: the whole message asks about orders: an order question, never an enquiry.
+    assert normal.receive(connection, CustomerMessage("m-4", "c-4", "Where is my order?"))
+    events = rows(owner_engine, industrial_tenant, "SELECT event_type FROM inbox_events")
+    assert ("order_status_request",) in events
 
     jobs = rows(
         owner_engine,

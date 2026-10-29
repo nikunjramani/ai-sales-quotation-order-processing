@@ -27,6 +27,7 @@ from quotation_app.api.conversations import build_conversation_router
 from quotation_app.api.enquiries import build_enquiry_router
 from quotation_app.api.hooks import build_hook_router
 from quotation_app.api.media import build_media_router
+from quotation_app.api.orders import build_order_router
 from quotation_app.api.portal import build_portal_router
 from quotation_app.api.public_chat import build_public_chat_router
 from quotation_app.application.acceptance import QuotationResponseService
@@ -43,6 +44,7 @@ from quotation_app.application.api_keys import ApiKeyAuthenticator
 from quotation_app.application.approval_links import ApprovalLinkService
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_admin import ProductService
+from quotation_app.application.catalogue_sync import CatalogueSyncService
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.chat import HostedChatService
 from quotation_app.application.connections import ConnectionService
@@ -55,6 +57,7 @@ from quotation_app.application.inbound import InboundService, ManagerActionRoute
 from quotation_app.application.intake import EnquiryIntakeService, EnquiryListService
 from quotation_app.application.lifecycle import ConnectionLifecycle
 from quotation_app.application.media import MediaService
+from quotation_app.application.orders import OrderDestinations, OrderService
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
 from quotation_app.application.resend import ResendService
@@ -76,6 +79,7 @@ from quotation_app.persistence.accounts import (
 )
 from quotation_app.persistence.api_keys import SqlApiKeyAdminStore, SqlApiKeyReader
 from quotation_app.persistence.catalogue import SqlCatalogueStore
+from quotation_app.persistence.catalogue_sync import SqlCatalogueSync
 from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.chat import SqlChatStore
 from quotation_app.persistence.connections import (
@@ -96,6 +100,7 @@ from quotation_app.persistence.intake import SqlEnquiryListReader, SqlIntakeStor
 from quotation_app.persistence.manager_replies import SqlApprovalLinks, SqlReplyStore
 from quotation_app.persistence.media import SqlMediaLinks
 from quotation_app.persistence.messages import SqlMessageOutbox
+from quotation_app.persistence.orders import SqlOrderStore
 from quotation_app.persistence.provider_state import (
     SqlConnectionLifecycle,
     SqlRouteLookup,
@@ -164,6 +169,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     business_store = SqlBusinessStore(
         engine, default_catalogue_source(configuration, runtime.registry)
     )
+    # Orders (phase 7): staff screens, and the customer system's view of its order.
+    orders = OrderService(
+        SqlOrderStore(engine),
+        erp,
+        OrderDestinations(connections, runtime.registry, runtime.secrets),
+    )
     app.include_router(
         build_enquiry_router(
             ApiKeyAuthenticator(SqlApiKeyReader(engine)),
@@ -171,6 +182,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             documents,
             responses,
             business_store,
+            orders,
         )
     )
 
@@ -261,7 +273,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             connections,
         )
     )
-    app.include_router(build_catalogue_router(auth, products))
+    app.include_router(build_order_router(auth, orders))
+    app.include_router(
+        build_catalogue_router(
+            auth,
+            products,
+            CatalogueSyncService(connections, runtime.registry, SqlCatalogueSync(engine)),
+        )
+    )
     # The signed approval link page (phase 5, P5-14): sign-in, then one click.
     app.include_router(
         build_approval_link_router(

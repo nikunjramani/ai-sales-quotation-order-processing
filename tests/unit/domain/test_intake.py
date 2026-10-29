@@ -20,6 +20,7 @@ from quotation_app.domain.intake import (
     InboundFile,
     ManagerAction,
     ManagerReply,
+    OrderStatusRequest,
     event_from_json,
     event_to_json,
     event_type,
@@ -114,6 +115,7 @@ def test_every_inbound_event_has_a_type() -> None:
         ManagerReply("evt-5", "manager-phone", "ok", "msg-9"),
         CustomerAction("evt-6", "+911234", "ref-1", "accept"),
         ConnectionUpdate("evt-7", "link", {"owner": "42"}),
+        OrderStatusRequest("evt-8", "+911234", "O-1A2B3C4D"),
     ]
     assert sorted(event_type(event) for event in events) == sorted(InboundEventType)
 
