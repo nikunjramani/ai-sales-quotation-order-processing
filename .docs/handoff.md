@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-28 (phases 1-3 merged through PRs #6, #7 and #8; phase 4 conversations and website chat implemented on `feat/phase-4-conversations`, draft PR #9, awaiting review).
+Updated: 2026-10-29 (phases 1-4 merged through PRs #6-#9; phase 5 framework + Telegram in progress on `feat/phase-5-providers`).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -359,7 +359,7 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   - **Not run:** the portal was not clicked through in a real browser (no browser tool here); CI runs on push.
 - **Merged:** the user merged PR #8 on 2026-10-28 ("already merge phase 3 prs"). Open points 1-2 above stay open.
 
-## Phase 4 customers, conversations and website chat (implemented, branch `feat/phase-4-conversations`, draft PR #9)
+## Phase 4 customers, conversations and website chat (complete, merged to main through PR #9, merge commit a155244, 2026-10-29)
 - **User (2026-10-28):** "move on to phase 4". All open questions (D13-D15, Q1-Q14) were asked and answered, and the summary confirmed ("Yes, start"); see [phase 4 plan, user answers](plan/platform/implementation/phase-4-conversations.md#user-answers-2026-10-28) and [07 decisions](plan/platform/07-decisions-needed.md). Same commit arrangement as phases 1-3 (one commit per work item, pushed, draft PR; the user merges).
 - **Answers that change the plan:**
   - rapid messages also join an enquiry that is still being read, and the round is re-run (Q3 = b);
@@ -402,6 +402,12 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   7. Enabling a chat that lost its address (after a downgrade/upgrade) assigns a new one.
 - **Next:** the user reviews PR #9 (deviations above, open points of phase 3 still open); click through the portal and the demo in a browser; then ask every open question for phase 5 first.
 
+## Phase 5 provider framework and Telegram (in progress, branch `feat/phase-5-providers`)
+- **User (2026-10-29):** "start working on phase 5, phase 4 has been merged". All open questions were asked in six rounds and the summary confirmed ("Yes, start"); see [phase 5 plan, user answers](plan/platform/implementation/phase-5-one-click-providers.md#user-answers-2026-10-29) and [07 decisions](plan/platform/07-decisions-needed.md) (D5, D9, D10).
+- **Scope (narrowed by the user):** the generic provider framework (platform webhooks, resume and pending actions, hosted provider pages, public media links, company-level provider settings, AI reading of manager replies with a "Yes" confirmation, signed approval link with sign-in, Enable cards and pending-action screens, Resend of failed customer messages, email parsing helpers) plus **Telegram** as the only real provider. No SendGrid, Twilio or Meta code. **No live accounts and no live run**: fixtures from the providers' documentation and fakes only.
+- One branch, one commit per work item, one draft PR at the end (user answer).
+- **W0 done:** answers recorded in the phase 5 plan, 07 decisions and here.
+
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).
 - Follow-up messages that continue the customer's open enquiry: planned, waiting for the user's confirmation ([plan/conversation-follow-ups.md](plan/conversation-follow-ups.md)).
@@ -411,5 +417,5 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
    - Follow [setup](development/setup.md#approvals-and-portal-m4).
-2. Phase 4 is in progress (see above); after it, ask the user every open question for the next phase first (clarify-before-building).
+2. Phase 5 is in progress (see above); after it, ask the user every open question for the next phase first (clarify-before-building).
 - Update this handoff in every change; never mark milestones complete without evidence.

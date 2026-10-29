@@ -1,5 +1,5 @@
 # Implementation plan, phase 5: first external tools with one-click Enable
-**Status:** planning document (2026-10-23). Nothing here is implemented. It builds on [00-shared-contracts.md](00-shared-contracts.md) (binding) and on phases 1-4 being finished. Where this plan needs something the shared contracts do not have, it is listed in [Proposed changes to shared contracts](#5-proposed-changes-to-shared-contracts). It is not decided until the contracts file is changed.
+**Status:** all open questions answered by the user on 2026-10-29 (see [User answers](#user-answers-2026-10-29)); implementation in progress on branch `feat/phase-5-providers`. **The answers narrow the scope:** the generic framework plus Telegram only; no SendGrid, Twilio or Meta code in this phase. Where an answer differs from the proposals below, the answers section wins. It builds on [00-shared-contracts.md](00-shared-contracts.md) (binding) and on phases 1-4 being finished. Where this plan needs something the shared contracts do not have, it is listed in [Proposed changes to shared contracts](#5-proposed-changes-to-shared-contracts). It is not decided until the contracts file is changed.
 
 Read first: [09 one-click integrations](../09-one-click-integrations.md), [03 connectors](../03-connectors.md), [07 decisions](../07-decisions-needed.md), [08 phases](../08-phases.md), [ADR 0007](../../../adr/0007-channel-independent-approval.md), [ADR 0013](../../../adr/0013-portal-identity-and-approval-core.md), [ADR 0015](../../../adr/0015-quotation-documents-and-delivery.md), [ADR 0017](../../../adr/0017-gemini-reader-and-category-replies.md), [approvals](../../../architecture/approvals.md), [adding channels](../../../development/adding-channels.md).
 
@@ -59,6 +59,47 @@ Plus the shared pieces these need: AI reading of manager replies (D10), a signed
 | P5-12 | **Which countries at first** for buying numbers (regulatory bundles differ per country) | Each country adds a form schema and review time | India and USA only for the pilot | W4, W6 |
 | P5-13 | **Confirmation before AI-classified decisions.** Rule 3 asks only when unsure. Should a confident "approve" still need a "Yes" tap? | Safety vs. ease | No extra step (rule 4 confirmation message is enough), as decided; revisit after the evaluation results | W2 |
 | P5-14 | **Signed link login.** [approvals.md](../../../architecture/approvals.md) says notification links are not sufficient authorization. The link therefore opens a portal page that needs sign-in (session + CSRF), then one click | "One-click" is one click **after** sign-in | Keep sign-in; remember the session (existing cookie) so most clicks need no login | W2 |
+
+### User answers (2026-10-29)
+The user answered in six rounds on 2026-10-29 and confirmed the summary ("Yes, start"). Answers that differ from the proposal are in **bold**.
+
+**Scope**
+| # | Answer |
+|---|---|
+| Accounts | **None live.** No company accounts (Twilio, SendGrid, Meta, Telegram bot) and no live run in this phase. Everything is built and checked against fixtures written from the providers' documentation and against fakes; docs say "not live-verified" |
+| Providers | **Generic framework + Telegram only.** "For now don't implement SendGrid related code; make the code so that we can easily integrate any third-party tool for all social media." No `sendgrid_email`, `twilio_whatsapp`, `twilio_sms`, `meta_messenger`, `meta_instagram` packages (W4-W7, W9 and the Twilio/Meta parts of W11 move to later phases) |
+| Order (D5) | **Telegram first** (changes D5's order); the other providers follow later, each as one package |
+| Framework parts for future providers | Built now, tested with a fake provider: platform webhooks, `resume` and the actions API, provider hosted pages (C7), public media links (C6), company-level provider settings and the operator command (C5), all three pending-action screens (`open_url`, `show_steps`, `fill_form`) |
+| Email helpers | **Yes, built now** (unused until an email package exists): reply threading by `Message-ID`/`In-Reply-To`/`References`, quoted-history and signature stripping, DKIM/SPF-aligned trusted-sender check |
+| Email approval | In: the 2026-10-23 note "email approval out of scope" is superseded by D10; a future email package plugs into the same approval-by-message pieces |
+| PR | Whole phase on one branch, one commit per work item, one draft PR at the end |
+
+**Approval by message (D10)**
+| # | Answer |
+|---|---|
+| P5-2 | Platform bot (`@OurBot` chat) for manager approvals, shared by managers of all businesses (never customers); customers use each business's own account. Accepted under D9 |
+| P5-5 | **Rules mode (no model): free-text replies are ignored**; the manager is told to use the buttons or the signed link. A reason reply after a Reject/Change button still works (the action comes from the button, no AI) |
+| P5-6 | The classifier sees only the reply text, the quotation number and the version. Free tier for synthetic data only (ADR 0017) |
+| P5-13 | **Ask "Yes" first, for all three** AI-read decisions (approve, reject, revise): "You want to <action> Q-… version N?" The manager answers with [Yes]/[No] buttons or an exact `YES`/`NO` reply to the confirmation message (no AI). It expires with the action reference. Button decisions and the reason reply after a button need no extra "Yes" |
+| P5-14 | Signed link opens a portal page that **needs sign-in** (remembered session); first answer "link alone decides" withdrawn after the conflict with the "authenticated approval" invariant was pointed out |
+| Audit | The reply text is stored in `manager_reply_classifications` with its SHA-256; deleted with the business's retention setting once D17 is decided |
+
+**Telegram**
+| # | Answer |
+|---|---|
+| P5-3 | The steps say "may need Telegram Premium" until verified in the app |
+| Chats | The steps recommend **"new chats only"** (exclude existing contacts) |
+| Link code | 10 minutes (same as manager enrollment codes); a new code can be made from the card |
+| Owner's own messages | Recorded as staff messages in the conversation ("sent by staff on Telegram"); context for the reader, never customer words or manager commands |
+| 24 h limit | A customer message Telegram cannot deliver (no message from the customer in the last 24 h) **fails visibly** ("customer must message first") |
+| Resend | **New:** administrators and sales operators can resend a failed customer message from the portal; it creates a new outbox message (an `unknown` one is never resent) |
+
+**Generic**
+| # | Answer |
+|---|---|
+| P5-11 | Each provider declares a cost note; when it has costs, the administrator ticks "I understand this may incur costs" before Enable. Telegram shows "Free" |
+| Defaults (confirmed with the summary) | Edited Telegram messages ignored and logged; webhooks answer 200 once the signature is valid, even when the action is refused; after the AI's last failed attempt the manager gets the clarifying question (never a decision); wording as in §7.2 |
+| Still open (no provider in this phase needs them) | P5-1 (email isolation), P5-4 (India SMS), P5-7 (SMS approvals), P5-8 (Instagram/Messenger managers), P5-9 (Instagram API variant), P5-10 (WhatsApp templates), P5-12 (countries); asked again with the first package that needs each |
 
 ## 4. Current-state findings (the code this phase builds on)
 Phase 1 moves several of these onto providers and the outbox; the findings say what stays true and what phase 5 must handle.
