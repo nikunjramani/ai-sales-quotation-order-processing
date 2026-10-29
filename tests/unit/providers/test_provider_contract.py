@@ -10,7 +10,7 @@ import hmac
 import json
 import tempfile
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -38,6 +38,7 @@ from quotation_app.ports.providers import (
     InboundRequest,
     OperationUnsupported,
     Provider,
+    ProviderDefaults,
     ProviderEnvironment,
     ReceiptKind,
     RenderedMessage,
@@ -66,8 +67,14 @@ class OneSecret:
     def delete(self, tenant_id: UUID, reference: str) -> None:
         raise NotImplementedError
 
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        raise NotImplementedError
 
-class EchoProvider:
+    def get_platform(self, provider_key: str, name: str) -> str:
+        raise NotImplementedError
+
+
+class EchoProvider(ProviderDefaults):
     """A fake third provider: HMAC header "x-echo-signature", body {"id", "from", "code"}."""
 
     key = "echo"
@@ -98,10 +105,31 @@ class EchoProvider:
 
 @dataclass(frozen=True)
 class Sample:
-    """A body this provider accepts, and how to sign it (None: the provider has no webhooks)."""
+    """A body this provider accepts, and how to sign it (None: the provider has no webhooks).
+
+    Platform-webhook providers (phase 5) sign with company-level secrets instead
+    (platform_sign, platform_secrets). network: sending calls the tool's real API, so the
+    send outcome mapping is tested in the package's own tests with recorded answers.
+    """
 
     body: bytes
     sign: Callable[[bytes, str], dict[str, str]] | None
+    platform_sign: Callable[[bytes, str], dict[str, str]] | None = None
+    platform_secrets: dict[str, str] = field(default_factory=dict)
+    network: bool = False
+
+
+class SampleSecrets(OneSecret):
+    """OneSecret plus the sample's company-level secrets."""
+
+    def __init__(self, platform: dict[str, str]) -> None:
+        self._platform = platform
+
+    def get_platform(self, provider_key: str, name: str) -> str:
+        try:
+            return self._platform[name]
+        except KeyError:
+            raise SecretNotFound("Secret not found") from None
 
 
 def _hmac_header(name: str) -> Callable[[bytes, str], dict[str, str]]:
@@ -121,6 +149,33 @@ SAMPLES: dict[str, Sample] = {
     ),
     "local_catalogue": Sample(b"{}", None),
     "web_chat": Sample(b"{}", None),
+    "telegram": Sample(
+        json.dumps(
+            {
+                "update_id": 7,
+                "business_message": {
+                    "message_id": 3,
+                    "business_connection_id": "bc-1",
+                    "chat": {"id": 15005550101, "type": "private"},
+                    "from": {"id": 15005550101, "is_bot": False},
+                    "date": 1793000000,
+                    "text": "Please quote 2 fans",
+                },
+            }
+        ).encode(),
+        None,
+        platform_sign=lambda body, secret: {"x-telegram-bot-api-secret-token": secret},
+        platform_secrets={
+            "config": json.dumps(
+                {
+                    "bot_token": "123456:contract-token",
+                    "bot_username": "contract_bot",
+                    "webhook_secret_token": SECRET,
+                }
+            )
+        },
+        network=True,
+    ),
     "echo": Sample(
         json.dumps({"id": "evt-1", "from": "phone", "code": "X"}).encode(),
         _hmac_header("x-echo-signature"),
@@ -168,11 +223,26 @@ def test_every_installed_provider_has_a_contract_sample() -> None:
 def test_webhooks_refuse_forged_or_missing_signatures(provider: Provider) -> None:
     sample = SAMPLES[provider.key]
     conn = connection(provider)
+    if provider.capabilities.platform_webhooks:
+        assert sample.platform_sign is not None
+        secrets = SampleSecrets(sample.platform_secrets)
+        for headers in ({}, sample.platform_sign(sample.body, "forged-secret-token")):
+            with pytest.raises(InboundRejected):
+                provider.verify_platform_inbound(secrets, request(sample.body, headers))
+        with pytest.raises(InboundRejected):  # without company settings nothing is accepted
+            provider.verify_platform_inbound(
+                SampleSecrets({}), request(sample.body, sample.platform_sign(sample.body, SECRET))
+            )
+        provider.verify_platform_inbound(
+            secrets, request(sample.body, sample.platform_sign(sample.body, SECRET))
+        )
+        assert provider.routing_keys(request(sample.body))  # the request names its business
     if not provider.capabilities.webhooks:
         with pytest.raises(OperationUnsupported):
             provider.verify_inbound(conn, OneSecret(), request(sample.body))
-        with pytest.raises(OperationUnsupported):
-            provider.parse_inbound(conn, request(sample.body))
+        if not provider.capabilities.platform_webhooks:
+            with pytest.raises(OperationUnsupported):
+                provider.parse_inbound(conn, request(sample.body))
         return
     assert sample.sign is not None
     for headers in ({}, sample.sign(sample.body, "forged-secret")):
@@ -184,7 +254,7 @@ def test_webhooks_refuse_forged_or_missing_signatures(provider: Provider) -> Non
 
 
 def test_parsing_is_stable_and_never_depends_on_the_business(provider: Provider) -> None:
-    if not provider.capabilities.webhooks:
+    if not (provider.capabilities.webhooks or provider.capabilities.platform_webhooks):
         pytest.skip("no webhooks")
     body = SAMPLES[provider.key].body
     first = provider.parse_inbound(connection(provider, A), request(body))
@@ -200,6 +270,8 @@ def test_send_reports_what_happened(provider: Provider) -> None:
         Purpose.CUSTOMER_MESSAGES not in provider.purposes
     ):
         pytest.skip("sends nothing")
+    if SAMPLES[provider.key].network:
+        pytest.skip("sends through the tool's API: see the package's recorded-answer tests")
     receipt = provider.send(connection(provider), OneSecret(), message)
     pull = provider.capabilities.delivery_mode is DeliveryMode.PULL
     assert receipt.kind is (ReceiptKind.AVAILABLE if pull else ReceiptKind.SENT)

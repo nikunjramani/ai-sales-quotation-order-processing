@@ -59,6 +59,13 @@ class Capabilities:
     # We host the customer side ourselves (phase 4): a public chat page and API under
     # /chat/<handle>, visitor sessions and a daily reading cap. Website chat is the first.
     hosted_chat: bool = False
+    # Phase 5: Enable runs Provider.provision (one click, then perhaps one pending step).
+    self_service: bool = False
+    # One callback URL for the whole platform (one bot, one app): /api/v1/hooks/p/<key>,
+    # routed to a business by connection_routes instead of a per-connection URL.
+    platform_webhooks: bool = False
+    # The tool downloads attachments from a public URL instead of receiving the bytes.
+    attachments_by_url: bool = False
 
 
 @dataclass(frozen=True)
@@ -78,6 +85,8 @@ class Connection:
     updated_at: datetime
     public_handle: str | None = None  # hosted chat address /chat/<handle> (phase 4, Q13)
     public_handle_changed: bool = False  # an administrator may change it once
+    # Phase 5: the step the business still has to do (PendingAction without one-time values).
+    pending_action: Mapping[str, object] | None = None
 
     @property
     def active(self) -> bool:

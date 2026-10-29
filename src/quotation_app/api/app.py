@@ -17,6 +17,7 @@ from quotation_app.adapters.documents.pdf import ReportLabQuotationRenderer
 from quotation_app.adapters.identity.dev import DevIdentityProvider
 from quotation_app.adapters.storage.local import LocalObjectStorage
 from quotation_app.api.accounts import build_account_router
+from quotation_app.api.approval_links import build_approval_link_router
 from quotation_app.api.auth import PortalAuth, SessionView, build_auth_router
 from quotation_app.api.business import build_business_router
 from quotation_app.api.catalogue import build_catalogue_router
@@ -25,6 +26,7 @@ from quotation_app.api.connections import build_connection_router
 from quotation_app.api.conversations import build_conversation_router
 from quotation_app.api.enquiries import build_enquiry_router
 from quotation_app.api.hooks import build_hook_router
+from quotation_app.api.media import build_media_router
 from quotation_app.api.portal import build_portal_router
 from quotation_app.api.public_chat import build_public_chat_router
 from quotation_app.application.acceptance import QuotationResponseService
@@ -38,6 +40,7 @@ from quotation_app.application.accounts import (
     SignupService,
 )
 from quotation_app.application.api_keys import ApiKeyAuthenticator
+from quotation_app.application.approval_links import ApprovalLinkService
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_admin import ProductService
 from quotation_app.application.channel_actions import ChannelActionService
@@ -46,11 +49,15 @@ from quotation_app.application.connections import ConnectionService
 from quotation_app.application.contacts import ContactService
 from quotation_app.application.conversations import default_router
 from quotation_app.application.customer_actions import CustomerActionService
+from quotation_app.application.customer_inbox import CustomerInbox
 from quotation_app.application.documents import QuotationDocumentService
 from quotation_app.application.inbound import InboundService, ManagerActionRoute
 from quotation_app.application.intake import EnquiryIntakeService, EnquiryListService
+from quotation_app.application.lifecycle import ConnectionLifecycle
+from quotation_app.application.media import MediaService
 from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.quotations import QuotationService
+from quotation_app.application.resend import ResendService
 from quotation_app.application.sessions import SessionService
 from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.composition import (
@@ -69,7 +76,7 @@ from quotation_app.persistence.accounts import (
 )
 from quotation_app.persistence.api_keys import SqlApiKeyAdminStore, SqlApiKeyReader
 from quotation_app.persistence.catalogue import SqlCatalogueStore
-from quotation_app.persistence.channels import SqlChannelStore
+from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.chat import SqlChatStore
 from quotation_app.persistence.connections import (
     SqlConnectionStore,
@@ -83,9 +90,16 @@ from quotation_app.persistence.contacts import (
 )
 from quotation_app.persistence.customer_actions import SqlCustomerActionStore
 from quotation_app.persistence.database import build_engine, database_ready
-from quotation_app.persistence.documents import SqlDocumentReader
+from quotation_app.persistence.documents import SqlDeliveryStore, SqlDocumentReader
 from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlEnquiryListReader, SqlIntakeStore
+from quotation_app.persistence.manager_replies import SqlApprovalLinks, SqlReplyStore
+from quotation_app.persistence.media import SqlMediaLinks
+from quotation_app.persistence.messages import SqlMessageOutbox
+from quotation_app.persistence.provider_state import (
+    SqlConnectionLifecycle,
+    SqlRouteLookup,
+)
 from quotation_app.persistence.quotations import (
     SqlApprovalStore,
     SqlQuotationReader,
@@ -222,7 +236,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     approvals = ApprovalService(SqlApprovalStore(engine), resolver)
     channels = ChannelActionService(
-        SqlChannelStore(engine), approvals, connections, runtime.registry
+        SqlChannelStore(engine),
+        approvals,
+        connections,
+        runtime.registry,
+        secrets=runtime.secrets,
+    )
+    lifecycle = ConnectionLifecycle(
+        connections, SqlConnectionLifecycle(engine), runtime.registry, runtime.secrets
     )
     app.include_router(
         build_portal_router(
@@ -241,6 +262,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     app.include_router(build_catalogue_router(auth, products))
+    # The signed approval link page (phase 5, P5-14): sign-in, then one click.
+    app.include_router(
+        build_approval_link_router(
+            auth,
+            ApprovalLinkService(
+                SqlApprovalLinks(engine),
+                SqlReplyStore(engine),
+                SqlNotificationStore(engine),
+                approvals,
+            ),
+        )
+    )
     base_url = (configuration.public_base_url or DEV_PUBLIC_BASE_URL).rstrip("/")
     app.include_router(
         build_connection_router(
@@ -248,6 +281,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ConnectionService(connections, runtime.registry, SqlHostedChatAdmin(engine)),
             channels,
             base_url,
+            lifecycle,
         )
     )
     # Customers and conversations in the portal (phase 4).
@@ -259,7 +293,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 SqlContactMerger(engine),
                 SqlCustomerMessageSettings(engine),
             ),
+            ResendService(SqlMessageOutbox(engine)),
         )
+    )
+    # Short-lived public PDF links for tools that fetch attachments by URL (phase 5, C6).
+    app.include_router(
+        build_media_router(MediaService(SqlMediaLinks(engine), SqlDeliveryStore(engine), storage))
     )
     # Hosted customer chat (phase 4): the public chat API and the secure answer links.
     customer_actions = CustomerActionService(SqlCustomerActionStore(engine), responses)
@@ -286,10 +325,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     # Provider callbacks (ADR 0018): one generic route for every provider with webhooks.
+    # Phase 5: platform routes (one bot or app for everyone) and customer messages from
+    # webhooks, which take the same road as website chat.
     inbox = SqlInboundStore(engine)
     app.include_router(
         build_hook_router(
-            InboundService(SqlHookLookup(engine), runtime.registry, runtime.secrets, inbox)
+            InboundService(
+                SqlHookLookup(engine),
+                runtime.registry,
+                runtime.secrets,
+                inbox,
+                customers=CustomerInbox(
+                    SqlIntakeStore(engine),
+                    inbox,
+                    storage,
+                    limiter,
+                    runtime.registry,
+                    runtime.secrets,
+                    business_store,
+                    default_router(),
+                ),
+                routes=SqlRouteLookup(engine),
+                connections=connections,
+            )
         )
     )
     # Deprecated alias for the demo page and scripts (removed in phase 4/5).

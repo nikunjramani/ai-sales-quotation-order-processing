@@ -6,6 +6,9 @@ It behaves like a real provider in the ways that matter for security:
   kept in the secret store. Unsigned or altered callbacks are refused before parsing. The body
   names no business: the business is always the connection's.
 - Catalogue: the demo catalogue named in the connection's config ("industrial" or "office").
+- Phase 5: every message to a manager is a file with its message_id; a "reply" event answers
+  one of them by that ID (a written reply, read by the AI when a model is configured), and a
+  "confirm" event presses Yes or No on a confirmation question.
 """
 
 import threading
@@ -20,13 +23,14 @@ from quotation_app.adapters.erp.simulated import DEMO_CATALOGUES, SimulatedErp, 
 from quotation_app.adapters.providers.simulated.outbox import write_message
 from quotation_app.adapters.providers.simulated.signing import SIGNATURE_HEADER, signature_valid
 from quotation_app.domain.connections import Capabilities, Connection, Purpose
-from quotation_app.domain.intake import InboundEvent, ManagerAction
+from quotation_app.domain.intake import InboundEvent, ManagerAction, ManagerReply
 from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.providers import (
     InboundRejected,
     InboundRequest,
     InvalidInbound,
     OperationUnsupported,
+    ProviderDefaults,
     ReceiptKind,
     RenderedMessage,
     SendReceipt,
@@ -45,13 +49,19 @@ class SimulatedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: str = Field(min_length=1, max_length=200)
     external_user_id: str = Field(min_length=1, max_length=200)
-    type: Literal["enroll", "decision"]
+    type: Literal["enroll", "decision", "reply", "confirm"]
     code: str | None = Field(default=None, max_length=50)
     action_reference: str | None = Field(default=None, max_length=200)
     action: str | None = Field(default=None, max_length=32)
     reason: str | None = Field(default=None, max_length=1000)
+    text: str | None = Field(default=None, max_length=4000)
+    reply_to: str | None = Field(default=None, max_length=200)  # one of our message IDs
 
-    def to_action(self) -> ManagerAction:
+    def to_action(self) -> ManagerAction | ManagerReply:
+        if self.type == "reply":
+            return ManagerReply(
+                self.event_id, self.external_user_id, self.text or "", self.reply_to
+            )
         return ManagerAction(
             provider_event_id=self.event_id,
             external_user_id=self.external_user_id,
@@ -63,7 +73,7 @@ class SimulatedEvent(BaseModel):
         )
 
 
-class SimulatedProvider:
+class SimulatedProvider(ProviderDefaults):
     key = PROVIDER_KEY
     display_name = "Simulated phone and demo catalogue (development)"
     purposes = frozenset({Purpose.MANAGER_APPROVALS, Purpose.CATALOGUE})
@@ -114,6 +124,7 @@ class SimulatedProvider:
             name = f"{metadata['task_id']}.json"
             body = {
                 **common,
+                "message_id": str(message.message_id),
                 "task_id": metadata["task_id"],
                 "quotation": metadata["quotation"],
                 "version": int(metadata["version"]),
@@ -121,9 +132,18 @@ class SimulatedProvider:
                 "actions": list(message.actions),
                 "action_reference": message.action_reference,
                 "expires_at": message.expires_at.isoformat(),
+                "link": message.link,
             }
         else:
-            raise SendRejected("The simulated phone only receives manager messages")
+            # Phase 5: questions and confirmations about an approval request.
+            name = f"message-{message.message_id}.json"
+            body = {
+                **common,
+                "message_id": str(message.message_id),
+                "text": message.text,
+                "actions": list(message.actions),
+                "action_reference": message.action_reference,
+            }
         write_message(self._outbox, conn.tenant_id, message.recipient, name, body)
         # One ID per message: the same file name is used for every account that gets this task.
         return SendReceipt(ReceiptKind.SENT, provider_message_id=str(message.message_id))

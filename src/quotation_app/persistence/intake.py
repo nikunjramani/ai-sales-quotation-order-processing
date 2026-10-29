@@ -105,6 +105,7 @@ class SqlIntakeStore:
         payload_sha256: str,
         enquiry_id: UUID,
         router: EnquiryRouter | None = None,
+        hold_for_review: bool = False,
     ) -> tuple[Receipt, bool]:
         tenant_id = envelope.tenant_id
         with tenant_transaction(self._engine, tenant_id) as connection:
@@ -171,9 +172,10 @@ class SqlIntakeStore:
                         conversation,
                         follow_up,
                         correlation[follow_up.enquiry_id],
+                        hold_for_review,
                     )
                     return receipt, True
-            _create(connection, envelope, enquiry_id, conversation)
+            _create(connection, envelope, enquiry_id, conversation, hold_for_review)
         receipt = Receipt(
             enquiry_id=enquiry_id,
             status=EnquiryStatus.RECEIVED,
@@ -292,6 +294,7 @@ def _create(
     envelope: InboundEnvelope,
     enquiry_id: UUID,
     conversation: ConversationRef | None,
+    hold_for_review: bool = False,
 ) -> None:
     """A new enquiry with its first message and the preparation job (which also acknowledges
     it to the customer when the business wants that, D14)."""
@@ -323,7 +326,9 @@ def _create(
         envelope.received_at,
     )
     payload = {"enquiry_id": str(enquiry_id)}
-    if conversation is not None:
+    if hold_for_review:
+        payload["hold"] = "true"
+    elif conversation is not None:
         payload["acknowledge"] = "true"
     _queue_preparation(connection, tenant_id, payload, envelope.correlation_id)
 
@@ -335,6 +340,7 @@ def _continue(
     conversation: ConversationRef,
     follow_up: FollowUp,
     correlation_id: UUID,
+    hold_for_review: bool = False,
 ) -> Receipt:
     """Add the message to an open enquiry. A waiting one goes back to received and is prepared
     and read again; one still being read is read again when its round ends (Q3)."""
@@ -361,7 +367,10 @@ def _continue(
             )
             .values(status=EnquiryStatus.RECEIVED.value, updated_at=func.now())
         )
-        _queue_preparation(connection, tenant_id, {"enquiry_id": str(enquiry_id)}, correlation_id)
+        payload = {"enquiry_id": str(enquiry_id)}
+        if hold_for_review:
+            payload["hold"] = "true"
+        _queue_preparation(connection, tenant_id, payload, correlation_id)
     status = connection.execute(
         select(Enquiry.status).where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
     ).scalar_one()

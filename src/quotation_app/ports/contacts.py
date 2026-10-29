@@ -33,6 +33,10 @@ class ThreadEntry:
     template_key: str | None
     outbound_status: str | None  # our messages: pending, sent, failed (with reason)...
     outbound_error: str | None
+    # Phase 5: Resend. A failed customer message not resent yet may be sent again.
+    outbound_message_id: UUID | None = None
+    outbound_purpose: str | None = None
+    resent: bool = False
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,10 @@ import argparse
 import logging
 import time
 
-from quotation_app.adapters.interpreters.factory import build_interpreter
+from quotation_app.adapters.interpreters.factory import (
+    build_interpreter,
+    build_reply_classifier,
+)
 from quotation_app.application.jobs import JobRunner
 from quotation_app.composition import build_job_handlers, build_runtime
 from quotation_app.config import Settings
@@ -28,11 +31,9 @@ def main() -> None:
 
     settings = Settings()
     engine = build_engine(settings.worker_url())
-    interpreter = build_interpreter(
-        settings.model,
-        settings.model_api_key.get_secret_value() if settings.model_api_key else None,
-        settings.model_options,
-    )
+    api_key = settings.model_api_key.get_secret_value() if settings.model_api_key else None
+    interpreter = build_interpreter(settings.model, api_key, settings.model_options)
+    reply_classifier = build_reply_classifier(settings.model, api_key, settings.model_options)
     runtime = build_runtime(settings, engine)
     logging.info("Enquiry interpreter: %s", settings.model or "rules (no AI)")
     logging.info("Providers: %s", ", ".join(p.key for p in runtime.registry.all()) or "none")
@@ -40,7 +41,14 @@ def main() -> None:
         with open_checkpointer(settings.worker_url()) as checkpointer:
             runner = JobRunner(
                 SqlJobQueue(engine),
-                build_job_handlers(settings, engine, runtime, checkpointer, interpreter),
+                build_job_handlers(
+                    settings,
+                    engine,
+                    runtime,
+                    checkpointer,
+                    interpreter,
+                    reply_classifier=reply_classifier,
+                ),
             )
             while True:
                 while runner.run_once():

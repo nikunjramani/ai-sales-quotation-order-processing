@@ -21,6 +21,9 @@ dependencies = [
     # through ReportLab; imported directly now, so pinned here with the same range).
     "argon2-cffi>=25.1,<26",
     "pillow>=12.3,<13",
+    # Phase 5: HTTP client for provider packages that call a tool's API without an SDK
+    # (Telegram). Imported only inside adapters/providers/ (architecture test).
+    "httpx>=0.28,<1",
 ]
 
 # Pluggable parts are found by name through these entry points (ADR 0018). A new provider or
@@ -30,6 +33,7 @@ api = "quotation_app.adapters.providers.api:build"
 simulated = "quotation_app.adapters.providers.simulated:build"
 local_catalogue = "quotation_app.adapters.providers.local_catalogue:build"
 web_chat = "quotation_app.adapters.providers.web_chat:build"
+telegram = "quotation_app.adapters.providers.telegram:build"
 
 [project.entry-points."quotation_app.secret_stores"]
 local = "quotation_app.adapters.secrets.local:build"

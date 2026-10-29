@@ -43,6 +43,12 @@ class DictSecrets:
     def delete(self, tenant_id: UUID, reference: str) -> None:
         self.values.pop((tenant_id, reference), None)
 
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        raise NotImplementedError
+
+    def get_platform(self, provider_key: str, name: str) -> str:
+        raise NotImplementedError
+
 
 class SpyProvider(SimulatedProvider):
     """The simulated provider, counting parses and optionally returning fixed events."""

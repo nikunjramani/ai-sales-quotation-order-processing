@@ -12,6 +12,8 @@ honesty rules as quotation deliveries (ADR 0015):
 5. The provider sends: accepted -> available/sent; refused -> failed; maybe sent -> unknown;
    any other error -> back to pending and retried (after the last attempt: failed).
 6. The hook's after_send (e.g. mark the approval reference as sent).
+7. Platform-webhook tools (phase 5) name keys that route a reply to this message back to its
+   connection; they are stored so the reply finds its business.
 """
 
 import logging
@@ -25,13 +27,14 @@ from quotation_app.domain.jobs import PermanentJobError
 from quotation_app.domain.messages import (
     CUSTOMER_TEMPLATES,
     FINAL_MESSAGE_STATUSES,
+    MANAGER_TEMPLATES,
     MessageStatus,
     OutboundMessage,
     TemplateKey,
     render_template,
 )
 from quotation_app.domain.tenancy import may_contact_customers
-from quotation_app.ports.connections import ConnectionStore
+from quotation_app.ports.connections import ConnectionStore, RouteWriter
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.messages import (
     MessageLinks,
@@ -59,6 +62,7 @@ _PURPOSE = {
     TemplateKey.RESPONSE_NOTICE: Purpose.MANAGER_APPROVALS,
     TemplateKey.QUOTATION_DOCUMENT: Purpose.CUSTOMER_MESSAGES,
     **{template: Purpose.CUSTOMER_MESSAGES for template in CUSTOMER_TEMPLATES},
+    **{template: Purpose.MANAGER_APPROVALS for template in MANAGER_TEMPLATES},
 }
 
 
@@ -116,8 +120,10 @@ class SendMessageHandler:
         secrets: SecretStore,
         hooks: Mapping[TemplateKey, SendHook],
         statuses: TenantStatusReader | None = None,
+        routes: RouteWriter | None = None,
     ) -> None:
         self._statuses = statuses
+        self._routes = routes
         self._outbox = outbox
         self._connections = connections
         self._registry = registry
@@ -174,6 +180,9 @@ class SendMessageHandler:
             action_reference=preparation.action_reference,
             expires_at=preparation.expires_at,
             attachment=preparation.attachment,
+            link=preparation.link,
+            attachment_url=preparation.attachment_url,
+            purpose=message.purpose,
         )
         try:
             receipt = provider.send(connection, self._secrets, rendered)
@@ -205,6 +214,13 @@ class SendMessageHandler:
             _SENDING,
             provider_message_id=receipt.provider_message_id,
         )
+        if receipt.routing_keys and self._routes is not None:
+            self._routes.add_routes(
+                tenant_id,
+                connection.connection_id,
+                connection.provider_key,
+                dict.fromkeys(receipt.routing_keys, preparation.expires_at),
+            )
         if hook is not None:
             hook.after_send(message, preparation, receipt)
 

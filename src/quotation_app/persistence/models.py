@@ -390,6 +390,35 @@ class ConnectionRow(Base):
     # Phase 4 (Q13): the public address of a customer tool, e.g. /chat/<handle>.
     public_handle: Mapped[str | None] = mapped_column(String(64))
     public_handle_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Phase 5: the step the business still has to do (one-time values are never stored).
+    pending_action: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+
+
+class ConnectionRoute(Base):
+    """A routing key naming one connection, for platform-wide webhooks (phase 5).
+
+    Unique across all businesses; the connection_route_lookup policy reveals only the row whose
+    exact (provider_key, routing_key) was presented.
+    """
+
+    __tablename__ = "connection_routes"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "connection_id"],
+            ["connections.tenant_id", "connections.id"],
+            name="fk_connection_routes_connection",
+        ),
+        UniqueConstraint("provider_key", "routing_key", name="uq_connection_routes_key"),
+        Index("ix_connection_routes_connection", "tenant_id", "connection_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    connection_id: Mapped[UUID] = mapped_column()
+    provider_key: Mapped[str] = mapped_column(String(32))
+    routing_key: Mapped[str] = mapped_column(String(200))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ConnectionEventRow(Base):
@@ -903,6 +932,12 @@ class OutboundMessageRow(Base):
         Index("ix_outbound_messages_status", "tenant_id", "status"),
         Index("ix_outbound_messages_quotation", "tenant_id", "quotation_id"),
         Index("ix_outbound_messages_task", "tenant_id", "approval_task_id"),
+        Index("ix_outbound_messages_action_ref", "tenant_id", "action_ref_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "resent_from_id"],
+            ["outbound_messages.tenant_id", "outbound_messages.id"],
+            name="fk_outbound_messages_resent_from",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -933,6 +968,12 @@ class OutboundMessageRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Phase 5: the approval request this message belongs to (a reply to it finds the request)
+    # and the failed message a staff Resend repeats.
+    action_ref_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("approval_action_refs.id", name="fk_outbound_messages_action_ref")
+    )
+    resent_from_id: Mapped[UUID | None] = mapped_column()
 
 
 class QuotationDelivery(Base):
@@ -1489,3 +1530,129 @@ class CustomerSession(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ApprovalReplyPrompt(Base):
+    """A question to a linked manager about one approval request (phase 5, D10).
+
+    kind reason: "reply with the reason" after a Reject/Change button; the reply supplies the
+    reason for the stored action. kind confirm: "You want to <action> Q-... version N?" after
+    the AI read a written reply (P5-13); Yes records the stored action and reason. At most one
+    open prompt per request.
+    """
+
+    __tablename__ = "approval_reply_prompts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["reference_id"], ["approval_action_refs.id"], name="fk_approval_reply_prompts_ref"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "outbound_message_id"],
+            ["outbound_messages.tenant_id", "outbound_messages.id"],
+            name="fk_approval_reply_prompts_message",
+        ),
+        UniqueConstraint("token_sha256", name="uq_approval_reply_prompts_token"),
+        UniqueConstraint("outbound_message_id", name="uq_approval_reply_prompts_message"),
+        ForeignKeyConstraint(
+            ["tenant_id", "inbox_event_id"],
+            ["inbox_events.tenant_id", "inbox_events.id"],
+            name="fk_approval_reply_prompts_event",
+        ),
+        UniqueConstraint("inbox_event_id", name="uq_approval_reply_prompts_event"),
+        CheckConstraint("kind IN ('reason', 'confirm')", name="ck_approval_reply_prompts_kind"),
+        CheckConstraint(
+            "action IN ('approve', 'reject', 'request_revision')",
+            name="ck_approval_reply_prompts_action",
+        ),
+        CheckConstraint(
+            "(closed_at IS NULL) = (outcome IS NULL)", name="ck_approval_reply_prompts_closed"
+        ),
+        CheckConstraint(
+            "reason IS NULL OR length(reason) <= 1000", name="ck_approval_reply_prompts_reason"
+        ),
+        Index(
+            "uq_approval_reply_prompts_open",
+            "tenant_id",
+            "reference_id",
+            unique=True,
+            postgresql_where=text("closed_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    reference_id: Mapped[UUID] = mapped_column()
+    kind: Mapped[str] = mapped_column(String(16))
+    action: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str | None] = mapped_column(Text)
+    token_sha256: Mapped[str | None] = mapped_column(String(64))
+    outbound_message_id: Mapped[UUID | None] = mapped_column()
+    inbox_event_id: Mapped[UUID | None] = mapped_column()  # the reply that led to it
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ManagerReplyClassification(Base):
+    """Append-only audit of one written manager reply and what was understood (phase 5)."""
+
+    __tablename__ = "manager_reply_classifications"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "inbox_event_id"],
+            ["inbox_events.tenant_id", "inbox_events.id"],
+            name="fk_manager_reply_classifications_event",
+        ),
+        ForeignKeyConstraint(
+            ["reference_id"],
+            ["approval_action_refs.id"],
+            name="fk_manager_reply_classifications_ref",
+        ),
+        UniqueConstraint("inbox_event_id", name="uq_manager_reply_classifications_event"),
+        CheckConstraint(
+            "intent IN ('approve', 'reject', 'revise', 'unclear')",
+            name="ck_manager_reply_classifications_intent",
+        ),
+        CheckConstraint("length(text) <= 4000", name="ck_manager_reply_classifications_text"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    inbox_event_id: Mapped[UUID] = mapped_column()
+    reference_id: Mapped[UUID | None] = mapped_column()
+    text: Mapped[str] = mapped_column(Text)
+    text_sha256: Mapped[str] = mapped_column(String(64))
+    intent: Mapped[str] = mapped_column(String(16))
+    model: Mapped[str] = mapped_column(String(200))
+    guard: Mapped[str | None] = mapped_column(String(64))
+    outcome: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MediaLink(Base):
+    """A short-lived public link to one approved PDF (phase 5, C6); token SHA-256 only."""
+
+    __tablename__ = "media_links"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "document_id"],
+            ["quotation_documents.tenant_id", "quotation_documents.id"],
+            name="fk_media_links_document",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "outbound_message_id"],
+            ["outbound_messages.tenant_id", "outbound_messages.id"],
+            name="fk_media_links_message",
+        ),
+        UniqueConstraint("token_sha256", name="uq_media_links_token"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    token_sha256: Mapped[str] = mapped_column(String(64))
+    document_id: Mapped[UUID] = mapped_column()
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    outbound_message_id: Mapped[UUID | None] = mapped_column()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

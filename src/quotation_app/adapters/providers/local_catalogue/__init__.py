@@ -17,6 +17,7 @@ from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.providers import (
     InboundRequest,
     OperationUnsupported,
+    ProviderDefaults,
     ProviderEnvironment,
     RenderedMessage,
     SendReceipt,
@@ -27,7 +28,7 @@ from quotation_app.ports.secrets import SecretStore
 PROVIDER_KEY = "local_catalogue"
 
 
-class LocalCatalogueProvider:
+class LocalCatalogueProvider(ProviderDefaults):
     key = PROVIDER_KEY
     display_name = "Our product list"  # user answer Q23
     purposes = frozenset({Purpose.CATALOGUE})

@@ -7,6 +7,7 @@ functions, so adding a provider never means editing the API or the worker.
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import cast
 from uuid import UUID
 
@@ -25,11 +26,24 @@ from quotation_app.application.accounts import AccountEmailHandler
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_sources import CatalogueSourceResolver, TenantCatalogue
 from quotation_app.application.channel_actions import ChannelActionService
-from quotation_app.application.customer_actions import QuotationReadyHook
+from quotation_app.application.customer_actions import CustomerActionService, QuotationReadyHook
 from quotation_app.application.customer_messages import CustomerConsentHook, CustomerMessenger
 from quotation_app.application.delivery import QuotationDeliveryHandler, QuotationDocumentHook
-from quotation_app.application.inbound import ConsentRoute, ProcessInboundHandler, routes_for
+from quotation_app.application.inbound import (
+    ConnectionUpdateRoute,
+    ConsentRoute,
+    CustomerActionRoute,
+    ProcessInboundHandler,
+    StaffMessageRoute,
+    routes_for,
+)
 from quotation_app.application.jobs import JobHandler, PauseWhileSuspended
+from quotation_app.application.lifecycle import ConnectionLifecycle
+from quotation_app.application.manager_replies import (
+    ApprovalPromptHook,
+    ManagerReplyService,
+)
+from quotation_app.application.media import MediaLinkHook
 from quotation_app.application.messaging import OutboundService, SendMessageHandler
 from quotation_app.application.notifications import (
     ApprovalNotificationHandler,
@@ -42,7 +56,7 @@ from quotation_app.application.providers import ProviderRegistry
 from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
 from quotation_app.domain.chat import ChatLimits
-from quotation_app.domain.connections import Purpose
+from quotation_app.domain.connections import DeliveryMode, Purpose
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.messages import CUSTOMER_TEMPLATES, TemplateKey
 from quotation_app.persistence.acceptance import SqlResponseStore
@@ -50,12 +64,15 @@ from quotation_app.persistence.accounts import SqlAccountEmailStore, SqlBusiness
 from quotation_app.persistence.catalogue import SqlCatalogueStore
 from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.connections import SqlConnectionStore
-from quotation_app.persistence.conversations import SqlCustomerTargets
+from quotation_app.persistence.conversations import SqlCustomerTargets, SqlStaffMessages
 from quotation_app.persistence.customer_actions import SqlCustomerActionStore
 from quotation_app.persistence.documents import SqlDeliveryStore
 from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlPreparationStore
+from quotation_app.persistence.manager_replies import SqlReplyStore
+from quotation_app.persistence.media import SqlMediaLinks
 from quotation_app.persistence.messages import SqlMessageOutbox
+from quotation_app.persistence.provider_state import SqlConnectionLifecycle, SqlRouteWriter
 from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
 from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
 from quotation_app.persistence.workflow import SqlWorkflowStore
@@ -64,6 +81,7 @@ from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.interpretation import EnquiryInterpreter
 from quotation_app.ports.messages import SendHook
 from quotation_app.ports.providers import ProviderEnvironment
+from quotation_app.ports.reply_classification import ReplyClassifier
 from quotation_app.ports.secrets import SecretStore, SecretStoreEnvironment
 from quotation_app.ports.workflow import ReadingCap
 from quotation_app.workflows.enquiry import (
@@ -128,6 +146,12 @@ class LazySecretStore:
     def delete(self, tenant_id: UUID, reference: str) -> None:
         self._get().delete(tenant_id, reference)
 
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        self._get().put_platform(provider_key, name, value)
+
+    def get_platform(self, provider_key: str, name: str) -> str:
+        return self._get().get_platform(provider_key, name)
+
 
 def build_mailer(settings: Settings) -> Mailer:
     """The account email sender named by QUOTATION_MAILER (an installed entry point)."""
@@ -186,6 +210,21 @@ def default_catalogue_source(
     return DefaultSource(provider.key, provider.display_name)
 
 
+def capped_providers(registry: ProviderRegistry) -> frozenset[str]:
+    """Tools anyone may write to (hosted chat, pushed customer tools such as Telegram): their
+    enquiries share one daily reading cap per business (phase 4 Q9, phase 5 limits answer).
+    The API (pull, a business's own system) is not capped."""
+    return frozenset(
+        provider.key
+        for provider in registry.all()
+        if provider.capabilities.hosted_chat
+        or (
+            Purpose.CUSTOMER_MESSAGES in provider.purposes
+            and provider.capabilities.delivery_mode is DeliveryMode.PUSH
+        )
+    )
+
+
 def build_catalogue(engine: Engine, runtime: Runtime) -> ErpReader:
     """Every business's own product source, through its catalogue connection."""
     return TenantCatalogue(
@@ -200,10 +239,12 @@ def build_job_handlers(
     checkpointer: BaseCheckpointSaver[str],
     interpreter: EnquiryInterpreter,
     catalogue: ErpReader | None = None,
+    reply_classifier: ReplyClassifier | None = None,
 ) -> dict[JobKind, JobHandler]:
     """Every job the worker runs, wired to the worker-role engine.
 
     `catalogue` defaults to each business's own source; tests may pass a fixed reader.
+    `reply_classifier` reads managers' written replies (None: they are not read, P5-5).
     """
     if catalogue is None:
         catalogue = build_catalogue(engine, runtime)
@@ -225,7 +266,15 @@ def build_job_handlers(
         ),
         checkpointer,
     )
-    document_hook = QuotationDocumentHook(deliveries, storage)
+    # Tools that download attachments by URL get a short-lived public link (phase 5, C6).
+    document_hook = MediaLinkHook(
+        QuotationDocumentHook(deliveries, storage),
+        SqlMediaLinks(engine),
+        deliveries,
+        runtime.registry,
+        settings.public_base_url or DEV_PUBLIC_BASE_URL,
+        timedelta(minutes=settings.media_link_minutes),
+    )
     send_hooks: dict[TemplateKey, SendHook] = {
         template: CustomerConsentHook(targets) for template in CUSTOMER_TEMPLATES
     }
@@ -240,7 +289,9 @@ def build_job_handlers(
             settings.public_base_url or DEV_PUBLIC_BASE_URL,
         ),
     )
-    send_hooks[TemplateKey.APPROVAL_REQUEST] = ApprovalRequestHook(notifications)
+    send_hooks[TemplateKey.APPROVAL_REQUEST] = ApprovalRequestHook(
+        notifications, portal_url=settings.portal_url
+    )
     send_hooks[TemplateKey.QUOTATION_DOCUMENT] = document_hook
     quotations = QuotationJobHandler(
         build_quotation_graph(
@@ -252,6 +303,29 @@ def build_job_handlers(
         SqlApprovalStore(engine), TenantContextResolver(SqlMembershipReader(engine))
     )
     statuses = SqlBusinessStore(engine)
+    channel_actions = ChannelActionService(
+        SqlChannelStore(engine),
+        approvals,
+        connections,
+        runtime.registry,
+        secrets=runtime.secrets,
+    )
+    # Approval by message (D10, phase 5): buttons, written replies and confirmations.
+    reply_store = SqlReplyStore(engine)
+    replies = ManagerReplyService(
+        reply_store,
+        channel_actions,
+        outbound,
+        connections,
+        SqlInboundStore(engine),
+        reply_classifier,
+    )
+    prompt_hook = ApprovalPromptHook(reply_store)
+    send_hooks[TemplateKey.APPROVAL_CONFIRM] = prompt_hook
+    send_hooks[TemplateKey.APPROVAL_REASON] = prompt_hook
+    lifecycle = ConnectionLifecycle(
+        connections, SqlConnectionLifecycle(engine), runtime.registry, runtime.secrets
+    )
     handlers: dict[JobKind, JobHandler] = {
         JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(
             SqlPreparationStore(engine), storage, customers
@@ -260,7 +334,7 @@ def build_job_handlers(
             enquiry_graph,
             workflow_store,
             ReadingCap(
-                frozenset(p.key for p in runtime.registry.all() if p.capabilities.hosted_chat),
+                capped_providers(runtime.registry),
                 ChatLimits().readings_per_business_day,
             ),
         ),
@@ -288,6 +362,7 @@ def build_job_handlers(
             runtime.secrets,
             send_hooks,
             statuses,
+            SqlRouteWriter(engine),
         ),
         JobKind.SEND_ACCOUNT_EMAIL: AccountEmailHandler(
             SqlAccountEmailStore(engine),
@@ -298,12 +373,22 @@ def build_job_handlers(
         JobKind.PROCESS_INBOUND: ProcessInboundHandler(
             SqlInboundStore(engine),
             routes_for(
-                ChannelActionService(
-                    SqlChannelStore(engine), approvals, connections, runtime.registry
-                ),
+                channel_actions,
                 ConsentRoute(targets, customers),
+                staff=StaffMessageRoute(SqlStaffMessages(engine)),
+                customer_actions=CustomerActionRoute(
+                    targets,
+                    CustomerActionService(
+                        SqlCustomerActionStore(engine),
+                        QuotationResponseService(responses, pricing),
+                    ),
+                ),
+                setup=ConnectionUpdateRoute(lifecycle),
+                replies=replies,
             ),
         ),
+        JobKind.POLL_CONNECTION: lifecycle.poll,
+        JobKind.CLASSIFY_MANAGER_REPLY: replies.classify,
     }
     # A suspended business's jobs wait instead of running (phase 2, Q13).
     return {kind: PauseWhileSuspended(handler, statuses) for kind, handler in handlers.items()}

@@ -28,9 +28,12 @@ class JobKind(StrEnum):
     # Phase 1 connector framework (ADR 0018):
     SEND_MESSAGE = "send_message"
     PROCESS_INBOUND = "process_inbound"
-    PROVISION_CONNECTION = "provision_connection"  # no handler until phase 5
+    PROVISION_CONNECTION = "provision_connection"  # unused: Enable provisions in the request
     # Phase 2 accounts: the only kind that may have no business (sign-up, reset emails).
     SEND_ACCOUNT_EMAIL = "send_account_email"
+    # Phase 5: providers that report progress only when asked; written manager replies.
+    POLL_CONNECTION = "poll_connection"
+    CLASSIFY_MANAGER_REPLY = "classify_manager_reply"
 
 
 class PermanentJobError(Exception):

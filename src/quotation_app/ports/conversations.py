@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -61,3 +62,18 @@ class CustomerNotifier(Protocol):
         idempotency_key: str,
         correlation_id: UUID,
     ) -> UUID | None: ...
+
+
+class StaffMessages(Protocol):
+    def record(
+        self,
+        tenant_id: UUID,
+        connection_id: UUID,
+        external_id: str,
+        inbox_event_id: UUID,
+        body: str,
+        at: datetime,
+    ) -> bool:
+        """A message the business typed on its own tool to this customer (phase 5). False if
+        that inbox event was already recorded."""
+        ...

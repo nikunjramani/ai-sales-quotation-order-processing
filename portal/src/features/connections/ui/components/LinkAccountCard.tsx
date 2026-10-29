@@ -16,6 +16,7 @@ export function LinkAccountCard({
   const enrollment = useStartEnrollment();
   const linkable = connections.filter(canLink);
   const code = enrollment.data?.code;
+  const hint = enrollment.data?.hint;
   return (
     <div className="card">
       <p>
@@ -36,9 +37,21 @@ export function LinkAccountCard({
         </button>
       ))}
       <ErrorMessage message={enrollment.error?.message} />
-      {code && (
+      {code && !hint && (
         <p className="notice">
           Send this code from the account within 10 minutes: <code>{code}</code>
+        </p>
+      )}
+      {code && hint && (
+        <p className="notice">
+          {hint.text}{" "}
+          {hint.url ? (
+            <a className="button primary" href={hint.url} target="_blank" rel="noreferrer">
+              Open the link
+            </a>
+          ) : (
+            <code>{code}</code>
+          )}
         </p>
       )}
     </div>

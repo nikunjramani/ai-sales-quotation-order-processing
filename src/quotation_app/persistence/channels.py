@@ -23,6 +23,7 @@ from quotation_app.persistence.models import (
     ConnectionRow,
     Enquiry,
     Membership,
+    OutboundMessageRow,
     Quotation,
     QuotationVersion,
     Tenant,
@@ -190,6 +191,17 @@ class SqlNotificationStore:
                 .values(sent_at=func.now())
             )
 
+    def link_message(self, tenant_id: UUID, message_id: UUID, reference_id: UUID) -> None:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            connection.execute(
+                update(OutboundMessageRow)
+                .where(
+                    OutboundMessageRow.tenant_id == tenant_id,
+                    OutboundMessageRow.id == message_id,
+                )
+                .values(action_ref_id=reference_id)
+            )
+
 
 class SqlChannelStore:
     def __init__(self, engine: Engine) -> None:
@@ -308,6 +320,16 @@ class SqlChannelStore:
     def find_reference(
         self, tenant_id: UUID, token_sha256: str
     ) -> tuple[ActionReference, ChannelBinding] | None:
+        return self._reference(tenant_id, ApprovalActionRef.token_sha256 == token_sha256)
+
+    def get_reference(
+        self, tenant_id: UUID, reference_id: UUID
+    ) -> tuple[ActionReference, ChannelBinding] | None:
+        return self._reference(tenant_id, ApprovalActionRef.id == reference_id)
+
+    def _reference(
+        self, tenant_id: UUID, condition: Any
+    ) -> tuple[ActionReference, ChannelBinding] | None:
         with tenant_transaction(self._engine, tenant_id) as connection:
             row = connection.execute(
                 select(
@@ -330,7 +352,7 @@ class SqlChannelStore:
                 )
                 .where(
                     ApprovalActionRef.tenant_id == tenant_id,
-                    ApprovalActionRef.token_sha256 == token_sha256,
+                    condition,
                     ApprovalActionRef.sent_at.is_not(None),
                 )
             ).one_or_none()

@@ -13,6 +13,7 @@ from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.providers import (
     InboundRequest,
     OperationUnsupported,
+    ProviderDefaults,
     ProviderEnvironment,
     ReceiptKind,
     RenderedMessage,
@@ -24,7 +25,7 @@ from quotation_app.ports.secrets import SecretStore
 PROVIDER_KEY = "api"
 
 
-class ApiProvider:
+class ApiProvider(ProviderDefaults):
     key = PROVIDER_KEY
     display_name = "API (customer systems)"
     purposes = frozenset({Purpose.CUSTOMER_MESSAGES})

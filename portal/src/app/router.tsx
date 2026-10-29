@@ -1,6 +1,7 @@
 import { createHashRouter } from "react-router";
 
 import { accountPublicRoutes, accountRoutes } from "@/features/account";
+import { approvalRoutes } from "@/features/approvals";
 import { businessRoutes, businessStartRoutes } from "@/features/business";
 import { catalogueRoutes } from "@/features/catalogue";
 import { connectionRoutes } from "@/features/connections";
@@ -20,6 +21,8 @@ export function createRouter() {
   return createHashRouter([
     // No session needed (sign-in, sign-up and the pages email links open).
     ...accountPublicRoutes,
+    // The signed approval link from a message asks for sign-in itself (phase 5).
+    ...approvalRoutes,
     // Signed in, with or without a business (profile, create a business).
     { element: <SignedInLayout />, children: [...accountRoutes, ...businessStartRoutes] },
     // Inside the current business.

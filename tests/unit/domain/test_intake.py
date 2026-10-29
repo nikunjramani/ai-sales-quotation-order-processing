@@ -8,14 +8,20 @@ from quotation_app.domain.intake import (
     MAX_ATTACHMENTS,
     MAX_TEXT_CHARACTERS,
     AttachmentUpload,
+    ConnectionUpdate,
     ConsentChange,
+    CustomerAction,
     CustomerMessage,
     DeliveryStatusUpdate,
     EnquirySubmission,
     InboundEnvelope,
     InboundEvent,
     InboundEventType,
+    InboundFile,
     ManagerAction,
+    ManagerReply,
+    event_from_json,
+    event_to_json,
     event_type,
     validate_idempotency_key,
 )
@@ -105,5 +111,28 @@ def test_every_inbound_event_has_a_type() -> None:
         ManagerAction("evt-2", "manager-phone", "decision", action="approve"),
         DeliveryStatusUpdate("evt-3", "msg-1", "delivered"),
         ConsentChange("evt-4", "+911234", opted_in=False),
+        ManagerReply("evt-5", "manager-phone", "ok", "msg-9"),
+        CustomerAction("evt-6", "+911234", "ref-1", "accept"),
+        ConnectionUpdate("evt-7", "link", {"owner": "42"}),
     ]
-    assert [event_type(event) for event in events] == list(InboundEventType)
+    assert sorted(event_type(event) for event in events) == sorted(InboundEventType)
+
+
+def test_events_survive_their_stored_form() -> None:
+    events: list[InboundEvent] = [
+        CustomerMessage(
+            "evt-1",
+            "42",
+            "see the list",
+            occurred_at=datetime(2026, 10, 29, tzinfo=UTC),
+            files=(InboundFile("file-1", "list.pdf", "application/pdf", 1200),),
+            skipped=("voice message",),
+            from_business=True,
+        ),
+        ManagerReply("evt-2", "7", "approved", "m-1", datetime(2026, 10, 29, tzinfo=UTC)),
+        CustomerAction("evt-3", "42", "ref-1", "decline"),
+        ConnectionUpdate("evt-4", "link", {"owner": "42"}),
+        ManagerAction("evt-5", "7", "confirm", reference="tok", action="yes"),
+    ]
+    for event in events:
+        assert event_from_json(event_to_json(event)) == event

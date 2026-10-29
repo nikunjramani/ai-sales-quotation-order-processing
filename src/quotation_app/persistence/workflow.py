@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import make_url
 
 from quotation_app.domain.attachments import AttachmentStatus
-from quotation_app.domain.conversations import Direction
+from quotation_app.domain.conversations import Author, Direction
 from quotation_app.domain.intake import EnquiryStatus
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.requirements import ExtractionOutcome
@@ -44,8 +44,10 @@ class SqlWorkflowStore:
             ).scalar_one_or_none()
             if found is None:
                 return None
-            messages = connection.execute(
-                select(ConversationMessage.seq, ConversationMessage.text)
+            inbound = connection.execute(
+                select(
+                    ConversationMessage.seq, ConversationMessage.text, ConversationMessage.author
+                )
                 .where(
                     ConversationMessage.tenant_id == tenant_id,
                     ConversationMessage.enquiry_id == enquiry_id,
@@ -53,6 +55,10 @@ class SqlWorkflowStore:
                 )
                 .order_by(ConversationMessage.seq)
             ).all()
+            # Phase 5: what the business typed itself on its tool is context from our side,
+            # never the customer's words (and never a source for verbatim checks).
+            messages = [row for row in inbound if row.author == Author.CUSTOMER.value]
+            staff = [row.text for row in inbound if row.author == Author.STAFF.value]
             previous = connection.execute(
                 select(WorkflowRun.outcome)
                 .where(
@@ -82,7 +88,7 @@ class SqlWorkflowStore:
         return EnquiryContent(
             EnquiryTranscript(
                 tuple(CustomerText(index, row.text) for index, row in enumerate(messages, start=1)),
-                asked,
+                (*asked, *(f"(The business wrote to the customer: {text})" for text in staff)),
                 open_items,
             ),
             tuple(
@@ -219,6 +225,7 @@ def _changed_since_read(
             ConversationMessage.tenant_id == tenant_id,
             ConversationMessage.enquiry_id == enquiry_id,
             ConversationMessage.direction == Direction.INBOUND.value,
+            ConversationMessage.author == Author.CUSTOMER.value,
             ConversationMessage.seq > (upto if isinstance(upto, int) else 2**62),
         )
     ).scalar_one()

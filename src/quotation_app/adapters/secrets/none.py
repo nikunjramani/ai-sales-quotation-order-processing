@@ -21,6 +21,12 @@ class NoSecretStore:
     def delete(self, tenant_id: UUID, reference: str) -> None:
         raise SecretStoreUnavailable(_MESSAGE)
 
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        raise SecretStoreUnavailable(_MESSAGE)
+
+    def get_platform(self, provider_key: str, name: str) -> str:
+        raise SecretStoreUnavailable(_MESSAGE)
+
 
 def build(environment: SecretStoreEnvironment) -> NoSecretStore:
     """Entry point `none` in group quotation_app.secret_stores."""

@@ -1,7 +1,14 @@
 // Service: pure rules for showing connections. No React, no HTTP. The screens decide by
 // purposes and status, never by provider name, so a new tool needs no portal change.
 
-import type { Connection, ConnectionStatus, Purpose } from "../model/types";
+import type {
+  AvailableTool,
+  Connection,
+  ConnectionStatus,
+  JsonSchema,
+  PendingAction,
+  Purpose,
+} from "../model/types";
 
 export const PURPOSE_LABEL: Record<Purpose, string> = {
   customer_messages: "Customer messages",
@@ -41,4 +48,68 @@ export function originsFromText(text: string): string[] {
     .split(/\s+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+/** Phase 5: a tool that may cost money needs the "may incur costs" tick before Enable. */
+export function needsCostTick(tool: AvailableTool): boolean {
+  return !tool.free;
+}
+
+/** One-click tools not enabled yet (an existing one shows its own step or status instead). */
+export function enablable(tools: AvailableTool[], connections: Connection[]): AvailableTool[] {
+  return tools.filter(
+    (tool) =>
+      tool.kind === "one_click" &&
+      !connections.some(
+        (item) => item.provider_key === tool.provider_key && item.status !== "disabled",
+      ),
+  );
+}
+
+/** While a tool is being set up, the list is asked again every 5 seconds. */
+export function pollInterval(connections: Connection[] | undefined): number | false {
+  return connections?.some((item) => item.status === "setting_up") ? 5000 : false;
+}
+
+const MISSING = "(press Enable again for a new one)";
+
+/** Steps with the one-time values this browser still knows (from the Enable answer). */
+export function stepTexts(action: PendingAction, once: Record<string, string>): string[] {
+  const value = Object.values(once)[0];
+  if (value === undefined) return action.steps;
+  return action.steps.map((step) => step.split(MISSING).join(value));
+}
+
+export interface FormField {
+  name: string;
+  label: string;
+  input: "text" | "number" | "checkbox" | "password" | "select";
+  required: boolean;
+  help: string | null;
+  options: string[];
+}
+
+/** Fields of a setup form's JSON schema. Secret fields are write-only password inputs. */
+export function formFields(schema: JsonSchema | null): FormField[] {
+  const required = new Set(schema?.required ?? []);
+  return Object.entries(schema?.properties ?? {}).map(([name, field]) => {
+    let input: FormField["input"] = "text";
+    if (field.enum?.length) input = "select";
+    else if (field.type === "boolean") input = "checkbox";
+    else if (field.type === "number" || field.type === "integer") input = "number";
+    else if (field.writeOnly || field.format === "password") input = "password";
+    return {
+      name,
+      label: field.title ?? name,
+      input,
+      required: required.has(name),
+      help: field.description ?? null,
+      options: field.enum ?? [],
+    };
+  });
+}
+
+/** Disabling a tool needs its name typed exactly (it stops its messages at once). */
+export function disableConfirmed(typed: string, connection: Connection): boolean {
+  return typed.trim() === connection.display_name;
 }

@@ -92,7 +92,12 @@ from quotation_app.ports.identity import SessionRecord, VerifiedIdentity
 from quotation_app.ports.inbound import RecordedEvent, StoredEvent
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.messages import NewMessage
-from quotation_app.ports.providers import ReceiptKind, RenderedMessage, SendReceipt
+from quotation_app.ports.providers import (
+    ProviderDefaults,
+    ReceiptKind,
+    RenderedMessage,
+    SendReceipt,
+)
 from quotation_app.ports.quotations import (
     QuotationDetail,
     QuotationSummary,
@@ -247,6 +252,7 @@ class MemoryQuotations:
     enrollments: dict[UUID, EnrollmentRow] = field(default_factory=dict)
     binding_enrollment: dict[UUID, UUID] = field(default_factory=dict)
     references: dict[UUID, ReferenceRow] = field(default_factory=dict)
+    message_references: dict[UUID, UUID] = field(default_factory=dict)  # message -> reference
     sessions: dict[str, SessionRecord] = field(default_factory=dict)
     # enquiry -> (channel, recipient) of whoever sent it; default: an API client.
     senders: dict[UUID, tuple[str, str]] = field(default_factory=dict)
@@ -559,6 +565,9 @@ class MemoryQuotations:
     def mark_sent(self, tenant_id: UUID, reference_id: UUID) -> None:
         self.references[reference_id].sent_at = self.clock()
 
+    def link_message(self, tenant_id: UUID, message_id: UUID, reference_id: UUID) -> None:
+        self.message_references[message_id] = reference_id
+
     # --- ChannelStore ---------------------------------------------------------------------
     def create_enrollment(
         self,
@@ -624,8 +633,18 @@ class MemoryQuotations:
     def find_reference(
         self, tenant_id: UUID, token_sha256: str
     ) -> tuple[ActionReference, ChannelBinding] | None:
+        return self._reference(tenant_id, lambda row: row.token_sha256 == token_sha256)
+
+    def get_reference(
+        self, tenant_id: UUID, reference_id: UUID
+    ) -> tuple[ActionReference, ChannelBinding] | None:
+        return self._reference(tenant_id, lambda row: row.reference_id == reference_id)
+
+    def _reference(
+        self, tenant_id: UUID, matches: Callable[[ReferenceRow], bool]
+    ) -> tuple[ActionReference, ChannelBinding] | None:
         for row in self.references.values():
-            if row.tenant_id == tenant_id and row.token_sha256 == token_sha256 and row.sent_at:
+            if row.tenant_id == tenant_id and matches(row) and row.sent_at:
                 task = self.tasks[row.task_id]
                 return (
                     ActionReference(
@@ -1134,7 +1153,7 @@ def quotation_db(now: datetime, industrial_tenant: UUID, office_tenant: UUID) ->
     return db
 
 
-class RecordingProvider:
+class RecordingProvider(ProviderDefaults):
     """A provider fake that records what it is asked to send.
 
     `outcome` decides the next send: None = accept, or an exception instance to raise once.
@@ -1239,6 +1258,36 @@ class MemoryOutbox:
     def get(self, tenant_id: UUID, message_id: UUID) -> OutboundMessage | None:
         found = self.messages.get(message_id)
         return found if found is not None and found.tenant_id == tenant_id else None
+
+    def resend(self, tenant_id: UUID, message_id: UUID, actor: str) -> UUID | None:
+        found = self.get(tenant_id, message_id)
+        if (
+            found is None
+            or found.status is not MessageStatus.FAILED
+            or found.purpose is not Purpose.CUSTOMER_MESSAGES
+        ):
+            return None
+        key = f"resend:{message_id}"
+        for existing in self.messages.values():
+            if (existing.tenant_id, existing.idempotency_key) == (tenant_id, key):
+                return existing.message_id
+        now = self.db.clock()
+        copy = replace(
+            found,
+            message_id=uuid4(),
+            params={**found.params, "resent_by": actor},
+            idempotency_key=key,
+            status=MessageStatus.PENDING,
+            provider_message_id=None,
+            last_error=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.messages[copy.message_id] = copy
+        self.db.jobs.append(
+            Job(tenant_id, JobKind.SEND_MESSAGE, {"message_id": str(copy.message_id)})
+        )
+        return copy.message_id
 
     def set_status(
         self,

@@ -241,6 +241,18 @@ cd portal; npm ci; npm run build; cd ..                # portal + dist/widget/wi
 - **Demo:** `uv run python demo/run_demo.py` shows the industrial business's website chat next to the API customer and the manager phone. Try "We need 5 boxes of 2-core cable", then "10 metres" (rules reader), or "can you get cables price?" then "10 meter?" (Gemini).
 - **Downgrading 0012** loses follow-up rounds and follow-up message text; back up first.
 
+## One-click tools, Telegram and approval by message (phase 5)
+After pulling:
+```powershell
+uv sync --all-extras                                   # registers the telegram provider, httpx
+uv run alembic upgrade head                            # 0013_provider_state
+cd portal; npm ci; npm run build; cd ..
+```
+- **No accounts are needed for development.** The simulated phone shows approval by message: approval requests, questions and confirmations are files under `var/storage/simulated-channel/`, each with its `message_id`. A `reply` event answers one of them (see the [PostgreSQL test](../../tests/integration/workflows/test_manager_replies.py)). Written replies are read only with `QUOTATION_MODEL` set; without it the phone gets "written replies are not read here".
+- **Signed link:** every approval request carries `<portal>#/approve/<token>`. Open it signed in as the approver it was sent to.
+- **Telegram for real** needs a bot, a public HTTPS address (a tunnel) and the operator command: [provider setup](../operations/provider-setup.md#telegram). Without settings the Telegram card still shows, but Enable fails with "Telegram is not set up for this platform".
+- **Downgrading 0013** deletes routes, prompts, the reply audit, media links and the new event types; back up first.
+
 ## Product catalogue (phase 3)
 After pulling phase 3, run once. The first command gives the migration role CREATE on `quotation_dev` (needed for the `pg_trgm` extension; user decision 2026-10-28); it re-runs the idempotent role script (in Git Bash, prefix it with `MSYS_NO_PATHCONV=1`):
 ```

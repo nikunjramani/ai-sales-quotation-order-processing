@@ -102,3 +102,36 @@ def test_messages_are_isolated_and_the_api_cannot_write_them(
             tenant_transaction(worker_engine, INDUSTRIAL_TENANT) as db,
         ):
             db.execute(text(f"UPDATE outbound_messages SET {column}"))
+
+
+def test_the_api_resends_a_failed_customer_message_once(
+    owner_engine: Engine, worker_engine: Engine, runtime_engine: Engine
+) -> None:
+    """Phase 5 Resend runs as the API role: a new pending copy with its own send job."""
+    worker = SqlMessageOutbox(worker_engine)
+    base = new_message(worker_engine, f"customer:{uuid4()}")
+    failed = worker.enqueue(NewMessage(**{**vars(base), "purpose": Purpose.CUSTOMER_MESSAGES}))
+    pending = worker.enqueue(
+        NewMessage(
+            **{**vars(base), "purpose": Purpose.CUSTOMER_MESSAGES, "idempotency_key": "other"}
+        )
+    )
+    assert worker.set_status(
+        INDUSTRIAL_TENANT,
+        failed,
+        MessageStatus.FAILED,
+        expected=frozenset({MessageStatus.PENDING}),
+        error="Rejected by the provider: customer must message first",
+    )
+    api = SqlMessageOutbox(runtime_engine)
+
+    copy = api.resend(INDUSTRIAL_TENANT, failed, "user:operator")
+
+    assert copy is not None and copy != failed
+    assert api.resend(INDUSTRIAL_TENANT, failed, "user:operator") == copy
+    assert api.resend(INDUSTRIAL_TENANT, pending, "user:operator") is None
+    assert api.resend(OFFICE_TENANT, failed, "user:operator") is None
+    resent = api.get(INDUSTRIAL_TENANT, copy)
+    assert resent is not None and resent.status is MessageStatus.PENDING
+    assert resent.params["resent_by"] == "user:operator"
+    assert jobs(owner_engine, copy) == 1

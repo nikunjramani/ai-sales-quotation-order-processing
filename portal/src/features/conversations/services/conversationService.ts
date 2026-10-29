@@ -4,7 +4,10 @@ import type { ThreadMessage } from "../model/types";
 
 /** Who wrote a message, in words staff understand. */
 export function authorLabel(message: ThreadMessage): string {
-  if (message.direction === "inbound") return "Customer";
+  // Phase 5: what the business typed itself on its own tool account (e.g. Telegram).
+  if (message.direction === "inbound") {
+    return message.author === "staff" ? "Staff, on the tool" : "Customer";
+  }
   return message.author === "staff" ? "Staff" : "Sent automatically";
 }
 

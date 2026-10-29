@@ -4,6 +4,10 @@ The database keeps only opaque references such as "local:<uuid>". Each secret be
 tenant; asking for it with another tenant's ID fails as if it did not exist. Implementations
 are chosen by the entry point group `quotation_app.secret_stores` (local for development,
 none until a cloud store is chosen, D24).
+
+Company-level secrets (our own bot token, app secret, master account...) live in a separate
+platform namespace per provider key (phase 5, contracts C5). They are written once by an
+operator command, never through the business portal, and are named rather than referenced.
 """
 
 from collections.abc import Callable, Mapping
@@ -30,6 +34,14 @@ class SecretStore(Protocol):
 
     def delete(self, tenant_id: UUID, reference: str) -> None:
         """Remove a secret; deleting a missing one is not an error."""
+        ...
+
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        """Store (or replace) a company-level secret of one provider."""
+        ...
+
+    def get_platform(self, provider_key: str, name: str) -> str:
+        """Raises SecretNotFound when the operator has not set it."""
         ...
 
 
