@@ -93,6 +93,10 @@ The user answered in six rounds on 2026-10-29 and confirmed the summary ("Yes, s
 | Owner's own messages | Recorded as staff messages in the conversation ("sent by staff on Telegram"); context for the reader, never customer words or manager commands |
 | 24 h limit | A customer message Telegram cannot deliver (no message from the customer in the last 24 h) **fails visibly** ("customer must message first") |
 | Resend | **New:** administrators and sales operators can resend a failed customer message from the portal; it creates a new outbox message (an `unknown` one is never resent) |
+| Limits (asked mid-work) | Same as website chat: 10 messages/minute and 100/day per Telegram sender, 200 readings per business per day; over a limit the message is stored, not read by the AI, and the enquiry goes to review |
+| Files (asked mid-work) | Same as website chat: PDF, text, PNG, JPEG, 5 MB each, through the quarantine; other kinds (voice, video, stickers) are skipped and noted, the text is kept |
+| No reply-to (asked mid-work) | A manager writing to the bot without replying to a message gets a generic hint ("reply to the approval message, or use its buttons"); nothing is recorded |
+| Not YES/NO (asked mid-work) | An answer to "You want to …?" that is not YES/NO is read as a new reply to the same request; the earlier question is cancelled |
 
 **Generic**
 | # | Answer |

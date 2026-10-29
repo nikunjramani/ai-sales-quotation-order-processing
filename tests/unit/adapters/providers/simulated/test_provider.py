@@ -42,6 +42,12 @@ class OneSecret:
     def delete(self, tenant_id: UUID, reference: str) -> None:
         raise NotImplementedError
 
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        raise NotImplementedError
+
+    def get_platform(self, provider_key: str, name: str) -> str:
+        raise NotImplementedError
+
 
 def connection(**changes: Any) -> Connection:
     values: dict[str, Any] = {

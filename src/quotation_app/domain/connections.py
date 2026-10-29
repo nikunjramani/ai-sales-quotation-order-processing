@@ -59,6 +59,13 @@ class Capabilities:
     # We host the customer side ourselves (phase 4): a public chat page and API under
     # /chat/<handle>, visitor sessions and a daily reading cap. Website chat is the first.
     hosted_chat: bool = False
+    # Phase 5: Enable runs Provider.provision (one click, then perhaps one pending step).
+    self_service: bool = False
+    # One callback URL for the whole platform (one bot, one app): /api/v1/hooks/p/<key>,
+    # routed to a business by connection_routes instead of a per-connection URL.
+    platform_webhooks: bool = False
+    # The tool downloads attachments from a public URL instead of receiving the bytes.
+    attachments_by_url: bool = False
 
 
 @dataclass(frozen=True)

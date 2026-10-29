@@ -38,6 +38,7 @@ from quotation_app.ports.providers import (
     InboundRequest,
     OperationUnsupported,
     Provider,
+    ProviderDefaults,
     ProviderEnvironment,
     ReceiptKind,
     RenderedMessage,
@@ -66,8 +67,14 @@ class OneSecret:
     def delete(self, tenant_id: UUID, reference: str) -> None:
         raise NotImplementedError
 
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        raise NotImplementedError
 
-class EchoProvider:
+    def get_platform(self, provider_key: str, name: str) -> str:
+        raise NotImplementedError
+
+
+class EchoProvider(ProviderDefaults):
     """A fake third provider: HMAC header "x-echo-signature", body {"id", "from", "code"}."""
 
     key = "echo"

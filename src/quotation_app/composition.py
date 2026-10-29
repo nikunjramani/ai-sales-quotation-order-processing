@@ -128,6 +128,12 @@ class LazySecretStore:
     def delete(self, tenant_id: UUID, reference: str) -> None:
         self._get().delete(tenant_id, reference)
 
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        self._get().put_platform(provider_key, name, value)
+
+    def get_platform(self, provider_key: str, name: str) -> str:
+        return self._get().get_platform(provider_key, name)
+
 
 def build_mailer(settings: Settings) -> Mailer:
     """The account email sender named by QUOTATION_MAILER (an installed entry point)."""

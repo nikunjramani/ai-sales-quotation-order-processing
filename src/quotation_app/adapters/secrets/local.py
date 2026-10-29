@@ -2,8 +2,10 @@
 
 Each secret is one file, <storage_dir>/secrets/<tenant_id>/<uuid>.bin, holding a random nonce
 and the AES-256-GCM ciphertext. The tenant ID and reference are bound in as associated data, so
-a file copied into another tenant's folder or renamed does not decrypt. The key comes from
-QUOTATION_SECRET_STORE_KEY (32 bytes, url-safe base64); scripts/init_local_env.py creates it.
+a file copied into another tenant's folder or renamed does not decrypt. Company-level secrets
+(phase 5) are <storage_dir>/secrets/platform/<provider_key>/<name>.bin, bound the same way.
+The key comes from QUOTATION_SECRET_STORE_KEY (32 bytes, url-safe base64);
+scripts/init_local_env.py creates it.
 """
 
 import base64
@@ -25,6 +27,7 @@ from quotation_app.ports.secrets import (
 
 PREFIX = "local:"
 _NONCE_BYTES = 12
+_PLATFORM_NAME = re.compile(r"^[a-z0-9_]{1,64}$")
 _REFERENCE = re.compile(r"^local:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
@@ -83,6 +86,38 @@ class LocalSecretStore:
 
     def delete(self, tenant_id: UUID, reference: str) -> None:
         self._path(tenant_id, reference).unlink(missing_ok=True)
+
+    def put_platform(self, provider_key: str, name: str, value: str) -> None:
+        path = self._platform_path(provider_key, name)
+        nonce = os.urandom(_NONCE_BYTES)
+        bound = f"platform:{provider_key}:{name}".encode()
+        sealed = nonce + self._aead.encrypt(nonce, value.encode("utf-8"), bound)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".secret-")
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(sealed)
+            os.replace(temporary, path)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+
+    def get_platform(self, provider_key: str, name: str) -> str:
+        try:
+            sealed = self._platform_path(provider_key, name).read_bytes()
+        except FileNotFoundError:
+            raise SecretNotFound("Secret not found") from None
+        nonce, ciphertext = sealed[:_NONCE_BYTES], sealed[_NONCE_BYTES:]
+        bound = f"platform:{provider_key}:{name}".encode()
+        try:
+            return self._aead.decrypt(nonce, ciphertext, bound).decode("utf-8")
+        except InvalidTag:
+            raise SecretNotFound("Secret not found") from None
+
+    def _platform_path(self, provider_key: str, name: str) -> Path:
+        if not _PLATFORM_NAME.fullmatch(provider_key) or not _PLATFORM_NAME.fullmatch(name):
+            raise SecretNotFound("Secret not found")
+        return self._root / "platform" / provider_key / f"{name}.bin"
 
     def _path(self, tenant_id: UUID, reference: str) -> Path:
         if not _REFERENCE.fullmatch(reference):

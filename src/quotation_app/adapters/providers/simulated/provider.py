@@ -27,6 +27,7 @@ from quotation_app.ports.providers import (
     InboundRequest,
     InvalidInbound,
     OperationUnsupported,
+    ProviderDefaults,
     ReceiptKind,
     RenderedMessage,
     SendReceipt,
@@ -63,7 +64,7 @@ class SimulatedEvent(BaseModel):
         )
 
 
-class SimulatedProvider:
+class SimulatedProvider(ProviderDefaults):
     key = PROVIDER_KEY
     display_name = "Simulated phone and demo catalogue (development)"
     purposes = frozenset({Purpose.MANAGER_APPROVALS, Purpose.CATALOGUE})

@@ -16,6 +16,7 @@ from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.providers import (
     InboundRequest,
     OperationUnsupported,
+    ProviderDefaults,
     ProviderEnvironment,
     ReceiptKind,
     RenderedMessage,
@@ -28,7 +29,7 @@ PROVIDER_KEY = "web_chat"
 _NO_WEBHOOK = "Website chat messages arrive on the public chat API, not on a webhook"
 
 
-class WebChatProvider:
+class WebChatProvider(ProviderDefaults):
     key = PROVIDER_KEY
     display_name = "Website chat"
     purposes = frozenset({Purpose.CUSTOMER_MESSAGES})

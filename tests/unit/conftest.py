@@ -92,7 +92,12 @@ from quotation_app.ports.identity import SessionRecord, VerifiedIdentity
 from quotation_app.ports.inbound import RecordedEvent, StoredEvent
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.messages import NewMessage
-from quotation_app.ports.providers import ReceiptKind, RenderedMessage, SendReceipt
+from quotation_app.ports.providers import (
+    ProviderDefaults,
+    ReceiptKind,
+    RenderedMessage,
+    SendReceipt,
+)
 from quotation_app.ports.quotations import (
     QuotationDetail,
     QuotationSummary,
@@ -1134,7 +1139,7 @@ def quotation_db(now: datetime, industrial_tenant: UUID, office_tenant: UUID) ->
     return db
 
 
-class RecordingProvider:
+class RecordingProvider(ProviderDefaults):
     """A provider fake that records what it is asked to send.
 
     `outcome` decides the next send: None = accept, or an exception instance to raise once.
