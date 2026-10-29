@@ -23,6 +23,7 @@ from quotation_app.domain.connections import Connection, DeliveryMode, Purpose
 from quotation_app.domain.documents import clean_error
 from quotation_app.domain.jobs import PermanentJobError
 from quotation_app.domain.messages import (
+    CUSTOMER_TEMPLATES,
     FINAL_MESSAGE_STATUSES,
     MessageStatus,
     OutboundMessage,
@@ -57,6 +58,7 @@ _PURPOSE = {
     TemplateKey.APPROVAL_REQUEST: Purpose.MANAGER_APPROVALS,
     TemplateKey.RESPONSE_NOTICE: Purpose.MANAGER_APPROVALS,
     TemplateKey.QUOTATION_DOCUMENT: Purpose.CUSTOMER_MESSAGES,
+    **{template: Purpose.CUSTOMER_MESSAGES for template in CUSTOMER_TEMPLATES},
 }
 
 

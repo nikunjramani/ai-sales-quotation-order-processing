@@ -331,3 +331,11 @@ code {
 /* Phase 3 (catalogue): plain lists and the price start choice. */
 ul.plain { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+
+/* Conversations (phase 4) */
+.thread { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.bubble { max-width: 85%; padding: 0.5rem 0.75rem; border-radius: 0.75rem; border: 1px solid #ddd; }
+.bubble.inbound { align-self: flex-start; background: #f6f6f6; }
+.bubble.outbound { align-self: flex-end; background: #eef5ff; }
+.message-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.25rem 0; }
+.snippet { white-space: pre-wrap; overflow-wrap: anywhere; background: #f6f6f6; padding: 0.5rem; }

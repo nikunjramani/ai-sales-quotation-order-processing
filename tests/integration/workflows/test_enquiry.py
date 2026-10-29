@@ -31,7 +31,7 @@ from quotation_app.persistence.seed import INDUSTRIAL_TENANT, OFFICE_TENANT
 from quotation_app.persistence.tenancy import SqlPricingPolicyReader, tenant_transaction
 from quotation_app.persistence.workflow import SqlWorkflowStore, open_checkpointer
 from quotation_app.ports.erp import ErpError, ErpErrorCode
-from quotation_app.ports.interpretation import DocumentText
+from quotation_app.ports.interpretation import DocumentText, EnquiryTranscript
 from quotation_app.workflows.enquiry import (
     EnquiryWorkflowDeps,
     ExtractionJobHandler,
@@ -44,10 +44,16 @@ type ApiKeyFactory = Callable[[UUID, Role], str]
 class CountingInterpreter(RulesInterpreter):
     def __init__(self) -> None:
         self.extract_calls = 0
+        self.while_reading: list[Callable[[], object]] = []  # run once, mid-read (race tests)
 
-    def extract(self, text: str, documents: Sequence[DocumentText]) -> ExtractedRequirements:
+    def extract(
+        self, transcript: EnquiryTranscript, documents: Sequence[DocumentText]
+    ) -> ExtractedRequirements:
         self.extract_calls += 1
-        return super().extract(text, documents)
+        result = super().extract(transcript, documents)
+        while self.while_reading:
+            self.while_reading.pop()()
+        return result
 
     def choose_product(self, item: RequestedItem, candidates: Sequence[Product]) -> str | None:
         return super().choose_product(item, candidates)
@@ -230,3 +236,92 @@ def test_checkpoints_and_runs_are_isolated(
         with tenant_transaction(runtime_engine, tenant) as connection:
             runs = connection.execute(text("SELECT count(*) FROM workflow_runs")).scalar_one()
             assert runs == expected
+
+
+# --- Phase 4: follow-ups are read in rounds -------------------------------------------------
+
+
+def rounds(owner_engine: Engine, tenant_id: UUID, enquiry_id: str) -> list[tuple[int, str]]:
+    with tenant_transaction(owner_engine, tenant_id) as connection:
+        return [
+            (row.round, row.status)
+            for row in connection.execute(
+                text(
+                    "SELECT round, status FROM workflow_runs WHERE enquiry_id = :e "
+                    "AND graph_version LIKE 'enquiry-extraction-%' ORDER BY round"
+                ),
+                {"e": enquiry_id},
+            )
+        ]
+
+
+def test_an_answer_completes_the_enquiry_in_round_two(
+    client: TestClient,
+    worker: JobRunner,
+    make_api_key: ApiKeyFactory,
+    industrial_tenant: UUID,
+    owner_engine: Engine,
+) -> None:
+    """Q6 variant for the rules reader: unit question, then a bare answer."""
+    token = make_api_key(industrial_tenant, Role.INTAKE_SERVICE)
+    first = {"text": "We need 5 boxes of 2-core cable", "customer_reference": "CUST-1"}
+    enquiry_id = submit(client, token, first, "p4-round-0001")
+    drain(worker)
+    auth = {"Authorization": f"Bearer {token}"}
+    view = client.get(f"/api/v1/enquiries/{enquiry_id}", headers=auth).json()
+    assert view["status"] == "needs_clarification"
+
+    answer = client.post(
+        "/api/v1/enquiries",
+        json={"text": "10 metres", "customer_reference": "CUST-1"},
+        headers={**auth, "Idempotency-Key": "p4-round-0002"},
+    ).json()
+    assert answer["enquiry_id"] == enquiry_id and answer["continued"] is True
+    drain(worker)
+    view = client.get(f"/api/v1/enquiries/{enquiry_id}", headers=auth).json()
+    assert view["status"] == "ready_for_quotation"
+    assert view["extraction"]["lines"] == [
+        {"sku": "IND-CABLE-2C", "quantity": "10", "unit": "metre"}
+    ]
+    assert rounds(owner_engine, industrial_tenant, enquiry_id) == [
+        (1, "needs_clarification"),
+        (2, "ready_for_quotation"),
+    ]
+
+
+def test_a_message_arriving_while_reading_causes_another_round(
+    client: TestClient,
+    worker: JobRunner,
+    interpreter: CountingInterpreter,
+    make_api_key: ApiKeyFactory,
+    industrial_tenant: UUID,
+    owner_engine: Engine,
+) -> None:
+    """Q3: the round that missed the new message is history; the next one reads both."""
+    token = make_api_key(industrial_tenant, Role.INTAKE_SERVICE)
+    body = {"text": "Please quote 2 x IND-FAN-450", "customer_reference": "CUST-9"}
+    enquiry_id = submit(client, token, body, "p4-rapid-0001")
+    second = {"text": "and 150 pcs M8 bolts", "customer_reference": "CUST-9"}
+    sent: list[str] = []
+    interpreter.while_reading.append(
+        lambda: sent.append(submit(client, token, second, "p4-rapid-0002"))
+    )
+    drain(worker)
+    assert sent == [enquiry_id]  # it joined the enquiry being read
+    view = client.get(
+        f"/api/v1/enquiries/{enquiry_id}", headers={"Authorization": f"Bearer {token}"}
+    ).json()
+    assert view["status"] == "ready_for_quotation"
+    assert view["extraction"]["lines"] == [
+        {"sku": "IND-FAN-450", "quantity": "2", "unit": "each"},
+        {"sku": "IND-BOLT-M8", "quantity": "150", "unit": "each"},
+    ]
+    assert rounds(owner_engine, industrial_tenant, enquiry_id) == [
+        (1, "ready_for_quotation"),  # recorded as history only; it had not seen the bolts
+        (2, "ready_for_quotation"),
+    ]
+    with tenant_transaction(owner_engine, industrial_tenant) as connection:
+        drafts = connection.execute(
+            text("SELECT count(*) FROM jobs WHERE kind = 'draft_quotation'")
+        ).scalar_one()
+    assert drafts == 1

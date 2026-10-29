@@ -66,8 +66,13 @@ class Settings(BaseSettings):
     default_catalogue_provider: str | None = Field(
         default="local_catalogue", pattern=r"^[a-z][a-z0-9_]{1,31}$"
     )
-    # Public address of this API, only used to show webhook URLs (logs, portal).
+    # Public address of this API: webhook URLs, website chat links and secure answer links
+    # (/q/<token>) in customer messages (phase 4).
     public_base_url: str | None = Field(default=None, pattern=r"^https?://\S+$")
+    # Key for hashing website chat visitors' IP addresses (rate limits; the address itself is
+    # never stored). Required in production; development without it uses a random key per
+    # process (limits then reset on restart).
+    chat_ip_key: SecretStr | None = None
     # Built React portal (portal/dist) to serve at /portal; unset = not served by the API.
     portal_dist_dir: Path | None = None
 
@@ -87,6 +92,10 @@ class Settings(BaseSettings):
             raise ValueError("QUOTATION_MAIL_FROM is required in production")
         if self.public_portal_url is None or not self.public_portal_url.startswith("https://"):
             raise ValueError("QUOTATION_PUBLIC_PORTAL_URL must be an https address in production")
+        if self.chat_ip_key is None:
+            raise ValueError("QUOTATION_CHAT_IP_KEY is required in production")
+        if self.public_base_url is None or not self.public_base_url.startswith("https://"):
+            raise ValueError("QUOTATION_PUBLIC_BASE_URL must be an https address in production")
         return self
 
     @property

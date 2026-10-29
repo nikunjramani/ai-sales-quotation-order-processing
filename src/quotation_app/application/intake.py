@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from quotation_app.application.conversations import default_router
 from quotation_app.application.providers import ProviderRegistry
 from quotation_app.domain.attachments import StorageArea, attachment_key
 from quotation_app.domain.documents import delivery_recipient
@@ -24,6 +25,7 @@ from quotation_app.domain.tenancy import Permission, PermissionDenied, TenantCon
 from quotation_app.ports.connections import ConnectionStore
 from quotation_app.ports.intake import (
     EnquiryListReader,
+    EnquiryRouter,
     EnquirySummary,
     EnquiryView,
     IdempotencyConflict,
@@ -51,7 +53,9 @@ class EnquiryIntakeService:
         connections: ConnectionStore,
         registry: ProviderRegistry,
         clock: Callable[[], datetime] = utc_now,
+        router: EnquiryRouter | None = None,
     ) -> None:
+        self._router = router if router is not None else default_router()
         self._store = store
         self._storage = storage
         self._connections = connections
@@ -66,6 +70,9 @@ class EnquiryIntakeService:
         provider_key: str,
     ) -> IntakeResult:
         """Raises PermissionDenied, ValueError (invalid key) or IdempotencyConflict.
+
+        With a customer_reference the message may continue the customer's open enquiry (same
+        key and reference, the agreed follow-up rules); the receipt then says continued.
 
         The authenticated credential is the connection (ADR 0018): the business's connection
         of this provider whose account is the caller's subject (an API key's "api-key:<id>").
@@ -121,7 +128,9 @@ class EnquiryIntakeService:
         try:
             for upload, record in zip(submission.attachments, attachments, strict=True):
                 self._storage.put(record.storage_key, upload.data)
-            receipt, created = self._store.record(envelope, fingerprint, enquiry_id=uuid4())
+            receipt, created = self._store.record(
+                envelope, fingerprint, enquiry_id=uuid4(), router=self._router
+            )
         except BaseException:
             self._discard(attachments)
             raise

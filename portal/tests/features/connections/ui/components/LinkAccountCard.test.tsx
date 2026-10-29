@@ -19,6 +19,7 @@ const PHONE: Connection = {
   status: "active",
   last_error: null,
   created_at: "2026-10-27T10:00:00Z",
+  chat: null,
 };
 
 describe("LinkAccountCard", () => {

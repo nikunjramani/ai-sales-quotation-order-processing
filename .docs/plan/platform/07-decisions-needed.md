@@ -23,11 +23,12 @@ The user answered most questions on 2026-10-23. **Decided** rows are binding. **
 ## Customers and conversations
 | # | Question | Answer | Blocking for |
 |---|---|---|---|
-| D11 | How does a customer accept in chat? | **Decided:** buttons where the tool supports them; otherwise the proposed fallback is a secure link (to confirm) | Phase 4 |
-| D12 | Website chat: must visitors give contact details? | **Decided:** yes, an email or phone number is required. Open: whether it must be verified with a code | Phase 4 |
-| D13 | Same person on two tools: merge automatically? | **Open (user not sure).** Recommendation: never merge automatically; staff can merge, and the system suggests a merge when the same verified email or phone appears | Phase 4 |
-| D14 | Send a "we got your enquiry" message? | **Open (user not sure).** Recommendation: a per-business setting, on by default | Phase 4 |
-| D15 | Opt-out wording and STOP handling | **Open (user not sure).** Recommendation: platform default text, editable per business; STOP is always honoured | Phase 4 |
+| D11 | How does a customer accept in chat? | **Decided:** buttons where the tool supports them; otherwise a secure link (confirmed by the user 2026-10-28, phase 4 Q1: GET never changes anything, single use, expires at valid until) | Phase 4 |
+| D12 | Website chat: must visitors give contact details? | **Decided:** yes, an email or phone number is required. **No verification code (user, 2026-10-28, phase 4 Q2):** stored as claimed, never used for merge suggestions or sending | Phase 4 |
+| D13 | Same person on two tools: merge automatically? | **Decided (user, 2026-10-28):** never automatically; administrators and sales operators merge by hand, suggested when the same verified email or phone appears; no undo in phase 4 | Phase 4 |
+| D14 | Send a "we got your enquiry" message? | **Decided (user, 2026-10-28):** a per-business setting, on by default | Phase 4 |
+| D15 | Opt-out wording and STOP handling | **Decided (user, 2026-10-28):** platform text in phase 4 (editable per business later); `STOP`, `UNSUBSCRIBE`, `OPT OUT` as the whole message opt out, `START` opts back in; always honoured | Phase 4 |
+| D11-D15 details | Follow-ups, limits, files, wording, privacy, chat link | **Decided (user, 2026-10-28):** phase 4 Q1-Q14, see [phase 4 plan, user answers](implementation/phase-4-conversations.md#user-answers-2026-10-28). Notable: rapid messages join an enquiry still being read (Q3); customers are told about withdrawn/expired quotations (Q10); chat visitors may send files (Q11); viewers see masked contact details (Q12); chat rate limits use the PostgreSQL counters (Q14) | Phase 4 |
 | D16 | Staff typing replies in the portal | **Decided:** yes in the future, not part of this plan | — |
 | D17 | How long are conversations and files kept? | **Decided:** each business's manager chooses (a business setting). Open: the default and the minimum/maximum allowed | Before real data |
 
@@ -43,6 +44,6 @@ The user answered most questions on 2026-10-23. **Decided** rows are binding. **
 ## Sequencing and hosting (not answered yet)
 | # | Question | Recommendation |
 |---|---|---|
-| D22 | Build follow-up messages now (API only) or with the conversation model (phase 4)? | With phase 4, built once |
+| D22 | Build follow-up messages now (API only) or with the conversation model (phase 4)? | **Done with phase 4** (built once; user started phase 4 on 2026-10-28) |
 | D23 | Platform phases before orders (M6b)? | Yes: platform phases replace and extend M7; orders after phase 4 |
 | D24 | Hosting (providers need a public HTTPS address for webhooks; it also decides the cloud for D8) | A tunnel (ngrok or Cloudflare) for development now; choose the cloud before real businesses use it |

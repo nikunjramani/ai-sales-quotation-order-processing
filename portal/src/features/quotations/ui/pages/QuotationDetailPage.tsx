@@ -1,5 +1,7 @@
 import { Link, useParams } from "react-router";
 
+import { EnquiryThread } from "@/features/conversations";
+import { useCurrentTenant } from "@/features/tenant";
 import { QueryState } from "@/shared/ui/QueryState";
 import { StatusBadge } from "@/shared/ui/StatusBadge";
 
@@ -17,6 +19,7 @@ import { VersionTable } from "../components/VersionTable";
 export function QuotationDetailPage() {
   const { quotationId = "" } = useParams();
   const query = useQuotation(quotationId);
+  const { can } = useCurrentTenant();
   const detail = query.data;
   const current = detail ? currentVersion(detail) : null;
 
@@ -40,7 +43,12 @@ export function QuotationDetailPage() {
             </p>
             <section className="card">
               <h2>Customer request</h2>
-              <p className="quote">{detail.enquiry_text}</p>
+              {can("conversations:view") ? (
+                // Every message of the enquiry, ours included (phase 4).
+                <EnquiryThread enquiryId={detail.summary.enquiry_id} />
+              ) : (
+                <p className="quote">{detail.enquiry_text}</p>
+              )}
             </section>
             <PricingIssuesCard issues={detail.pricing_issues} />
             {current && <VersionTable version={current} />}

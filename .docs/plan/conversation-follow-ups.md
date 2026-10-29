@@ -1,5 +1,5 @@
 # Plan: follow-up messages continue the customer's open enquiry
-**Status:** planned, waiting for the user's confirmation (decisions 2026-10-23). Not started. The [platform plan](platform/04-customers-and-conversations.md) proposes building this on a general contact/conversation model instead (decision D22).
+**Status:** superseded by phase 4 (D22): built once on the contact and conversation model, see [conversations](../features/conversations.md) and [ADR 0021](../adr/0021-customers-conversations-and-website-chat.md). Kept for the history of the agreed rules.
 
 ## Context
 In the demo the customer asked "can you get cables price?", and the system asked "How many metre of 2-core power cable do you need?". The customer answered "10 meter?". That answer became a **new** enquiry with no product, so the system asked again. Today one enquiry means one message, everywhere: the `enquiries.text` column, one extraction run per enquiry, one-way status rules, and the portal preview.

@@ -38,6 +38,11 @@ class Permission(StrEnum):
     # Read and edit the business's own product list (phase 3, Q14).
     VIEW_CATALOGUE = "catalogue:view"
     MANAGE_CATALOGUE = "catalogue:manage"
+    # Customers and conversations (phase 4): the inbox and contacts; full email/phone (viewers
+    # see them masked, Q12); merging two contacts (D13).
+    VIEW_CONVERSATIONS = "conversations:view"
+    VIEW_CONTACT_DETAILS = "contacts:details"
+    MERGE_CONTACTS = "contacts:merge"
 
 
 # Administrators do not approve by default: approval is a separate, explicitly granted role.
@@ -54,6 +59,9 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_ENQUIRIES,
                 Permission.VIEW_CATALOGUE,
                 Permission.MANAGE_CATALOGUE,
+                Permission.VIEW_CONVERSATIONS,
+                Permission.VIEW_CONTACT_DETAILS,
+                Permission.MERGE_CONTACTS,
             }
         ),
         Role.SALES_OPERATOR: frozenset(
@@ -64,6 +72,9 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_ENQUIRIES,
                 Permission.VIEW_CATALOGUE,
                 Permission.MANAGE_CATALOGUE,
+                Permission.VIEW_CONVERSATIONS,
+                Permission.VIEW_CONTACT_DETAILS,
+                Permission.MERGE_CONTACTS,
             }
         ),
         Role.APPROVER: frozenset(
@@ -72,10 +83,17 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.APPROVE_QUOTATIONS,
                 Permission.VIEW_ENQUIRIES,
                 Permission.VIEW_CATALOGUE,
+                Permission.VIEW_CONVERSATIONS,
+                Permission.VIEW_CONTACT_DETAILS,
             }
         ),
         Role.VIEWER: frozenset(
-            {Permission.VIEW_QUOTATIONS, Permission.VIEW_ENQUIRIES, Permission.VIEW_CATALOGUE}
+            {
+                Permission.VIEW_QUOTATIONS,
+                Permission.VIEW_ENQUIRIES,
+                Permission.VIEW_CATALOGUE,
+                Permission.VIEW_CONVERSATIONS,
+            }
         ),
         Role.INTAKE_SERVICE: frozenset(
             {

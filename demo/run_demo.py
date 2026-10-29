@@ -8,6 +8,7 @@ worker yourself.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -53,6 +54,8 @@ def main() -> None:
                     "8000",
                 ],
                 cwd=ROOT,
+                # Serves the built portal and the website chat widget (npm run build in portal/).
+                env={**os.environ, "QUOTATION_PORTAL_DIST_DIR": str(ROOT / "portal" / "dist")},
             )
         )
     if not arguments.no_worker:

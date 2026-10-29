@@ -143,6 +143,16 @@ CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Action
 | [integration/workflows/test_local_catalogue_quotation.py](../../tests/integration/workflows/test_local_catalogue_quotation.py) | Enquiry priced from our list (evidence standard/2), approval, a portal price change makes acceptance revise to version 2 at the new price; an 8-day-old count is stale with stock review; an archived product is never quoted or offered |
 | portal `tests/features/catalogue/` | Form checks and payloads (multiples without float errors), price and stock text, midnight in the business time zone, list page (badges, editors only, read-only banner), product form (local and server problems) |
 
+### Phase 4 customers and conversations (ADR 0021)
+- **Unit:** `tests/unit/domain/test_conversations.py` (follow-up rule, 7-day boundary), `test_contacts.py` (consent words, masking), `test_requirements.py` (`quantity_quote`), `test_messages.py` (confirmed wording); `tests/unit/application/test_conversations.py`, `test_customer_messages.py`, `test_customer_actions.py`, `test_contacts.py`, `test_intake.py` (follow-ups); interpreter tests (markers, binding).
+- **PostgreSQL:**
+  - `tests/integration/persistence/test_migrations_0012.py` (backfill, downgrade, reopen guard);
+  - `test_conversations.py` (races: answers at once reopen once; one contact for simultaneous first messages);
+  - `tests/integration/workflows/test_enquiry.py` (round 2, re-read when a message arrives mid-round);
+  - `tests/integration/api/test_public_chat.py` (chat end to end, refusals, daily cap, secure link, staff inbox/merge/acknowledgement, hosted page, old-envelope delivery regression).
+- **Portal:** `portal/tests/features/conversations`, `portal/tests/widget` (text-only rendering, start form, blocked storage); the architecture test keeps the widget separate.
+- **Live run (2026-10-28, Gemini):** see the handoff.
+
 ## Planned business suites
 - Domain unit tests: Decimal totals, rounding, quantity/unit validation, expiry, pricing policies, missing values.
 - PostgreSQL integration tests: real migrations, tenant policies, unique constraints, transactional inbox/outbox, job leases.

@@ -3,6 +3,12 @@
 It understands phrases like "50 exhaust fans", "150 pcs M8 bolts" or "2 x IND-FAN-450", and
 always returns verbatim quotes. It is the default provider and the baseline for evaluations;
 anything it cannot read becomes a clarification question rather than a guess.
+
+In a conversation each message is read on its own (a quote never spans two messages). One more
+rule (phase 4, Q6): when the latest message is a bare answer, exactly one number with an
+optional unit such as "10 metres", and the previous round left exactly one open item, the
+answer completes that item. It cannot read "cables price?" (no number), so the literal demo
+conversation needs a model provider; that limitation is documented.
 """
 
 import re
@@ -16,7 +22,7 @@ from quotation_app.domain.requirements import (
     RequestedItem,
     normalise_unit,
 )
-from quotation_app.ports.interpretation import DocumentText
+from quotation_app.ports.interpretation import DocumentText, EnquiryTranscript
 
 # A quantity: a number not glued to letters or hyphens (so "M8" and "2-core" are not counts).
 _QUANTITY = re.compile(r"(?<![\w.\-])(\d+(?:\.\d+)?)(?=\s)")
@@ -86,9 +92,43 @@ def _items_in(text: str) -> list[RequestedItem]:
     return items
 
 
+def _bare_answer(text: str) -> tuple[Decimal, str | None, str] | None:
+    """(quantity, unit, quoted words) when the message is one number with an optional unit."""
+    numbers = re.findall(r"\d+(?:\.\d+)?", text)
+    match = re.fullmatch(
+        r"\W*(?P<quote>(?P<number>\d+(?:\.\d+)?)\s*(?P<unit>[A-Za-z]+\.?)?)\W*", text.strip()
+    )
+    if len(numbers) != 1 or match is None:
+        return None
+    unit = match.group("unit")
+    if unit is not None and normalise_unit(unit) is None:
+        return None
+    return Decimal(match.group("number")), unit, match.group("quote")
+
+
 class RulesInterpreter:
-    def extract(self, text: str, documents: Sequence[DocumentText]) -> ExtractedRequirements:
-        items = _items_in(text)
+    def extract(
+        self, transcript: EnquiryTranscript, documents: Sequence[DocumentText]
+    ) -> ExtractedRequirements:
+        items: list[RequestedItem] = []
+        for message in transcript.messages:
+            items.extend(_items_in(message.text))
+        latest = transcript.messages[-1].text if transcript.messages else ""
+        answer = _bare_answer(latest) if len(transcript.open_items) == 1 else None
+        if answer is not None and not _items_in(latest):
+            [open_item] = transcript.open_items
+            quantity, unit, quote = answer
+            # The answer replaces what the earlier message said about that item.
+            items = [item for item in items if item.source_quote != open_item.source_quote]
+            items.append(
+                RequestedItem(
+                    source_quote=open_item.source_quote,
+                    product_text=open_item.product_text,
+                    quantity=quantity,
+                    unit=unit,
+                    quantity_quote=quote,
+                )
+            )
         for document in documents:
             if document.text:
                 items.extend(_items_in(document.text))

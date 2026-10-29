@@ -5,10 +5,11 @@ generic webhook route knows only a connection ID from its URL, so it may reveal 
 row (and its webhook token hash) and nothing else, like the API key lookup.
 """
 
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 from uuid import UUID
 
-from quotation_app.domain.connections import Connection, Purpose
+from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
 
 
 class ConnectionStore(Protocol):
@@ -29,3 +30,31 @@ class HookLookup(Protocol):
     def find_for_hook(self, connection_id: UUID) -> tuple[Connection, str | None] | None:
         """The connection and its webhook token's SHA-256 (None: no webhook), or None."""
         ...
+
+
+class HostedChatAdmin(Protocol):
+    """Portal-side changes to a hosted chat connection (phase 4)."""
+
+    def create(
+        self,
+        tenant_id: UUID,
+        provider_key: str,
+        display_name: str,
+        purposes: Sequence[str],
+        config: Mapping[str, object],
+        actor: str,
+    ) -> UUID: ...
+
+    def ensure_handle(self, tenant_id: UUID, connection_id: UUID, actor: str) -> None: ...
+
+    def change_handle(
+        self, tenant_id: UUID, connection_id: UUID, handle: str, actor: str
+    ) -> bool: ...
+
+    def update_config(
+        self, tenant_id: UUID, connection_id: UUID, config: Mapping[str, object], actor: str
+    ) -> None: ...
+
+    def set_status(
+        self, tenant_id: UUID, connection_id: UUID, status: ConnectionStatus, actor: str
+    ) -> None: ...

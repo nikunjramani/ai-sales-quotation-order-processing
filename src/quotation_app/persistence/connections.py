@@ -9,12 +9,26 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import ColumnElement, Engine, Row, String, and_, cast, or_, select, text, update
+from sqlalchemy import (
+    ColumnElement,
+    Engine,
+    Row,
+    String,
+    and_,
+    cast,
+    func,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy import Connection as DbConnection
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 
+from quotation_app.domain.chat import handle_from_name
 from quotation_app.domain.connections import Connection, ConnectionStatus, Purpose
-from quotation_app.persistence.models import ConnectionEventRow, ConnectionRow
+from quotation_app.persistence.models import ConnectionEventRow, ConnectionRow, Tenant
 from quotation_app.persistence.tenancy import tenant_transaction
 
 _COLUMNS = (
@@ -31,6 +45,8 @@ _COLUMNS = (
     ConnectionRow.created_by,
     ConnectionRow.created_at,
     ConnectionRow.updated_at,
+    ConnectionRow.public_handle,
+    ConnectionRow.public_handle_changed_at,
 )
 
 
@@ -49,6 +65,8 @@ def _connection(row: Row[Any]) -> Connection:
         created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        public_handle=row.public_handle,
+        public_handle_changed=row.public_handle_changed_at is not None,
     )
 
 
@@ -216,3 +234,147 @@ def set_status(
         .values(status=status.value, updated_at=text("now()"))
     )
     record_event(connection, tenant_id, connection_id, "status_changed", actor, {"to": status})
+
+
+class SqlHostedChatAdmin:
+    """Enabling and configuring a hosted chat in the portal (API role, phase 4)."""
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def create(
+        self,
+        tenant_id: UUID,
+        provider_key: str,
+        display_name: str,
+        purposes: Sequence[str],
+        config: Mapping[str, object],
+        actor: str,
+    ) -> UUID:
+        """A new active connection whose handle comes from the business name; a number is
+        added when the handle is taken by another business (Q13)."""
+        connection_id = uuid4()
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            name = connection.execute(
+                select(Tenant.name).where(Tenant.id == tenant_id)
+            ).scalar_one()
+            connection.execute(
+                insert(ConnectionRow).values(
+                    id=connection_id,
+                    tenant_id=tenant_id,
+                    provider_key=provider_key,
+                    display_name=display_name,
+                    purposes=list(purposes),
+                    config=dict(config),
+                    status=ConnectionStatus.ACTIVE.value,
+                    created_by=actor,
+                )
+            )
+            candidate = _assign_handle(connection, tenant_id, connection_id, name)
+            _event(connection, tenant_id, connection_id, "created", actor, {"handle": candidate})
+        return connection_id
+
+    def ensure_handle(self, tenant_id: UUID, connection_id: UUID, actor: str) -> None:
+        """Give an existing chat without an address one (e.g. after a downgrade/upgrade)."""
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            name = connection.execute(
+                select(Tenant.name).where(Tenant.id == tenant_id)
+            ).scalar_one()
+            candidate = _assign_handle(connection, tenant_id, connection_id, name)
+            _event(
+                connection, tenant_id, connection_id, "settings_changed", actor,
+                {"handle": candidate},
+            )  # fmt: skip
+
+    def change_handle(self, tenant_id: UUID, connection_id: UUID, handle: str, actor: str) -> bool:
+        """Once only (Q13). False if the handle is taken (by anyone)."""
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            if not _try_handle(connection, tenant_id, connection_id, handle, changing=True):
+                return False
+            _event(
+                connection, tenant_id, connection_id, "handle_changed", actor, {"handle": handle}
+            )
+        return True
+
+    def update_config(
+        self, tenant_id: UUID, connection_id: UUID, config: Mapping[str, object], actor: str
+    ) -> None:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            connection.execute(
+                update(ConnectionRow)
+                .where(ConnectionRow.tenant_id == tenant_id, ConnectionRow.id == connection_id)
+                .values(config=dict(config), updated_at=func.now())
+            )
+            _event(connection, tenant_id, connection_id, "settings_changed", actor, {})
+
+    def set_status(
+        self, tenant_id: UUID, connection_id: UUID, status: ConnectionStatus, actor: str
+    ) -> None:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            connection.execute(
+                update(ConnectionRow)
+                .where(ConnectionRow.tenant_id == tenant_id, ConnectionRow.id == connection_id)
+                .values(status=status.value, updated_at=func.now())
+            )
+            _event(
+                connection,
+                tenant_id,
+                connection_id,
+                "status_changed",
+                actor,
+                {"status": status.value},
+            )
+
+
+def _assign_handle(
+    connection: DbConnection, tenant_id: UUID, connection_id: UUID, business_name: str
+) -> str:
+    base = handle_from_name(business_name)
+    for attempt in range(1, 100):
+        candidate = base if attempt == 1 else f"{base[:58]}-{attempt}"
+        if _try_handle(connection, tenant_id, connection_id, candidate):
+            return candidate
+    raise RuntimeError("No free chat address")
+
+
+def _try_handle(
+    connection: DbConnection,
+    tenant_id: UUID,
+    connection_id: UUID,
+    handle: str,
+    changing: bool = False,
+) -> bool:
+    """Set the handle under a savepoint, so a taken one does not end the transaction."""
+    values: dict[str, object] = {"public_handle": handle}
+    if changing:
+        values["public_handle_changed_at"] = func.now()
+    query = update(ConnectionRow).where(
+        ConnectionRow.tenant_id == tenant_id, ConnectionRow.id == connection_id
+    )
+    if changing:
+        query = query.where(ConnectionRow.public_handle_changed_at.is_(None))
+    try:
+        with connection.begin_nested():
+            return bool(connection.execute(query.values(**values)).rowcount)
+    except IntegrityError:
+        return False
+
+
+def _event(
+    connection: DbConnection,
+    tenant_id: UUID,
+    connection_id: UUID,
+    kind: str,
+    actor: str,
+    detail: Mapping[str, object],
+) -> None:
+    connection.execute(
+        insert(ConnectionEventRow).values(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            connection_id=connection_id,
+            kind=kind,
+            actor=actor,
+            detail=dict(detail),
+        )
+    )

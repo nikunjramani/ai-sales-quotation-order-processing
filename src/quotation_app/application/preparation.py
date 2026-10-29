@@ -4,6 +4,7 @@ Idempotent by design, because a job can run again after a crash: already-decided
 are skipped, and a file already moved to the clean area is recognised.
 """
 
+from typing import Protocol
 from uuid import UUID
 
 from quotation_app.domain.attachments import (
@@ -19,10 +20,20 @@ from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.storage import ObjectStorage
 
 
+class Acknowledger(Protocol):
+    def acknowledge(self, tenant_id: UUID, enquiry_id: UUID, correlation_id: UUID) -> None: ...
+
+
 class EnquiryPreparationHandler:
-    def __init__(self, store: PreparationStore, storage: ObjectStorage) -> None:
+    def __init__(
+        self,
+        store: PreparationStore,
+        storage: ObjectStorage,
+        acknowledger: Acknowledger | None = None,
+    ) -> None:
         self._store = store
         self._storage = storage
+        self._acknowledger = acknowledger
 
     def __call__(self, job: ClaimedJob) -> None:
         try:
@@ -32,6 +43,9 @@ class EnquiryPreparationHandler:
         attachments = self._store.attachments_for(job.require_tenant(), enquiry_id)
         if attachments is None:
             raise PermanentJobError("Enquiry not found for this tenant")
+        if job.payload.get("acknowledge") == "true" and self._acknowledger is not None:
+            # A new enquiry from a conversation (phase 4); the outbox key makes it once only.
+            self._acknowledger.acknowledge(job.require_tenant(), enquiry_id, job.correlation_id)
 
         all_clean = True
         for attachment in attachments:

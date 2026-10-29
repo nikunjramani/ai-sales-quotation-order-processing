@@ -27,6 +27,7 @@ from quotation_app.application.api_keys import generate_api_key
 from quotation_app.config import Settings
 from quotation_app.domain.tenancy import Role
 from quotation_app.persistence.api_keys import insert_api_key
+from quotation_app.persistence.connections import SqlConnectionStore, SqlHostedChatAdmin
 from quotation_app.persistence.database import build_engine
 from quotation_app.persistence.seed import INDUSTRIAL_TENANT
 
@@ -34,6 +35,7 @@ API = os.environ.get("DEMO_API", "http://127.0.0.1:8000")
 MANAGER = "manager@industrial.example"
 PHONE = "demo-manager-phone"
 HERE = Path(__file__).parent
+DEMO_ORIGIN = "http://127.0.0.1:8001"
 
 settings = Settings()
 if settings.environment == "production":
@@ -175,6 +177,41 @@ def page() -> FileResponse:
     return FileResponse(HERE / "index.html")
 
 
+@app.get("/demo/chat")
+def website_chat() -> dict[str, str]:
+    """The industrial demo business's website chat (phase 4), enabled once like the portal's
+    Enable button would, with this demo page allowed to show it."""
+    state = load_state()
+    handle = state.get("chat_handle")
+    if handle is None:
+        engine = build_engine(settings.migration_url())
+        chat = next(
+            (
+                row
+                for row in SqlConnectionStore(engine).list_for(INDUSTRIAL_TENANT)
+                if row.provider_key == "web_chat" and row.active and row.public_handle
+            ),
+            None,
+        )
+        if chat is None:
+            admin = SqlHostedChatAdmin(engine)
+            connection_id = admin.create(
+                INDUSTRIAL_TENANT,
+                "web_chat",
+                "Website chat",
+                ["customer_messages"],
+                {"allowed_origins": [DEMO_ORIGIN], "greeting": "Hello! What can we quote for you?"},
+                "demo",
+            )
+            chat = SqlConnectionStore(engine).get(INDUSTRIAL_TENANT, connection_id)
+        engine.dispose()
+        assert chat is not None and chat.public_handle is not None
+        handle = chat.public_handle
+        state["chat_handle"] = handle
+        save_state(state)
+    return {"chat_url": f"{API}/chat/{handle}"}
+
+
 @app.post("/demo/customer/enquiries")
 def send_enquiry(body: EnquiryIn) -> Any:
     state = load_state()
@@ -188,8 +225,12 @@ def send_enquiry(body: EnquiryIn) -> Any:
     result = as_json(raw)
     if status not in (200, 202):
         raise HTTPException(status, result.get("detail", result))
-    state["enquiries"].append(result["enquiry_id"])
-    state.setdefault("texts", {})[result["enquiry_id"]] = body.text
+    # A follow-up continues the open enquiry (phase 4): it is listed once, with all texts.
+    if not result.get("continued"):
+        state["enquiries"].append(result["enquiry_id"])
+    texts = state.setdefault("texts", {})
+    previous = texts.get(result["enquiry_id"])
+    texts[result["enquiry_id"]] = body.text if previous is None else f"{previous}\n{body.text}"
     save_state(state)
     return result
 

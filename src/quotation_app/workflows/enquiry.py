@@ -3,15 +3,19 @@
     START -> extract -> match -> assess -> ready | clarify | review -> END
                  \\________(model answer invalid)______/
 
-- extract: read the enquiry and clean attachments, ask the interpreter for items, then check
-  every item against the customer's own words (invented facts are flagged).
+- extract: read every customer message of the enquiry and its clean attachments, ask the
+  interpreter for items, then check every item against the customer's own words, each message
+  and document on its own (invented facts are flagged).
 - match:   search the tenant's ERP per item; the interpreter may only pick among ERP results.
 - assess:  deterministic rules decide ready / needs clarification / needs review.
 - finish:  record the outcome on the enquiry.
 
-Each step is checkpointed, so after a crash the job resumes at the step that failed instead of
-asking the model again. State holds IDs and small summaries only; document text is never
-checkpointed. Prices are not involved here: pricing stays with the M1 calculator.
+Each reading is one round (phase 4): a follow-up message starts the next round on a fresh
+thread, and the round records the newest message it read so a message that arrives meanwhile
+causes another round instead of being missed. Each step is checkpointed, so after a crash the
+job resumes at the step that failed instead of asking the model again. State holds IDs and
+small summaries only; document text is never checkpointed. Prices are not involved here:
+pricing stays with the M1 calculator.
 """
 
 from collections.abc import Sequence
@@ -27,6 +31,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from quotation_app.domain.catalogue import Product
 from quotation_app.domain.jobs import PermanentJobError
+from quotation_app.domain.messages import TemplateKey
 from quotation_app.domain.requirements import (
     ExtractedRequirements,
     ExtractionOutcome,
@@ -39,6 +44,7 @@ from quotation_app.domain.requirements import (
     unverified_items,
 )
 from quotation_app.domain.tenancy import Role, TenantContext
+from quotation_app.ports.conversations import CustomerNotifier
 from quotation_app.ports.erp import CatalogueSourceMissing, ErpReader
 from quotation_app.ports.interpretation import (
     DocumentReader,
@@ -47,13 +53,14 @@ from quotation_app.ports.interpretation import (
 )
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.storage import ObjectStorage
-from quotation_app.ports.workflow import WorkflowStore
+from quotation_app.ports.workflow import ReadingCap, WorkflowStore
 
 GRAPH_VERSION = "enquiry-extraction-v1"
 SYSTEM_SUBJECT = "system:enquiry-workflow"
 SEARCH_LIMIT = 5
 INVALID_MODEL_ANSWER = "The model's answer was not in the required format"
 NO_PRODUCT_SOURCE = "No product source is connected"
+READING_LIMIT = "Daily reading limit reached; a person should read this enquiry"
 
 
 class EnquiryState(TypedDict, total=False):
@@ -71,6 +78,7 @@ class EnquiryState(TypedDict, total=False):
     questions: list[str]
     review_reasons: list[str]
     no_source: bool  # the business has no product source connected (P1-Q3)
+    seq_upto: int  # the newest customer message this round read (phase 4)
 
 
 type EnquiryGraph = CompiledStateGraph[EnquiryState, None, EnquiryState, EnquiryState]
@@ -83,6 +91,8 @@ class EnquiryWorkflowDeps:
     reader: DocumentReader
     interpreter: EnquiryInterpreter
     erp: ErpReader
+    # Writes the questions to the customer's tool (phase 4); None in offline evaluations.
+    notifier: CustomerNotifier | None = None
 
 
 # Checkpointed state uses plain strings so it serialises safely and stays readable.
@@ -92,6 +102,7 @@ def _item_to_state(item: RequestedItem) -> dict[str, str | None]:
         "product_text": item.product_text,
         "quantity": None if item.quantity is None else str(item.quantity),
         "unit": item.unit,
+        "quantity_quote": item.quantity_quote,
     }
 
 
@@ -102,6 +113,7 @@ def _item_from_state(data: dict[str, str | None]) -> RequestedItem:
         product_text=str(data["product_text"]),
         quantity=None if quantity is None else Decimal(quantity),
         unit=data["unit"],
+        quantity_quote=data.get("quantity_quote"),  # absent before phase 4
     )
 
 
@@ -146,21 +158,25 @@ def build_enquiry_graph(
         unsupported = [
             f"{doc.name} ({doc.unsupported_reason})" for doc in documents if not doc.text
         ]
+        transcript = content.transcript
         try:
-            requirements = deps.interpreter.extract(content.text, documents)
+            requirements = deps.interpreter.extract(transcript, documents)
         except InterpretationRejected:
             return {
                 "rejected": True,
                 "items": [],
                 "unverified": [],
                 "unsupported_documents": unsupported,
+                "seq_upto": content.last_message_seq,
             }
-        sources = [content.text] + [doc.text for doc in documents if doc.text]
+        # Each message and document is a separate source; our own questions never are.
+        sources = transcript.texts + [doc.text for doc in documents if doc.text]
         return {
             "rejected": False,
             "items": [_item_to_state(item) for item in requirements.items],
-            "unverified": unverified_items(requirements, sources),
+            "unverified": unverified_items(requirements, sources, transcript.texts),
             "unsupported_documents": unsupported,
+            "seq_upto": content.last_message_seq,
         }
 
     def match(state: EnquiryState) -> EnquiryState:
@@ -251,7 +267,7 @@ def build_enquiry_graph(
             "review_reasons": list(result.review_reasons),
         }
 
-    def record(state: EnquiryState, outcome: ExtractionOutcome) -> EnquiryState:
+    def record(state: EnquiryState, outcome: ExtractionOutcome) -> bool:
         tenant_id, enquiry_id = _ids(state)
         details: dict[str, object] = {
             "graph_version": GRAPH_VERSION,
@@ -261,19 +277,36 @@ def build_enquiry_graph(
             "questions": state.get("questions", []),
             "review_reasons": state.get("review_reasons", []),
             "unsupported_documents": state.get("unsupported_documents", []),
+            "message_seq_upto": state.get("seq_upto"),
         }
-        deps.store.record_outcome(tenant_id, enquiry_id, UUID(state["run_id"]), outcome, details)
-        return {}
+        return deps.store.record_outcome(
+            tenant_id, enquiry_id, UUID(state["run_id"]), outcome, details
+        )
 
     def ready(state: EnquiryState) -> EnquiryState:
-        return record(state, ExtractionOutcome.READY_FOR_QUOTATION)
+        record(state, ExtractionOutcome.READY_FOR_QUOTATION)
+        return {}
 
     def clarify(state: EnquiryState) -> EnquiryState:
-        # Questions are stored for a person or a later channel adapter to send (M5/M7).
-        return record(state, ExtractionOutcome.NEEDS_CLARIFICATION)
+        applied = record(state, ExtractionOutcome.NEEDS_CLARIFICATION)
+        questions = state.get("questions", [])
+        if applied and questions and deps.notifier is not None:
+            # Our fixed questions go to the customer's tool. A repeat of this step (after a
+            # crash) reuses the key, so the outbox never sends them twice.
+            tenant_id, enquiry_id = _ids(state)
+            deps.notifier.send(
+                tenant_id,
+                enquiry_id,
+                TemplateKey.CLARIFICATION_QUESTIONS,
+                {"questions": questions},
+                f"questions:{state['run_id']}",
+                UUID(state["run_id"]),
+            )
+        return {}
 
     def review(state: EnquiryState) -> EnquiryState:
-        return record(state, ExtractionOutcome.NEEDS_REVIEW)
+        record(state, ExtractionOutcome.NEEDS_REVIEW)
+        return {}
 
     graph = StateGraph(EnquiryState)
     graph.add_node("extract", extract)
@@ -301,24 +334,55 @@ def build_enquiry_graph(
 
 
 class ExtractionJobHandler:
-    """Job handler: start the graph for an enquiry, or resume it from its last checkpoint."""
+    """Job handler: start the graph for an enquiry, or resume it from its last checkpoint.
 
-    def __init__(self, graph: EnquiryGraph, store: WorkflowStore) -> None:
+    With a ReadingCap, a new reading of an enquiry from a capped tool (hosted chat) is not
+    started once the business used its daily budget: the enquiry goes to review with
+    READING_LIMIT instead, and the model is not called (user answer, 2026-10-28).
+    """
+
+    def __init__(
+        self, graph: EnquiryGraph, store: WorkflowStore, cap: ReadingCap | None = None
+    ) -> None:
         self._graph = graph
         self._store = store
+        self._cap = cap
 
     def __call__(self, job: ClaimedJob) -> None:
         try:
             enquiry_id = UUID(job.payload["enquiry_id"])
         except (KeyError, ValueError):
             raise PermanentJobError("Job payload has no valid enquiry_id") from None
-        run_id = self._store.start_run(job.require_tenant(), enquiry_id, GRAPH_VERSION)
+        try:
+            round_number = int(job.payload.get("round", "1"))  # jobs before phase 4: round 1
+        except ValueError:
+            raise PermanentJobError("Job payload has no valid round") from None
+        run_id = self._store.start_run(
+            job.require_tenant(), enquiry_id, GRAPH_VERSION, round_number
+        )
         config: RunnableConfig = {"configurable": {"thread_id": str(run_id)}}
         snapshot = self._graph.get_state(config)
         if snapshot.values and not snapshot.next:
             return  # finished on an earlier attempt
         if snapshot.next:
             self._graph.invoke(None, config)  # resume after a crash
+        elif self._over_cap(job.require_tenant(), enquiry_id, run_id):
+            self._store.record_outcome(
+                job.require_tenant(),
+                enquiry_id,
+                run_id,
+                ExtractionOutcome.NEEDS_REVIEW,
+                {
+                    "graph_version": GRAPH_VERSION,
+                    "items": [],
+                    "matches": [],
+                    "lines": [],
+                    "questions": [],
+                    "review_reasons": [READING_LIMIT],
+                    "unsupported_documents": [],
+                    "reading_limit": True,
+                },
+            )
         else:
             start: EnquiryState = {
                 "tenant_id": str(job.require_tenant()),
@@ -326,3 +390,9 @@ class ExtractionJobHandler:
                 "run_id": str(run_id),
             }
             self._graph.invoke(start, config)
+
+    def _over_cap(self, tenant_id: UUID, enquiry_id: UUID, run_id: UUID) -> bool:
+        if self._cap is None:
+            return False
+        used = self._store.readings_today(tenant_id, enquiry_id, run_id, self._cap.provider_keys)
+        return used is not None and used >= self._cap.per_business_day

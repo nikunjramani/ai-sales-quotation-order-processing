@@ -15,6 +15,7 @@ from quotation_app.domain.connections import Purpose
 from quotation_app.domain.documents import OFFERED_STATUSES, DeliveryStatus
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.messages import MessageStatus, OutboundMessage, TemplateKey
+from quotation_app.persistence.conversations import append_outbound
 from quotation_app.persistence.documents import queue_expiry
 from quotation_app.persistence.jobs import queue_job
 from quotation_app.persistence.models import OutboundMessageRow, QuotationDelivery
@@ -153,6 +154,16 @@ class SqlMessageOutbox:
                 {"message_id": str(created)},
                 message.correlation_id,
             )
+            if links.conversation_id is not None:
+                append_outbound(
+                    connection,
+                    tenant_id,
+                    links.conversation_id,
+                    links.enquiry_id,
+                    created,
+                    message.template_key.value,
+                    message.body_text,
+                )
             if links.delivery_id is not None:
                 connection.execute(
                     update(QuotationDelivery)

@@ -1,5 +1,6 @@
 """Outbox statuses and templates (the golden wording lives in test_quotations/test_acceptance)."""
 
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import pytest
@@ -7,9 +8,11 @@ import pytest
 from quotation_app.domain.accounts import AccountEmailPurpose
 from quotation_app.domain.messages import (
     ACCOUNT_TEMPLATES,
+    CUSTOMER_WORDING,
     FINAL_MESSAGE_STATUSES,
     MessageStatus,
     TemplateKey,
+    format_valid_until,
     render_template,
 )
 
@@ -28,6 +31,57 @@ def test_quotation_document_has_no_invented_covering_text() -> None:
     )
     assert rendered.text == ""
     assert rendered.metadata == {"quotation": "Q-1A2B3C4D", "version": "3"}
+
+
+def test_customer_messages_use_the_confirmed_wording() -> None:
+    """Q7 / Q10 / D15 texts, exactly as the user confirmed them on 2026-10-28."""
+    params = {
+        "number": "Q-1A2B3C4D",
+        "version": "2",
+        "total": "10450.38",
+        "currency": "INR",
+        "date": "2026-11-04 10:00 UTC",
+        "business": "Acme Industrial",
+    }
+    texts = {key: render_template(key, params).text for key in CUSTOMER_WORDING}
+    assert texts == {
+        TemplateKey.ENQUIRY_RECEIVED: "Thanks, we are preparing your quotation.",
+        TemplateKey.QUOTATION_READY: "Your quotation Q-1A2B3C4D (version 2) is ready: total "
+        "10450.38 INR, valid until 2026-11-04 10:00 UTC.",
+        TemplateKey.ANSWER_ACCEPTED: "Thank you, we received your acceptance of Q-1A2B3C4D.",
+        TemplateKey.ANSWER_DECLINED: "Thank you, we recorded that you declined Q-1A2B3C4D.",
+        TemplateKey.PRICES_CHANGED: "Prices have changed since quotation Q-1A2B3C4D. We are "
+        "preparing an updated quotation for you.",
+        TemplateKey.QUOTATION_WITHDRAWN: "Quotation Q-1A2B3C4D has been withdrawn. Please "
+        "contact us if you still need it.",
+        TemplateKey.QUOTATION_EXPIRED: "Quotation Q-1A2B3C4D has expired (it was valid until "
+        "2026-11-04 10:00 UTC). Send us a message if you would like an updated quotation.",
+        TemplateKey.OPTED_OUT: "You will not receive more messages from Acme Industrial. Reply "
+        "START to receive messages again.",
+        TemplateKey.OPTED_IN: "You will receive messages from Acme Industrial again.",
+    }
+
+
+def test_clarification_questions_list_each_question_on_its_own_line() -> None:
+    rendered = render_template(
+        TemplateKey.CLARIFICATION_QUESTIONS,
+        {"questions": ["How many metre of 2-core power cable do you need?", "Which fan?\nX"]},
+    )
+    assert rendered.text == (
+        "We need a bit more information:\n"
+        "- How many metre of 2-core power cable do you need?\n"
+        "- Which fan? X"
+    )
+
+
+def test_a_missing_customer_parameter_is_a_programming_error() -> None:
+    with pytest.raises(KeyError):
+        render_template(TemplateKey.ANSWER_ACCEPTED, {})
+
+
+def test_valid_until_matches_the_pdf_format() -> None:
+    moment = datetime(2026, 11, 4, 15, 30, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    assert format_valid_until(moment) == "2026-11-04 10:00 UTC"
 
 
 def test_missing_parameters_are_a_programming_error() -> None:

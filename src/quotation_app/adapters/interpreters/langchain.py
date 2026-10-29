@@ -3,8 +3,14 @@
 It asks for JSON and validates it with strict Pydantic schemas, so it works with every chat
 model, including ones without native tool calling. Customer content is wrapped in tags and
 declared to be data; extra fields (e.g. a "price") make the whole answer invalid.
+
+A conversation (phase 4) is sent as numbered messages inside the tag, each starting with a
+marker line we write; marker-like lines typed by the customer are neutralised. Our earlier
+questions go in a separate, trusted block outside the tag. If everything does not fit, the
+answer is refused (InterpretationRejected: the enquiry goes to review), never silently cut.
 """
 
+import re
 from collections.abc import Sequence
 from decimal import Decimal
 
@@ -17,7 +23,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from quotation_app.domain.catalogue import Product
 from quotation_app.domain.requirements import MAX_ITEMS, ExtractedRequirements, RequestedItem
-from quotation_app.ports.interpretation import DocumentText, InterpretationRejected
+from quotation_app.ports.interpretation import (
+    DocumentText,
+    EnquiryTranscript,
+    InterpretationRejected,
+)
 
 MAX_PROMPT_CHARACTERS = 40_000
 _TAG = "customer_content"
@@ -29,6 +39,12 @@ class _Item(BaseModel):
     product_text: str = Field(max_length=200, description="Product words exactly as written")
     quantity: Decimal | None = Field(description="Number as written, or null if not stated")
     unit: str | None = Field(default=None, max_length=32, description="Unit as written, or null")
+    quantity_quote: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Only if the quantity is in a later message than the product: the exact "
+        "words with the quantity, copied from that message",
+    )
 
 
 class _Requirements(BaseModel):
@@ -57,9 +73,12 @@ _EXTRACT = ChatPromptTemplate.from_messages(
             "character from the content and must contain product_text and the quantity. Use "
             "null for a missing quantity or unit. Also list products or product groups the "
             "customer asks about without a quantity (e.g. 'which pumps do you have?' gives "
-            "product_text 'pumps' with quantity null).",
+            "product_text 'pumps' with quantity null). The content may be several messages, "
+            "each starting with a [[message N]] line; a quote must be copied from one message. "
+            "If a later message answers our question with the quantity, put the product's "
+            "words in source_quote and the exact words with the quantity in quantity_quote.",
         ),
-        ("human", "<{tag}>\n{content}\n</{tag}>"),
+        ("human", "{asked}<{tag}>\n{content}\n</{tag}>"),
     ]
 )
 _CHOOSE = ChatPromptTemplate.from_messages(
@@ -74,9 +93,34 @@ _CHOOSE = ChatPromptTemplate.from_messages(
 )
 
 
+_MARKER = re.compile(r"^(\s*)\[\[\s*message", re.IGNORECASE | re.MULTILINE)
+
+
 def _contain(text: str) -> str:
-    """Stop customer text from closing our data tag and posing as instructions."""
-    return text.replace(f"</{_TAG}>", "[removed]").replace(f"<{_TAG}>", "[removed]")
+    """Stop customer text from closing our data tag, posing as instructions or faking one of
+    our message markers."""
+    text = text.replace(f"</{_TAG}>", "[removed]").replace(f"<{_TAG}>", "[removed]")
+    return _MARKER.sub(r"\1[removed] message", text)
+
+
+def _content(transcript: EnquiryTranscript, documents: Sequence[DocumentText]) -> str:
+    if len(transcript.messages) == 1 and not transcript.asked:
+        parts = [_contain(transcript.messages[0].text)]  # a single message, exactly as before
+    else:
+        parts = [
+            f"[[message {message.index}]]\n{_contain(message.text)}"
+            for message in transcript.messages
+        ]
+    parts += [f"[Attachment {doc.name}]\n{_contain(doc.text)}" for doc in documents if doc.text]
+    return "\n\n".join(parts)
+
+
+def _asked(transcript: EnquiryTranscript) -> str:
+    """Our own earlier questions: trusted text, outside the customer data tag."""
+    if not transcript.asked:
+        return ""
+    lines = "\n".join(f"- {question}" for question in transcript.asked)
+    return f"Our earlier questions to this customer:\n{lines}\n\n"
 
 
 class LangChainInterpreter:
@@ -89,14 +133,18 @@ class LangChainInterpreter:
             pydantic_object=_Choice
         )
 
-    def extract(self, text: str, documents: Sequence[DocumentText]) -> ExtractedRequirements:
-        parts = [text] + [f"[Attachment {doc.name}]\n{doc.text}" for doc in documents if doc.text]
-        content = _contain("\n\n".join(parts))[:MAX_PROMPT_CHARACTERS]
+    def extract(
+        self, transcript: EnquiryTranscript, documents: Sequence[DocumentText]
+    ) -> ExtractedRequirements:
+        content = _content(transcript, documents)
+        if len(content) > MAX_PROMPT_CHARACTERS:
+            raise InterpretationRejected("The conversation is too long to read in one go")
         chain = _EXTRACT | self._model | self._extract_parser
         parsed = self._invoke(
             chain,
             {
                 "tag": _TAG,
+                "asked": _asked(transcript),
                 "content": content,
                 "format": self._extract_parser.get_format_instructions(),
             },
@@ -105,7 +153,13 @@ class LangChainInterpreter:
         try:
             return ExtractedRequirements(
                 items=tuple(
-                    RequestedItem(item.source_quote, item.product_text, item.quantity, item.unit)
+                    RequestedItem(
+                        item.source_quote,
+                        item.product_text,
+                        item.quantity,
+                        item.unit,
+                        item.quantity_quote,
+                    )
                     for item in parsed.items
                 ),
                 delivery_location=parsed.delivery_location,

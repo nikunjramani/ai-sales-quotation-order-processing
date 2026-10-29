@@ -25,8 +25,10 @@ from quotation_app.application.accounts import AccountEmailHandler
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_sources import CatalogueSourceResolver, TenantCatalogue
 from quotation_app.application.channel_actions import ChannelActionService
+from quotation_app.application.customer_actions import QuotationReadyHook
+from quotation_app.application.customer_messages import CustomerConsentHook, CustomerMessenger
 from quotation_app.application.delivery import QuotationDeliveryHandler, QuotationDocumentHook
-from quotation_app.application.inbound import ProcessInboundHandler, routes_for
+from quotation_app.application.inbound import ConsentRoute, ProcessInboundHandler, routes_for
 from quotation_app.application.jobs import JobHandler, PauseWhileSuspended
 from quotation_app.application.messaging import OutboundService, SendMessageHandler
 from quotation_app.application.notifications import (
@@ -39,14 +41,17 @@ from quotation_app.application.pricing import QuotationPricingService
 from quotation_app.application.providers import ProviderRegistry
 from quotation_app.application.tenancy import TenantContextResolver
 from quotation_app.config import Settings
+from quotation_app.domain.chat import ChatLimits
 from quotation_app.domain.connections import Purpose
 from quotation_app.domain.jobs import JobKind
-from quotation_app.domain.messages import TemplateKey
+from quotation_app.domain.messages import CUSTOMER_TEMPLATES, TemplateKey
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.accounts import SqlAccountEmailStore, SqlBusinessStore
 from quotation_app.persistence.catalogue import SqlCatalogueStore
 from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.connections import SqlConnectionStore
+from quotation_app.persistence.conversations import SqlCustomerTargets
+from quotation_app.persistence.customer_actions import SqlCustomerActionStore
 from quotation_app.persistence.documents import SqlDeliveryStore
 from quotation_app.persistence.inbound import SqlInboundStore
 from quotation_app.persistence.intake import SqlPreparationStore
@@ -57,8 +62,10 @@ from quotation_app.persistence.workflow import SqlWorkflowStore
 from quotation_app.ports.accounts import DefaultSource, Mailer, MailerEnvironment
 from quotation_app.ports.erp import ErpReader
 from quotation_app.ports.interpretation import EnquiryInterpreter
+from quotation_app.ports.messages import SendHook
 from quotation_app.ports.providers import ProviderEnvironment
 from quotation_app.ports.secrets import SecretStore, SecretStoreEnvironment
+from quotation_app.ports.workflow import ReadingCap
 from quotation_app.workflows.enquiry import (
     EnquiryWorkflowDeps,
     ExtractionJobHandler,
@@ -72,6 +79,10 @@ from quotation_app.workflows.quotation import (
 
 SECRET_STORES = "quotation_app.secret_stores"
 MAILERS = "quotation_app.mailers"
+
+
+# Where links in customer messages point when QUOTATION_PUBLIC_BASE_URL is not set (dev).
+DEV_PUBLIC_BASE_URL = "http://localhost:8000"
 
 
 def build_secret_store(settings: Settings) -> SecretStore:
@@ -206,10 +217,31 @@ def build_job_handlers(
     responses = SqlResponseStore(engine)
     workflow_store = SqlWorkflowStore(engine)
     quotation_store = SqlQuotationWorkflowStore(engine)
+    targets = SqlCustomerTargets(engine)
+    customers = CustomerMessenger(targets, connections, runtime.registry, outbound)
     enquiry_graph = build_enquiry_graph(
-        EnquiryWorkflowDeps(workflow_store, storage, PdfAndTextReader(), interpreter, catalogue),
+        EnquiryWorkflowDeps(
+            workflow_store, storage, PdfAndTextReader(), interpreter, catalogue, customers
+        ),
         checkpointer,
     )
+    document_hook = QuotationDocumentHook(deliveries, storage)
+    send_hooks: dict[TemplateKey, SendHook] = {
+        template: CustomerConsentHook(targets) for template in CUSTOMER_TEMPLATES
+    }
+    send_hooks[TemplateKey.QUOTATION_READY] = CustomerConsentHook(
+        targets,
+        QuotationReadyHook(
+            document_hook,
+            deliveries,
+            targets,
+            SqlCustomerActionStore(engine),
+            runtime.registry,
+            settings.public_base_url or DEV_PUBLIC_BASE_URL,
+        ),
+    )
+    send_hooks[TemplateKey.APPROVAL_REQUEST] = ApprovalRequestHook(notifications)
+    send_hooks[TemplateKey.QUOTATION_DOCUMENT] = document_hook
     quotations = QuotationJobHandler(
         build_quotation_graph(
             QuotationWorkflowDeps(quotation_store, pricing, responses), checkpointer
@@ -221,29 +253,40 @@ def build_job_handlers(
     )
     statuses = SqlBusinessStore(engine)
     handlers: dict[JobKind, JobHandler] = {
-        JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(SqlPreparationStore(engine), storage),
-        JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(enquiry_graph, workflow_store),
+        JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(
+            SqlPreparationStore(engine), storage, customers
+        ),
+        JobKind.EXTRACT_REQUIREMENTS: ExtractionJobHandler(
+            enquiry_graph,
+            workflow_store,
+            ReadingCap(
+                frozenset(p.key for p in runtime.registry.all() if p.capabilities.hosted_chat),
+                ChatLimits().readings_per_business_day,
+            ),
+        ),
         JobKind.DRAFT_QUOTATION: quotations,
         JobKind.RESUME_QUOTATION: quotations,
         JobKind.NOTIFY_APPROVERS: ApprovalNotificationHandler(notifications, connections, outbound),
         JobKind.DELIVER_QUOTATION: QuotationDeliveryHandler(
-            deliveries, storage, ReportLabQuotationRenderer(), connections, outbound
+            deliveries,
+            storage,
+            ReportLabQuotationRenderer(),
+            connections,
+            outbound,
+            customers=customers,
         ),
         JobKind.EXPIRE_QUOTATION: QuotationExpiryHandler(
             QuotationResponseService(responses, pricing)
         ),
         JobKind.NOTIFY_RESPONSE: ResponseNotificationHandler(
-            responses, notifications, connections, outbound
+            responses, notifications, connections, outbound, customers
         ),
         JobKind.SEND_MESSAGE: SendMessageHandler(
             outbox,
             connections,
             runtime.registry,
             runtime.secrets,
-            {
-                TemplateKey.APPROVAL_REQUEST: ApprovalRequestHook(notifications),
-                TemplateKey.QUOTATION_DOCUMENT: QuotationDocumentHook(deliveries, storage),
-            },
+            send_hooks,
             statuses,
         ),
         JobKind.SEND_ACCOUNT_EMAIL: AccountEmailHandler(
@@ -257,7 +300,8 @@ def build_job_handlers(
             routes_for(
                 ChannelActionService(
                     SqlChannelStore(engine), approvals, connections, runtime.registry
-                )
+                ),
+                ConsentRoute(targets, customers),
             ),
         ),
     }

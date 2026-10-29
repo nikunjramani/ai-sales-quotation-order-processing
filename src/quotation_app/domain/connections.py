@@ -56,6 +56,9 @@ class Capabilities:
     max_inbound_bytes: int = 64 * 1024
     # Staff edit the products in our portal (phase 3); other sources are read-only there.
     catalogue_editable: bool = False
+    # We host the customer side ourselves (phase 4): a public chat page and API under
+    # /chat/<handle>, visitor sessions and a daily reading cap. Website chat is the first.
+    hosted_chat: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,8 @@ class Connection:
     created_by: str
     created_at: datetime
     updated_at: datetime
+    public_handle: str | None = None  # hosted chat address /chat/<handle> (phase 4, Q13)
+    public_handle_changed: bool = False  # an administrator may change it once
 
     @property
     def active(self) -> bool:

@@ -954,7 +954,12 @@ class MemoryQuotations:
         )
 
     def record(
-        self, tenant_id: UUID, offer: Offer, response: NewResponse, now: datetime
+        self,
+        tenant_id: UUID,
+        offer: Offer,
+        response: NewResponse,
+        now: datetime,
+        consume_ref: UUID | None = None,
     ) -> RecordedResponse:
         self._maybe_fail("record")
         quotation = self.quotations[offer.quotation_id]
@@ -1025,10 +1030,9 @@ class MemoryQuotations:
                 },
             )
         )
-        if response.outcome in (ResponseOutcome.ACCEPTED, ResponseOutcome.DECLINED):
-            self.jobs.append(
-                Job(tenant_id, JobKind.NOTIFY_RESPONSE, {"response_id": str(recorded.response_id)})
-            )
+        self.jobs.append(
+            Job(tenant_id, JobKind.NOTIFY_RESPONSE, {"response_id": str(recorded.response_id)})
+        )
         return recorded
 
     def response(self, tenant_id: UUID, response_id: UUID) -> RecordedResponse | None:

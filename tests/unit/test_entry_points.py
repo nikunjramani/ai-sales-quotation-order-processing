@@ -24,5 +24,7 @@ def test_production_gets_the_none_store() -> None:
         mailer="real_mailer",
         mail_from="no-reply@quotes.example",
         public_portal_url="https://quotes.example/portal/",
+        public_base_url="https://quotes.example",
+        chat_ip_key="0123456789abcdef0123456789abcdef",
     )
     assert type(build_secret_store(settings)).__name__ == "NoSecretStore"

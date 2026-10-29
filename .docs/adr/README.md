@@ -21,5 +21,6 @@ Accepted denotes intended design, not implemented code. Date: 2026-10-22.
 - [0018: Connector framework: providers, connections, secrets, one webhook route, one outbox](0018-connector-framework.md) — phase 1, user decisions 2026-10-27; implemented and merged (PR #6)
 - [0019: Accounts, sign-up and business onboarding](0019-accounts-and-onboarding.md) — phase 2, user decisions 2026-10-27; implemented and merged (PR #7)
 - [0020: Our own product catalogue as a product source](0020-local-catalogue.md) — phase 3, user decisions 2026-10-28; implemented on `feat/phase-3-catalogue`, verified locally
+- [0021: Customers, conversations and website chat](0021-customers-conversations-and-website-chat.md) — phase 4, user decisions 2026-10-28; implemented on `feat/phase-4-conversations`, verified locally and in a live run with Gemini
 
 New decisions get sequential IDs. Preserve history and explicitly link superseding records.

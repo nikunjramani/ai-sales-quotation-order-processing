@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from quotation_app.domain.acceptance import (
     QUOTATION_STATUS_FOR,
     SYSTEM_SUBJECT,
+    CustomerStatus,
     Offer,
     OfferNotOpen,
     RecordedResponse,
@@ -26,6 +27,7 @@ from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.quotations import QuotationStatus
 from quotation_app.persistence.jobs import queue_job
 from quotation_app.persistence.models import (
+    CustomerActionRef,
     Quotation,
     QuotationDelivery,
     QuotationDocument,
@@ -49,7 +51,6 @@ _RESPONSE_COLUMNS = (
     QuotationResponse.revised_version,
     QuotationResponse.created_at,
 )
-_NOTIFIED = frozenset({ResponseOutcome.ACCEPTED, ResponseOutcome.DECLINED})
 
 
 def _response(row: Row[Any]) -> RecordedResponse:
@@ -164,7 +165,12 @@ class SqlResponseStore:
         return _offer(tenant_id, row)
 
     def record(
-        self, tenant_id: UUID, offer: Offer, response: NewResponse, now: datetime
+        self,
+        tenant_id: UUID,
+        offer: Offer,
+        response: NewResponse,
+        now: datetime,
+        consume_ref: UUID | None = None,
     ) -> RecordedResponse:
         expiring = response.outcome is ResponseOutcome.EXPIRED
         with tenant_transaction(self._engine, tenant_id) as connection:
@@ -239,6 +245,18 @@ class SqlResponseStore:
                     created_at=now,
                 )
             )
+            if consume_ref is not None:
+                used = connection.execute(
+                    update(CustomerActionRef)
+                    .where(
+                        CustomerActionRef.tenant_id == tenant_id,
+                        CustomerActionRef.id == consume_ref,
+                        CustomerActionRef.consumed_at.is_(None),
+                    )
+                    .values(consumed_at=now, response_id=response_id)
+                ).rowcount
+                if not used:
+                    raise OfferNotOpen(CustomerStatus.CLOSED)  # used meanwhile
             link = enquiry_link(connection, tenant_id, offer.quotation_id)
             queue_job(
                 connection,
@@ -252,14 +270,15 @@ class SqlResponseStore:
                 },
                 link.correlation_id,
             )
-            if response.outcome in _NOTIFIED:
-                queue_job(
-                    connection,
-                    tenant_id,
-                    JobKind.NOTIFY_RESPONSE,
-                    {"response_id": str(response_id)},
-                    link.correlation_id,
-                )
+            # Every answer is announced: managers hear of accept/decline, the customer gets
+            # the matching confirmation or notice on their tool (phase 4).
+            queue_job(
+                connection,
+                tenant_id,
+                JobKind.NOTIFY_RESPONSE,
+                {"response_id": str(response_id)},
+                link.correlation_id,
+            )
         return RecordedResponse(
             response_id=response_id,
             quotation_id=offer.quotation_id,

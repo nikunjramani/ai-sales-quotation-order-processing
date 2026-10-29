@@ -13,6 +13,45 @@ from quotation_app.domain.requirements import ExtractedRequirements, RequestedIt
 
 
 @dataclass(frozen=True)
+class CustomerText:
+    """One customer message of the enquiry, in order (1-based)."""
+
+    index: int
+    text: str
+
+
+@dataclass(frozen=True)
+class OpenItem:
+    """An item the previous round understood and matched but could not price yet (its
+    quantity or unit was missing): a bare answer such as "10 metres" may complete it."""
+
+    source_quote: str
+    product_text: str
+    sku: str
+
+
+@dataclass(frozen=True)
+class EnquiryTranscript:
+    """Everything the customer wrote for one enquiry, plus our earlier questions.
+
+    messages are untrusted customer data. asked are our own fixed questions (trusted): they help
+    a reader see what an answer refers to, but are never a source for verbatim checks.
+    """
+
+    messages: tuple[CustomerText, ...]
+    asked: tuple[str, ...] = ()
+    open_items: tuple[OpenItem, ...] = ()
+
+    @classmethod
+    def single(cls, text: str) -> "EnquiryTranscript":
+        return cls((CustomerText(1, text),))
+
+    @property
+    def texts(self) -> list[str]:
+        return [message.text for message in self.messages]
+
+
+@dataclass(frozen=True)
 class DocumentText:
     """Text read from an attachment, or the reason it could not be read."""
 
@@ -30,9 +69,14 @@ class DocumentReader(Protocol):
 
 
 class EnquiryInterpreter(Protocol):
-    def extract(self, text: str, documents: Sequence[DocumentText]) -> ExtractedRequirements:
+    def extract(
+        self, transcript: EnquiryTranscript, documents: Sequence[DocumentText]
+    ) -> ExtractedRequirements:
         """Read untrusted customer content. Raise InterpretationRejected for invalid output;
-        any other exception is treated as temporary (e.g. model unavailable) and retried."""
+        any other exception is treated as temporary (e.g. model unavailable) and retried.
+
+        Quotes must come from one message or document each. A quantity given in a later
+        message than its product goes into quantity_quote (phase 4)."""
         ...
 
     def choose_product(self, item: RequestedItem, candidates: Sequence[Product]) -> str | None:

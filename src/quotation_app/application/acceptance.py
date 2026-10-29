@@ -12,7 +12,7 @@ Every answer is recorded once (idempotency key, append-only); a replay returns t
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -36,7 +36,7 @@ from quotation_app.domain.acceptance import (
 from quotation_app.domain.documents import DocumentNotAvailable
 from quotation_app.domain.intake import validate_idempotency_key
 from quotation_app.domain.jobs import PermanentJobError
-from quotation_app.domain.messages import TemplateKey
+from quotation_app.domain.messages import TemplateKey, format_valid_until
 from quotation_app.domain.pricing import PricingRejected, RequestedLine
 from quotation_app.domain.quotations import (
     QuotationNotFound,
@@ -45,11 +45,14 @@ from quotation_app.domain.quotations import (
     content_sha256,
     pricing_issues_content,
     quotation_content,
+    quotation_number,
 )
 from quotation_app.domain.tenancy import Permission, PermissionDenied, Role, TenantContext
 from quotation_app.ports.acceptance import NewResponse, ResponseStore, RevisedContent
 from quotation_app.ports.channels import NotificationStore
 from quotation_app.ports.connections import ConnectionStore
+from quotation_app.ports.conversations import CustomerNotifier
+from quotation_app.ports.customer_actions import CustomerActionRef
 from quotation_app.ports.jobs import ClaimedJob
 from quotation_app.ports.messages import MessageLinks
 
@@ -125,6 +128,38 @@ class QuotationResponseService:
         else:
             response = self._acceptance(offer, context.subject, key, fingerprint)
         recorded = self._store.record(context.tenant_id, offer, response, now)
+        self._raise_if_refused(recorded)
+        return recorded, False
+
+    def respond_by_reference(
+        self, ref: CustomerActionRef, action: ResponseAction, reason: str | None
+    ) -> tuple[RecordedResponse, bool]:
+        """Accept/decline from a chat button or a secure link (phase 4).
+
+        The reference is bound to one version and content hash and is answered once: pressing
+        the same action again returns the first answer (replayed); the other action after
+        that raises OfferNotOpen (accepted, declined...). Same checks and re-pricing as respond().
+        """
+        key = f"ref:{ref.ref_id}"
+        fingerprint = action.value
+        found = self._store.find_response(ref.tenant_id, key)
+        if found is not None and found[1] == fingerprint:
+            self._raise_if_refused(found[0])
+            return found[0], True
+        # The other button after an answer: the offer is no longer open (checked below).
+        offer = self._store.offer_for_quotation(ref.tenant_id, ref.quotation_id)
+        if offer is None:
+            raise DocumentNotAvailable("No quotation has been issued for this enquiry yet")
+        if offer.version != ref.version or offer.content_sha256 != ref.content_sha256:
+            raise NotCurrentOffer("This is not the quotation version currently offered")
+        now = self._clock()
+        self._require_open(offer, now)
+        actor = f"customer:{ref.identity_id}"
+        if action is ResponseAction.DECLINE:
+            response = NewResponse(ResponseOutcome.DECLINED, actor, reason, key, fingerprint)
+        else:
+            response = self._acceptance(offer, actor, key, fingerprint)
+        recorded = self._store.record(ref.tenant_id, offer, response, now, consume_ref=ref.ref_id)
         self._raise_if_refused(recorded)
         return recorded, False
 
@@ -266,11 +301,24 @@ class QuotationExpiryHandler:
         self._service.expire(job.require_tenant(), quotation_id, version)
 
 
-class ResponseNotificationHandler:
-    """Job handler for notify_response: tell managers' linked accounts about an answer.
+# What the customer is told about each recorded answer (wording confirmed, Q7 and Q10).
+CUSTOMER_TEMPLATE_FOR: Mapping[ResponseOutcome, TemplateKey] = {
+    ResponseOutcome.ACCEPTED: TemplateKey.ANSWER_ACCEPTED,
+    ResponseOutcome.DECLINED: TemplateKey.ANSWER_DECLINED,
+    ResponseOutcome.REFUSED_CHANGED: TemplateKey.PRICES_CHANGED,
+    ResponseOutcome.WITHDRAWN: TemplateKey.QUOTATION_WITHDRAWN,
+    ResponseOutcome.EXPIRED: TemplateKey.QUOTATION_EXPIRED,
+}
+_MANAGER_NOTICES = frozenset({ResponseOutcome.ACCEPTED, ResponseOutcome.DECLINED})
 
-    One response_notice message per approver binding (idempotency key
-    response-notice:<response>:<binding>), so a retried job never repeats a notice.
+
+class ResponseNotificationHandler:
+    """Job handler for notify_response: announce a recorded answer.
+
+    - Managers: one response_notice per approver binding for accept/decline (idempotency key
+      response-notice:<response>:<binding>), so a retried job never repeats a notice.
+    - The customer (phase 4): the matching fixed message on their own tool (key
+      answer:<response>). The staff withdrawal reason is never included (Q10).
     """
 
     def __init__(
@@ -279,11 +327,13 @@ class ResponseNotificationHandler:
         bindings: NotificationStore,
         connections: ConnectionStore,
         outbound: OutboundService,
+        customer: CustomerNotifier | None = None,
     ) -> None:
         self._responses = responses
         self._bindings = bindings
         self._connections = connections
         self._outbound = outbound
+        self._customer = customer
 
     def __call__(self, job: ClaimedJob) -> None:
         try:
@@ -296,6 +346,20 @@ class ResponseNotificationHandler:
         offer = self._responses.offer_for_quotation(job.require_tenant(), response.quotation_id)
         if offer is None:
             raise QuotationNotFound("Quotation not found")
+        if self._customer is not None:
+            self._customer.send(
+                job.require_tenant(),
+                offer.enquiry_id,
+                CUSTOMER_TEMPLATE_FOR[response.outcome],
+                {
+                    "number": quotation_number(response.quotation_id),
+                    "date": format_valid_until(offer.valid_until),
+                },
+                f"answer:{response.response_id}",
+                job.correlation_id,
+            )
+        if response.outcome not in _MANAGER_NOTICES:
+            return
         for binding in self._bindings.approver_bindings(job.require_tenant()):
             connection = self._connections.get(job.require_tenant(), binding.connection_ref)
             if connection is None or not connection.active:

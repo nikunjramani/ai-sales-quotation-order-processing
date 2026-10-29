@@ -69,9 +69,10 @@ def test_runtime_roles_cannot_change_connections_and_events_are_append_only(
     runtime_engine: Engine, worker_engine: Engine, owner_engine: Engine
 ) -> None:
     # Since phase 2 the API may change a connection's status (revoking an API key disables its
-    # connection), but never its configuration, secrets or webhook token.
+    # connection) and since phase 4 a hosted chat's settings (config), but never its secrets
+    # or webhook token.
     statements = {
-        runtime_engine: "UPDATE connections SET config = '{}'",
+        runtime_engine: "UPDATE connections SET secret_refs = '{}'",
         worker_engine: "UPDATE connections SET status = 'disabled'",
     }
     for engine, statement in statements.items():

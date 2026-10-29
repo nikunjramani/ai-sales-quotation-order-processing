@@ -211,6 +211,19 @@ See the [phase 3 plan](../plan/platform/implementation/phase-3-catalogue.md) and
 | [api/catalogue.py](../../src/quotation_app/api/catalogue.py) | `/api/v1/tenants/{t}/catalogue/...` routes and their error codes |
 | portal `features/catalogue` | Product list, product page (details, prices, stock, archive, changes), categories |
 
+## Phase 4 customers, conversations and website chat (ADR 0021)
+| Area | Files |
+|---|---|
+| Domain | `domain/contacts.py` (consent words, claimed details, masking), `domain/conversations.py` (`follow_up_target`), `domain/chat.py` (limits, handle, allowed websites), `domain/requirements.py` (`quantity_quote`), `domain/messages.py` (customer templates) |
+| Routing | `application/conversations.py` (`IntentRouter`), `persistence/conversations.py` (conversation lock, open enquiries, thread rows, `SqlCustomerTargets`), `persistence/intake.py` (`record` with the router, receipts through messages) |
+| Rounds | `ports/interpretation.py` (`EnquiryTranscript`), `persistence/workflow.py` (transcript, re-read check, `readings_today`), `workflows/enquiry.py` (rounds, cap, questions to the customer), `adapters/interpreters/*` |
+| Customer messages | `application/customer_messages.py` (`CustomerMessenger`, `CustomerConsentHook`), `application/acceptance.py` (`CUSTOMER_TEMPLATE_FOR`, `respond_by_reference`), `application/delivery.py` (quotation ready), `application/inbound.py` (`ConsentRoute`) |
+| Answers by reference | `application/customer_actions.py`, `persistence/customer_actions.py`, `ports/customer_actions.py` |
+| Website chat | `adapters/providers/web_chat`, `application/chat.py`, `persistence/chat.py`, `api/public_chat.py`, `application/connections.py` + `persistence/connections.SqlHostedChatAdmin` |
+| Staff | `application/contacts.py`, `persistence/contacts.py`, `api/conversations.py`; portal `features/conversations`, `features/connections/ui/components/HostedChatCard.tsx` |
+| Widget | `portal/src/widget/` (`api/chatClient.ts`, `state/session.ts`, `ui/chatView.ts`, `main.ts`), `portal/vite.widget.config.ts` |
+| Migration | `migrations/versions/0012_conversations.py` |
+
 ## Planned modules
 
 | Proposed location | Responsibility |

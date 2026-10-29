@@ -2,22 +2,32 @@
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from typing import Any
 from uuid import UUID, uuid4
 
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg import Connection
 from psycopg.rows import DictRow, dict_row
+from sqlalchemy import Connection as SqlConnection
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import make_url
 
 from quotation_app.domain.attachments import AttachmentStatus
+from quotation_app.domain.conversations import Direction
 from quotation_app.domain.intake import EnquiryStatus
 from quotation_app.domain.jobs import JobKind
 from quotation_app.domain.requirements import ExtractionOutcome
+from quotation_app.persistence.conversations import EXTRACTION_GRAPHS, lock_conversation_of
 from quotation_app.persistence.jobs import queue_job
-from quotation_app.persistence.models import Attachment, Enquiry, WorkflowRun
+from quotation_app.persistence.models import (
+    Attachment,
+    ConversationMessage,
+    Enquiry,
+    WorkflowRun,
+)
 from quotation_app.persistence.tenancy import tenant_transaction
+from quotation_app.ports.interpretation import CustomerText, EnquiryTranscript, OpenItem
 from quotation_app.ports.workflow import CleanAttachment, EnquiryContent
 
 RUNNING = "running"
@@ -29,11 +39,31 @@ class SqlWorkflowStore:
 
     def enquiry_content(self, tenant_id: UUID, enquiry_id: UUID) -> EnquiryContent | None:
         with tenant_transaction(self._engine, tenant_id) as connection:
-            text = connection.execute(
-                select(Enquiry.text).where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
+            found = connection.execute(
+                select(Enquiry.id).where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
             ).scalar_one_or_none()
-            if text is None:
+            if found is None:
                 return None
+            messages = connection.execute(
+                select(ConversationMessage.seq, ConversationMessage.text)
+                .where(
+                    ConversationMessage.tenant_id == tenant_id,
+                    ConversationMessage.enquiry_id == enquiry_id,
+                    ConversationMessage.direction == Direction.INBOUND.value,
+                )
+                .order_by(ConversationMessage.seq)
+            ).all()
+            previous = connection.execute(
+                select(WorkflowRun.outcome)
+                .where(
+                    WorkflowRun.tenant_id == tenant_id,
+                    WorkflowRun.enquiry_id == enquiry_id,
+                    WorkflowRun.graph_version.like(EXTRACTION_GRAPHS),
+                    WorkflowRun.status == EnquiryStatus.NEEDS_CLARIFICATION.value,
+                )
+                .order_by(WorkflowRun.round.desc(), WorkflowRun.updated_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
             rows = connection.execute(
                 select(
                     Attachment.id,
@@ -48,15 +78,54 @@ class SqlWorkflowStore:
                 )
                 .order_by(Attachment.created_at, Attachment.id)
             ).all()
+        asked, open_items = _previous_round(previous)
         return EnquiryContent(
-            text,
+            EnquiryTranscript(
+                tuple(CustomerText(index, row.text) for index, row in enumerate(messages, start=1)),
+                asked,
+                open_items,
+            ),
             tuple(
                 CleanAttachment(row.id, row.filename, row.declared_content_type, row.storage_key)
                 for row in rows
             ),
+            max((row.seq for row in messages), default=0),
         )
 
-    def start_run(self, tenant_id: UUID, enquiry_id: UUID, graph_version: str) -> UUID:
+    def readings_today(
+        self, tenant_id: UUID, enquiry_id: UUID, run_id: UUID, provider_keys: frozenset[str]
+    ) -> int | None:
+        with tenant_transaction(self._engine, tenant_id) as connection:
+            channel = connection.execute(
+                select(Enquiry.channel).where(
+                    Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id
+                )
+            ).scalar_one_or_none()
+            if channel not in provider_keys:
+                return None
+            count: int = connection.execute(
+                select(func.count())
+                .select_from(WorkflowRun)
+                .join(
+                    Enquiry,
+                    (Enquiry.tenant_id == WorkflowRun.tenant_id)
+                    & (Enquiry.id == WorkflowRun.enquiry_id),
+                )
+                .where(
+                    WorkflowRun.tenant_id == tenant_id,
+                    WorkflowRun.graph_version.like(EXTRACTION_GRAPHS),
+                    WorkflowRun.id != run_id,
+                    WorkflowRun.created_at >= func.date_trunc("day", func.now(), "UTC"),
+                    Enquiry.channel.in_(sorted(provider_keys)),
+                    # Readings the cap itself stopped did not use the model.
+                    func.coalesce(WorkflowRun.outcome["reading_limit"].astext, "") != "true",
+                )
+            ).scalar_one()
+        return count
+
+    def start_run(
+        self, tenant_id: UUID, enquiry_id: UUID, graph_version: str, round: int = 1
+    ) -> UUID:
         with tenant_transaction(self._engine, tenant_id) as connection:
             connection.execute(
                 insert(WorkflowRun)
@@ -65,15 +134,19 @@ class SqlWorkflowStore:
                     tenant_id=tenant_id,
                     enquiry_id=enquiry_id,
                     graph_version=graph_version,
+                    round=round,
                     status=RUNNING,
                 )
-                .on_conflict_do_nothing(index_elements=["tenant_id", "enquiry_id", "graph_version"])
+                .on_conflict_do_nothing(
+                    index_elements=["tenant_id", "enquiry_id", "graph_version", "round"]
+                )
             )
             run_id: UUID = connection.execute(
                 select(WorkflowRun.id).where(
                     WorkflowRun.tenant_id == tenant_id,
                     WorkflowRun.enquiry_id == enquiry_id,
                     WorkflowRun.graph_version == graph_version,
+                    WorkflowRun.round == round,
                 )
             ).scalar_one()
         return run_id
@@ -85,32 +158,103 @@ class SqlWorkflowStore:
         run_id: UUID,
         outcome: ExtractionOutcome,
         details: Mapping[str, object],
-    ) -> None:
+    ) -> bool:
         with tenant_transaction(self._engine, tenant_id) as connection:
+            lock_conversation_of(connection, tenant_id, enquiry_id)
+            enquiry = connection.execute(
+                select(Enquiry.status, Enquiry.correlation_id)
+                .where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
+                .with_for_update()
+            ).one()
             connection.execute(
                 update(WorkflowRun)
                 .where(WorkflowRun.tenant_id == tenant_id, WorkflowRun.id == run_id)
                 .values(status=outcome.value, outcome=dict(details), updated_at=func.now())
             )
-            moved = connection.execute(
-                update(Enquiry)
-                .where(
-                    Enquiry.tenant_id == tenant_id,
-                    Enquiry.id == enquiry_id,
-                    Enquiry.status == EnquiryStatus.READY_FOR_EXTRACTION.value,
+            if enquiry.status != EnquiryStatus.READY_FOR_EXTRACTION.value:
+                # A repeat after the first recording moved it on.
+                return bool(enquiry.status == outcome.value)
+            if _changed_since_read(connection, tenant_id, enquiry_id, details):
+                # The customer wrote again while this round was reading (Q3): this result is
+                # history only; the enquiry is prepared and read again with every message.
+                connection.execute(
+                    update(Enquiry)
+                    .where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
+                    .values(status=EnquiryStatus.RECEIVED.value, updated_at=func.now())
                 )
+                queue_job(
+                    connection,
+                    tenant_id,
+                    JobKind.PREPARE_ENQUIRY,
+                    {"enquiry_id": str(enquiry_id)},
+                    enquiry.correlation_id,
+                )
+                return False
+            connection.execute(
+                update(Enquiry)
+                .where(Enquiry.tenant_id == tenant_id, Enquiry.id == enquiry_id)
                 .values(status=EnquiryStatus(outcome.value).value, updated_at=func.now())
-                .returning(Enquiry.correlation_id)
-            ).one_or_none()
+            )
             # Only the first recording moves the enquiry on, so drafting is queued once (M4).
-            if moved is not None and outcome is ExtractionOutcome.READY_FOR_QUOTATION:
+            if outcome is ExtractionOutcome.READY_FOR_QUOTATION:
                 queue_job(
                     connection,
                     tenant_id,
                     JobKind.DRAFT_QUOTATION,
                     {"enquiry_id": str(enquiry_id)},
-                    moved.correlation_id,
+                    enquiry.correlation_id,
                 )
+        return True
+
+
+def _changed_since_read(
+    connection: SqlConnection, tenant_id: UUID, enquiry_id: UUID, details: Mapping[str, object]
+) -> bool:
+    """A newer customer message than the round read, or a file not yet inspected."""
+    upto = details.get("message_seq_upto")
+    newer = connection.execute(
+        select(func.count())
+        .select_from(ConversationMessage)
+        .where(
+            ConversationMessage.tenant_id == tenant_id,
+            ConversationMessage.enquiry_id == enquiry_id,
+            ConversationMessage.direction == Direction.INBOUND.value,
+            ConversationMessage.seq > (upto if isinstance(upto, int) else 2**62),
+        )
+    ).scalar_one()
+    quarantined = connection.execute(
+        select(func.count())
+        .select_from(Attachment)
+        .where(
+            Attachment.tenant_id == tenant_id,
+            Attachment.enquiry_id == enquiry_id,
+            Attachment.status == AttachmentStatus.QUARANTINED.value,
+        )
+    ).scalar_one()
+    return bool(newer or quarantined)
+
+
+def _previous_round(
+    outcome: Mapping[str, Any] | None,
+) -> tuple[tuple[str, ...], tuple[OpenItem, ...]]:
+    """Our questions of the last round that asked, and the items it matched but could not
+    turn into a line (missing or wrong quantity/unit): a bare answer may complete them."""
+    if outcome is None:
+        return (), ()
+    priced = {str(line["sku"]) for line in outcome.get("lines", [])}
+    items = outcome.get("items", [])
+    open_items = []
+    for match in outcome.get("matches", []):
+        sku = match.get("sku")
+        index = int(match["item_index"])
+        if match.get("status") != "matched" or sku is None or sku in priced:
+            continue
+        if 0 <= index < len(items):
+            item = items[index]
+            open_items.append(
+                OpenItem(str(item["source_quote"]), str(item["product_text"]), str(sku))
+            )
+    return tuple(str(q) for q in outcome.get("questions", [])), tuple(open_items)
 
 
 def psycopg_url(sqlalchemy_url: str) -> str:

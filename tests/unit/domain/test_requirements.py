@@ -36,6 +36,39 @@ def matched(index: int, product: Product) -> ProductMatch:
     return ProductMatch(index, MatchStatus.MATCHED, product.sku, (product.sku,))
 
 
+# --- Phase 4: a conversation is several customer messages ----------------------------------
+
+
+def test_quantity_from_a_later_message_is_verified_through_quantity_quote() -> None:
+    answer = RequestedItem("cables price", "cables", Decimal(10), "meter", "10 meter")
+    messages = ["can you get cables price?", "10 meter?"]
+    assert unverified_items(requirements(answer), messages) == []
+
+
+def test_quantity_only_in_our_question_is_not_verified() -> None:
+    """Our question is never a source, so quoting it back cannot make a number look real."""
+    invented = RequestedItem("cables price", "cables", Decimal(2), None, "2-core power cable")
+    messages = ["can you get cables price?", "thanks"]
+    assert unverified_items(requirements(invented), messages) == [0]
+
+
+def test_a_quote_spanning_two_messages_fails() -> None:
+    spanning = item("cables price? 10 meter", "cables", "10", "meter")
+    assert unverified_items(requirements(spanning), ["cables price?", "10 meter"]) == [0]
+
+
+def test_an_invented_quantity_in_quantity_quote_fails() -> None:
+    invented = RequestedItem("cables price", "cables", Decimal(12), "meter", "10 meter")
+    assert unverified_items(requirements(invented), ["cables price?", "10 meter"]) == [0]
+
+
+def test_quantity_quote_must_come_from_a_customer_message_not_a_document() -> None:
+    from_document = RequestedItem("cables price", "cables", Decimal(10), None, "10 meter")
+    sources = ["cables price?", "spec sheet: 10 meter reel"]
+    assert unverified_items(requirements(from_document), sources, ["cables price?"]) == [0]
+    assert unverified_items(requirements(from_document), sources, sources) == []
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [("pcs", "each"), ("Nos.", "each"), ("Metres", "metre"), ("m", "metre"), ("box", "box"),

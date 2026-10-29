@@ -55,7 +55,10 @@ def client(
     )
     app.include_router(
         build_connection_router(
-            auth, ConnectionService(harness.connections, harness.registry), harness.channels
+            auth,
+            ConnectionService(harness.connections, harness.registry),
+            harness.channels,
+            "http://localhost:8000",
         )
     )
     with TestClient(app) as http:

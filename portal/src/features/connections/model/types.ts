@@ -18,6 +18,23 @@ export interface Connection {
   /** Technical error, shown to administrators only (null for others). */
   last_error: string | null;
   created_at: string;
+  /** Hosted chat (website chat, phase 4), administrators only. */
+  chat: HostedChat | null;
+}
+
+export interface HostedChat {
+  handle: string;
+  chat_link: string;
+  snippet: string;
+  allowed_origins: string[];
+  greeting: string;
+  address_changed: boolean;
+}
+
+/** A tool an administrator can enable with one click. */
+export interface AvailableTool {
+  provider_key: string;
+  provider_name: string;
 }
 
 /** A manager's own account linked on one connection, so approval requests reach it. */

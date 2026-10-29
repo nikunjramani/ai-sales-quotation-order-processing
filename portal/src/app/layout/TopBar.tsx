@@ -4,6 +4,7 @@ import { useLogout, useSession, type Permission } from "@/features/auth";
 import { TenantSwitcher, useCurrentTenant } from "@/features/tenant";
 
 const NAVIGATION: { to: string; label: string; show?: Permission[] }[] = [
+  { to: "/inbox", label: "Inbox", show: ["conversations:view"] },
   { to: "/quotations", label: "Quotations" },
   { to: "/enquiries", label: "Enquiries" },
   { to: "/catalogue", label: "Products", show: ["catalogue:view"] },
