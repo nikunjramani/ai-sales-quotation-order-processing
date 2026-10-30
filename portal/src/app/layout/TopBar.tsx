@@ -1,51 +1,41 @@
-import { NavLink, useNavigate } from "react-router";
+import { FileText, LogOut, UserRound } from "lucide-react";
+import { Link, NavLink, useNavigate } from "react-router";
 
-import { useLogout, useSession, type Permission } from "@/features/auth";
+import { useLogout, useSession } from "@/features/auth";
+import { roleNames } from "@/features/business";
 import { TenantSwitcher, useCurrentTenant } from "@/features/tenant";
 
-const NAVIGATION: { to: string; label: string; show?: Permission[] }[] = [
-  { to: "/inbox", label: "Inbox", show: ["conversations:view"] },
-  { to: "/quotations", label: "Quotations" },
-  { to: "/enquiries", label: "Enquiries" },
-  { to: "/orders", label: "Orders", show: ["orders:view"] },
-  { to: "/catalogue", label: "Products", show: ["catalogue:view"] },
-  { to: "/connections", label: "Connections" },
-  { to: "/settings", label: "Settings", show: ["tenant:manage", "members:manage", "integrations:manage"] },
-];
-
+/** The strip at the top: product name, which business, who is signed in, and Sign out. */
 export function TopBar() {
   const session = useSession();
-  const { tenant, can } = useCurrentTenant();
+  const { tenant } = useCurrentTenant();
   const logout = useLogout();
   const navigate = useNavigate();
-  const links = tenant
-    ? NAVIGATION.filter((item) => !item.show || item.show.some((permission) => can(permission)))
-    : [];
-  if (tenant?.status === "setting_up" && can("tenant:manage")) {
-    links.unshift({ to: "/setup", label: "Setup" });
-  }
   const user = session.data?.user;
   return (
     <header className="topbar">
-      <nav>
-        {links.map((item) => (
-          <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? "link active" : "link")}>
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
+      <Link to="/" className="brand">
+        <span className="brand-mark" aria-hidden="true">
+          <FileText size={20} />
+        </span>
+        <span className="brand-name">Quotation Portal</span>
+      </Link>
       <div className="who">
         <TenantSwitcher />
-        <NavLink to="/profile" className="link small">
-          {user?.display_name ?? user?.email ?? session.data?.subject}
+        <NavLink to="/profile" className="link small profile-link">
+          <UserRound size={18} aria-hidden="true" />
+          <span>
+            {user?.display_name ?? user?.email ?? session.data?.subject}
+            {tenant && <span className="muted role-names"> · {roleNames(tenant.roles)}</span>}
+          </span>
         </NavLink>
-        {tenant && <span className="muted small">({tenant.roles.join(", ")})</span>}
         <button
           className="secondary"
           disabled={logout.isPending}
           onClick={() => logout.mutate(undefined, { onSettled: () => navigate("/login") })}
         >
-          Sign out
+          <LogOut size={18} aria-hidden="true" />
+          <span>Sign out</span>
         </button>
       </div>
     </header>

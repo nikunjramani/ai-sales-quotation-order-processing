@@ -277,3 +277,12 @@ Adapters implement ports. Workflow/application services depend on ports and doma
 See [module boundaries](../architecture/module-boundaries.md) for the expected change footprint of a new provider. Do not create the deferred negotiation module during foundation work.
 When implemented, replace proposed descriptions with links to real paths/symbols, entry commands, and actual dependency flow.
 No run/setup command is documented as working until it has been executed successfully.
+
+## Friendly portal design (ADR 0025)
+| Area | Files |
+|---|---|
+| Menu | `portal/src/app/layout/navigation.ts` (items, icons, permissions), `SideNav.tsx` (sidebar and phone bottom bar with More), `TopBar.tsx` (brand, business, person with plain role names, Sign out) |
+| Home | `portal/src/features/home/` (`services/homeCards.ts` card rules, `hooks/useHomeSummary.ts`, `ui/pages/HomePage.tsx`) at `#/home` |
+| Shared UI | `portal/src/shared/ui/PageHeader.tsx`, `StatusBadge.tsx` (plain labels, icons, `ToneBadge`) |
+| Styles | `portal/src/styles/global.css` |
+| Settings | `portal/src/app/layout/SettingsLayout.tsx`, `settingsNavigation.ts`; sections from `features/business` (`businessSettingsRoutes`) and `features/connections` (`connectionSettingsRoutes`: `IntegrationsPage`, `ToolGroupCard`, `services/comingSoon.ts`); `LinkedAccountsSection` on the profile page |

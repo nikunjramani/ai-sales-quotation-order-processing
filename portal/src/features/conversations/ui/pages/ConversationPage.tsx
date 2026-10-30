@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router";
 
 import { QueryState } from "@/shared/ui/QueryState";
@@ -14,7 +15,9 @@ export function ConversationPage() {
   return (
     <section>
       <p>
-        <Link to="/inbox">← Inbox</Link>
+        <Link className="link" to="/inbox">
+          <ArrowLeft size={18} aria-hidden="true" /> All messages
+        </Link>
       </p>
       <QueryState isLoading={found.isLoading} error={found.error}>
         {data && (

@@ -19,12 +19,13 @@ export const conversationKeys = {
 
 const INBOX_REFRESH_MS = 15_000;
 
-export function useInbox() {
+export function useInbox({ enabled = true } = {}) {
   const tenantId = useTenantId();
   return useQuery({
     queryKey: conversationKeys.inbox(tenantId),
     queryFn: () => conversationRepository.inbox(tenantId),
     refetchInterval: INBOX_REFRESH_MS,
+    enabled,
   });
 }
 

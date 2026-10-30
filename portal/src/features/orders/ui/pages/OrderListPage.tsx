@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { Link } from "react-router";
+import { ClipboardCheck, Truck } from "lucide-react";
+import { Link, useSearchParams } from "react-router";
 
 import { useCurrentTenant } from "@/features/tenant";
 import { dateTime, money } from "@/shared/lib/format";
 import { FilterTabs } from "@/shared/ui/FilterTabs";
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { QueryState } from "@/shared/ui/QueryState";
 
 import { useOrderSettings, useOrders } from "../../hooks/useOrders";
@@ -28,15 +29,26 @@ function filterFor(tab: string): OrderListFilter {
 
 /** Every order, newest first (refreshes every 15 seconds while ERP writes finish). */
 export function OrderListPage() {
-  const [tab, setTab] = useState("all");
+  // The tab lives in the URL (?filter=attention) like the other lists, so Home can link to it.
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.find((item) => item.id === params.get("filter"))?.id ?? "all";
   const orders = useOrders(filterFor(tab));
   const { can } = useCurrentTenant();
   return (
     <section>
-      <h1>Orders</h1>
+      <PageHeader
+        icon={Truck}
+        title="Orders"
+        hint="When a customer says yes to a quote, it becomes an order. Follow each order here until it is delivered."
+      />
       {can("tenant:manage") && <CreationSetting />}
-      <FilterTabs tabs={TABS} selected={tab} onSelect={setTab} />
-      <QueryState isLoading={orders.isLoading} error={orders.error} isEmpty={orders.data?.length === 0}>
+      <FilterTabs tabs={TABS} selected={tab} onSelect={(id) => setParams({ filter: id })} />
+      <QueryState
+        isLoading={orders.isLoading}
+        error={orders.error}
+        isEmpty={orders.data?.length === 0}
+        emptyText="No orders here yet."
+      >
         <ul className="list">
           {orders.data?.map((order) => (
             <li key={order.order_id}>
@@ -68,7 +80,8 @@ function CreationSetting() {
   const { query, save } = useOrderSettings();
   if (!query.data) return null;
   return (
-    <label className="small">
+    <label className="small setting">
+      <ClipboardCheck size={18} aria-hidden="true" />
       <input
         type="checkbox"
         checked={query.data.order_creation === "automatic"}

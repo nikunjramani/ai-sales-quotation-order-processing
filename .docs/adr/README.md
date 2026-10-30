@@ -25,5 +25,6 @@ Accepted denotes intended design, not implemented code. Date: 2026-10-22.
 - [0022: One-click providers, platform webhooks and approval by message](0022-one-click-providers-and-approval-by-message.md) — phase 5, user decisions 2026-10-29; implemented and merged (PR #10), not live-verified (no accounts)
 - [0023: ERPNext as the first real product source: a synced copy for search, live prices and stock](0023-erpnext-product-source.md) — phase 6, user decisions 2026-10-29 (rest delegated to Claude); implemented on `feat/phase-6-7-erp-and-orders`, verified against a local ERPNext sandbox
 - [0024: Orders: one per accepted quotation, written once to the ERP with intent before call](0024-orders.md) — phase 7 (M6b), user answers Q1-Q4 2026-10-29, Q5-Q16 delegated to Claude; implemented on `feat/phase-6-7-erp-and-orders`
+- [0025: A friendly portal design: plain words, a simple menu, a Home page and page hints](0025-friendly-portal-design.md) — user decisions 2026-10-30; implemented on `feat/portal-friendly-design`
 
 New decisions get sequential IDs. Preserve history and explicitly link superseding records.

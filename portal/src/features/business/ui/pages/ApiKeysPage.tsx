@@ -5,7 +5,6 @@ import { ErrorMessage, QueryState } from "@/shared/ui/QueryState";
 
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from "../../hooks/useApiKeys";
 import { ApiKeyCreatedDialog } from "../components/ApiKeyCreatedDialog";
-import { SettingsNav } from "../components/SettingsNav";
 
 /** Keys for the business's own website or system to send enquiries (Q17: intake keys only). */
 export function ApiKeysPage() {
@@ -21,8 +20,6 @@ export function ApiKeysPage() {
 
   return (
     <section>
-      <h1>Settings</h1>
-      <SettingsNav />
       <h2>API keys</h2>
       {create.data ? (
         <ApiKeyCreatedDialog apiKey={create.data} onClose={() => create.reset()} />

@@ -1,5 +1,14 @@
 # Current handoff
-Updated: 2026-10-29 (phases 1-5 merged through PRs #6-#10; phases 6-7 ERPNext and orders implemented on `feat/phase-6-7-erp-and-orders`).
+Updated: 2026-10-30 (phases 1-7 merged through PR #11; friendly portal design implemented on `feat/portal-friendly-design`, not committed yet).
+
+## Latest: friendly portal design (2026-10-30, ADR 0025)
+- **User decisions (2026-10-30):** see [ADR 0025](adr/0025-friendly-portal-design.md). New look, a sidebar/bottom-bar menu with icons, a Home page with to-do cards, a one-line hint on each main page, plain words on screen (codes unchanged), `lucide-react` 1.60.0, "friendly and clean" style. No backend change.
+- **Built:** `features/home`, `app/layout/navigation.ts` + `SideNav.tsx`, `shared/ui/PageHeader.tsx`, icon status badges, new `global.css` (dark mode fixed for chat bubbles), orders tab in the URL, list hooks with an `enabled` option, plain role names.
+- **Checks:** portal typecheck passes; 38 test files, 132 tests pass (124 before, plus 8 new); build passes (JS 505 kB / 150 kB gzip, over Vite's 500 kB warning).
+- **Not checked:** no visual check in a real browser yet; detail pages not reorganised (open idea).
+- **Settings and Integrations (same day, ADR 0025 addendum):** one settings frame (side list on wide screens, pills on phones) with Business, Pricing, People, Integrations, API keys; Integrations groups connected tools by kind, hides switched-off ones, lists one-click tools and website chat, and shows WhatsApp/Email/SMS as Coming soon (not built). "Apps & channels" left the menu; managers link their account on the profile page. Checks: typecheck passes, 41 files / 140 tests pass, build passes (JS 510 kB / 152 kB gzip).
+- **Dropped (user, 2026-10-30):** a plan to remove ERPNext and build our own inventory was discussed and dropped before any code; nothing changed.
+- **Next:** the user looks at it running, then decides whether to commit and open a PR.
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:

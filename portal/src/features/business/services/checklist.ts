@@ -31,8 +31,8 @@ export const SETUP_STEPS: Record<SetupItemKey, { label: string; hint: string; li
   },
   customer_channel: {
     label: "A way for customers to reach you",
-    hint: "For now: an API key for your website or system.",
-    link: "/settings/api-keys",
+    hint: "Website chat, Telegram or an API key for your own system.",
+    link: "/settings/integrations",
   },
   test_enquiry: {
     label: "A test enquiry",

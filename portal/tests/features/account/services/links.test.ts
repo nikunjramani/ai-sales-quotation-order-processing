@@ -12,6 +12,6 @@ describe("links", () => {
   });
 
   it("names roles in plain words", () => {
-    expect(roleText(["approver", "sales_operator"])).toBe("Approver, Sales operator");
+    expect(roleText(["approver", "sales_operator"])).toBe("Manager, Sales");
   });
 });

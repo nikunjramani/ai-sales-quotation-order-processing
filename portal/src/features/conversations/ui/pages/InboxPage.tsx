@@ -1,6 +1,8 @@
+import { MessageCircle, Users } from "lucide-react";
 import { Link } from "react-router";
 
 import { useCurrentTenant } from "@/features/tenant";
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { dateTime } from "@/shared/lib/format";
 import { QueryState } from "@/shared/ui/QueryState";
 import { StatusBadge } from "@/shared/ui/StatusBadge";
@@ -14,10 +16,17 @@ export function InboxPage() {
   const { can } = useCurrentTenant();
   return (
     <section>
-      <h1>Inbox</h1>
-      <p>
-        <Link to="/contacts">Contacts</Link>
-      </p>
+      <PageHeader
+        icon={MessageCircle}
+        title="Messages"
+        hint="Every chat with your customers, newest first. Tap one to read it."
+        actions={
+          <Link className="button" to="/contacts">
+            <Users size={20} aria-hidden="true" />
+            Contacts
+          </Link>
+        }
+      />
       {can("tenant:manage") && <AcknowledgementSetting />}
       <QueryState isLoading={inbox.isLoading} error={inbox.error} isEmpty={inbox.data?.length === 0}>
         <ul className="list">

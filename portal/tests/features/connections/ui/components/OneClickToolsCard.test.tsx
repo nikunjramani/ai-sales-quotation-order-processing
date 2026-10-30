@@ -67,7 +67,7 @@ describe("OneClickToolsCard", () => {
       client: testQueryClient(ADMIN),
     });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Enable" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add Future tool" }));
     const enable = screen.getByRole("button", { name: "Enable Future tool" });
     expect((enable as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(screen.getByRole("checkbox"));

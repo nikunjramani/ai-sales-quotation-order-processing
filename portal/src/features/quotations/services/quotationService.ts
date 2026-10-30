@@ -11,7 +11,7 @@ import type {
 
 export const QUOTATION_FILTERS = [
   { id: "waiting", label: "Waiting for approval", statuses: ["pending_approval"] },
-  { id: "revision", label: "Needs revision", statuses: ["revision_requested", "pricing_failed"] },
+  { id: "revision", label: "Needs changes", statuses: ["revision_requested", "pricing_failed"] },
   { id: "approved", label: "Approved", statuses: ["approved"] },
   { id: "accepted", label: "Accepted", statuses: ["accepted"] },
   {
@@ -30,7 +30,7 @@ export function filterById(id: string | null): (typeof QUOTATION_FILTERS)[number
 
 export const DECISION_ACTIONS: readonly { action: ApprovalAction; label: string; tone: string }[] = [
   { action: "approve", label: "Approve", tone: "primary" },
-  { action: "request_revision", label: "Request revision", tone: "secondary" },
+  { action: "request_revision", label: "Ask for changes", tone: "secondary" },
   { action: "reject", label: "Reject", tone: "danger" },
 ];
 

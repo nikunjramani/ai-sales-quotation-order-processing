@@ -1,8 +1,12 @@
+import { CircleCheck, CircleX, Clock, TriangleAlert, type LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
+
+// Plain words for every status (user decision 2026-10-30, ADR 0025). Codes stay the same.
 const LABELS: Record<string, string> = {
-  pricing_failed: "Cannot price",
+  pricing_failed: "Price missing",
   pending_approval: "Waiting for approval",
-  revision_requested: "Revision requested",
-  revision_submitted: "Revision submitted",
+  revision_requested: "Needs changes",
+  revision_submitted: "Changes sent",
   approved: "Approved",
   rejected: "Rejected",
   accepted: "Accepted",
@@ -10,10 +14,10 @@ const LABELS: Record<string, string> = {
   expired: "Expired",
   withdrawn: "Withdrawn",
   pending: "Pending",
-  needs_review: "Needs review",
-  needs_clarification: "Needs clarification",
-  ready_for_quotation: "Ready for quotation",
-  ready_for_extraction: "Being read",
+  needs_review: "Needs a person",
+  needs_clarification: "Ask the customer",
+  ready_for_quotation: "Ready to quote",
+  ready_for_extraction: "Reading…",
   received: "Received",
   available: "In stock",
 };
@@ -32,6 +36,30 @@ const TONES: Record<string, string> = {
   pending: "info",
 };
 
+/** Each colour also has its own shape, so the status is clear without seeing colour. */
+export const TONE_ICONS: Record<string, LucideIcon> = {
+  good: CircleCheck,
+  bad: CircleX,
+  warn: TriangleAlert,
+  info: Clock,
+};
+
+export function statusLabel(status: string): string {
+  return LABELS[status] ?? status;
+}
+
 export function StatusBadge({ status }: { status: string }) {
-  return <span className={`badge ${TONES[status] ?? "warn"}`}>{LABELS[status] ?? status}</span>;
+  const tone = TONES[status] ?? "warn";
+  return <ToneBadge tone={tone}>{statusLabel(status)}</ToneBadge>;
+}
+
+/** A badge for any tone; used by features that have their own status words. */
+export function ToneBadge({ tone, children }: { tone: string; children: ReactNode }) {
+  const Icon = TONE_ICONS[tone];
+  return (
+    <span className={`badge ${tone}`}>
+      {Icon && <Icon size={14} aria-hidden="true" />}
+      {children}
+    </span>
+  );
 }

@@ -9,11 +9,11 @@ portal/src/
     App.tsx                   providers (TanStack Query, router)
     router.tsx                route table = routes exported by each feature
     queryClient.ts            cache and retry policy for server state
-    layout/                   AppLayout (session + tenant gate), TopBar, NotFoundPage
+    layout/                   AppLayout (session + tenant gate), TopBar, SideNav/BottomNav, navigation.ts (the menu), SettingsLayout + settingsNavigation.ts (the settings frame), NotFoundPage
   shared/                     reusable code with no feature knowledge
     api/httpClient.ts         the only fetch: CSRF header, ApiError, query strings
     lib/                      pure helpers (format, commandId)
-    ui/                       generic components (StatusBadge, FilterTabs, QueryState)
+    ui/                       generic components (PageHeader, StatusBadge/ToneBadge, FilterTabs, QueryState)
   features/
     <feature>/
       model/                  types only (API shapes, form shapes)
@@ -25,7 +25,7 @@ portal/src/
       ui/components/          pieces of screens; render props and call hooks
       routes.tsx              this feature's routes
       index.ts                public API: the only file other features or the app may import
-  styles/global.css           design tokens (light/dark), layout
+  styles/global.css           design tokens (light/dark), shell, components (ADR 0025)
 portal/tests/                 mirrors src/ (no test files inside src/)
 ```
 
@@ -37,9 +37,10 @@ Current features:
 | `account` | Sign-up, password and dev login, email links, profile, accepting invitations (phase 2) |
 | `business` | Create a business, setup checklist and Go live, settings, pricing, people, API keys (phase 2) |
 | `tenant` | Selected business (Zustand), permission helper, switcher |
+| `home` | The start page (ADR 0025): to-do count cards per permission, latest messages, setup progress; built from other features' list hooks |
 | `quotations` | List, review, decide, revise |
 | `enquiries` | Exception list |
-| `connections` | The business's tools (phase 1) and linking/revoking manager accounts; replaced `channels` (`#/channels` redirects) |
+| `connections` | Settings > Integrations (connected tools grouped by kind, one-click tools, website chat, Coming soon) and the managers' linked accounts on the profile page; `#/connections` and `#/channels` redirect (ADR 0025) |
 | `catalogue` | The business's own product list (phase 3): products with search and paging, product page (details, prices, stock, archive, changes), categories. Filters in a Zustand store read through a hook; prices and quantities shown exactly as sent |
 
 ## Layers and who may import whom
@@ -86,7 +87,7 @@ Imports use the `@/` alias for `src/` (`@/shared/ui/StatusBadge`). Inside a feat
 4. Add the route in the feature's `routes.tsx`. The app router picks it up automatically.
 5. Add tests in `portal/tests/features/<feature>/...`, mirroring the source path.
 
-**A new feature** (e.g. `orders`): create `features/orders/` with the layers it needs plus `index.ts` and `routes.tsx`. Add one line to `app/router.tsx`, and a link in `app/layout/TopBar.tsx` if it needs navigation.
+**A new feature** (e.g. `orders`): create `features/orders/` with the layers it needs plus `index.ts` and `routes.tsx`. Add one line to `app/router.tsx`, and an entry (label, icon, permissions, `primary` for the phone bar) in `app/layout/navigation.ts` if it needs a menu item.
 
 ## Testing
 - Tests mirror `src/` under `portal/tests/`.
@@ -97,3 +98,13 @@ Imports use the `@/` alias for `src/` (`@/shared/ui/StatusBadge`). Inside a feat
 
 ## Website chat widget (phase 4)
 `src/widget/` is a separate customer-side app (plain TypeScript, Shadow DOM, no React) built by `vite.widget.config.ts`. The architecture test keeps it apart: it may not import portal code and the portal may not import it; only `widget/api/chatClient.ts` calls `fetch` and only `widget/state/` uses browser storage (the visitor's own chat token).
+
+## Design and wording (ADR 0025)
+- **Every main page starts with `PageHeader`** (`shared/ui/PageHeader.tsx`): an icon, the title and a one-sentence `hint` saying what the page is for. Put page buttons in `actions`.
+- **Plain words on screen.** Use the names in ADR 0025 (Quotes, Customer requests, Messages, Apps & channels, Get started; Manager, Sales, Admin, View only). Codes, URLs and API names stay technical.
+- **Status = colour + icon + words.** Use `StatusBadge` (shared statuses) or `ToneBadge` (feature-specific words); never colour alone.
+- **Colours come from the tokens** in `global.css`, never hex values in components, so dark mode keeps working.
+- **Touch targets are at least 48px** (buttons, inputs, menu items); icons from `lucide-react` are decorative (`aria-hidden`) next to a visible word.
+- **Lists that Home links to keep their filter in the URL** (`?filter=`).
+- **A new settings section:** add an entry to `app/layout/settingsNavigation.ts` and export its route (a relative path such as `"integrations"`) from the feature's `...SettingsRoutes`; `app/router.tsx` mounts those under `/settings` inside `SettingsLayout`. The page renders only its content (no page header or tabs of its own).
+- **A planned tool:** add it to `features/connections/services/comingSoon.ts`; it is hidden automatically once its provider is installed.

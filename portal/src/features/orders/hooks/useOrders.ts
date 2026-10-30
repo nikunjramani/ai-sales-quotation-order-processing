@@ -19,12 +19,13 @@ export const orderKeys = {
 // ERP writes and status changes happen in the background: the screens follow them.
 const REFRESH_MS = 15_000;
 
-export function useOrders(filter: OrderListFilter) {
+export function useOrders(filter: OrderListFilter, { enabled = true } = {}) {
   const tenantId = useTenantId();
   return useQuery({
     queryKey: orderKeys.list(tenantId, filter),
     queryFn: () => orderRepository.list(tenantId, filter),
     refetchInterval: REFRESH_MS,
+    enabled,
   });
 }
 

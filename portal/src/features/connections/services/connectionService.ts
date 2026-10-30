@@ -124,3 +124,63 @@ export function formDefaults(schema: JsonSchema | null): Record<string, unknown>
 export function disableConfirmed(typed: string, connection: Connection): boolean {
   return typed.trim() === connection.display_name;
 }
+
+/** One card per kind of tool (e.g. all API keys together), for the Integrations screen. */
+export interface ToolGroup {
+  providerKey: string;
+  providerName: string;
+  purposes: Purpose[];
+  /** Working, being set up or needing attention: shown in the card. */
+  current: Connection[];
+  /** Switched off: hidden behind "Show switched off (n)". */
+  switchedOff: Connection[];
+  needsAttention: number;
+}
+
+/** Groups by provider, in first-seen order; a group with only switched-off rows still shows. */
+export function groupConnections(connections: Connection[]): ToolGroup[] {
+  const groups = new Map<string, ToolGroup>();
+  for (const connection of connections) {
+    let group = groups.get(connection.provider_key);
+    if (!group) {
+      group = {
+        providerKey: connection.provider_key,
+        providerName: connection.provider_name,
+        purposes: [],
+        current: [],
+        switchedOff: [],
+        needsAttention: 0,
+      };
+      groups.set(connection.provider_key, group);
+    }
+    for (const purpose of connection.purposes) {
+      if (!group.purposes.includes(purpose)) group.purposes.push(purpose);
+    }
+    if (connection.status === "disabled") group.switchedOff.push(connection);
+    else group.current.push(connection);
+    if (connection.status === "error") group.needsAttention += 1;
+  }
+  return [...groups.values()];
+}
+
+/** "3 active" / "2 active, 1 needs attention" / "Switched off". */
+export function groupSummary(group: ToolGroup): string {
+  if (group.current.length === 0) return "Switched off";
+  const working = group.current.length - group.needsAttention;
+  const parts = [`${working} active`];
+  if (group.needsAttention) parts.push(`${group.needsAttention} needs attention`);
+  return parts.join(", ");
+}
+
+/** Planned tools whose real provider is not installed and not connected yet. */
+export function comingSoon<T extends { provider_key: string }>(
+  planned: readonly T[],
+  available: AvailableTool[],
+  connections: Connection[],
+): T[] {
+  const known = new Set([
+    ...available.map((tool) => tool.provider_key),
+    ...connections.map((item) => item.provider_key),
+  ]);
+  return planned.filter((tool) => !known.has(tool.provider_key));
+}
