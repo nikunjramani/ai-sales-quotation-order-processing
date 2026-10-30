@@ -162,6 +162,8 @@ class InboundEventType(StrEnum):
     MANAGER_REPLY = "manager_reply"
     CUSTOMER_ACTION = "customer_action"
     CONNECTION_UPDATE = "connection_update"
+    # Phase 7: "where is my order?" as the whole message (fixed words, like STOP/START).
+    ORDER_STATUS_REQUEST = "order_status_request"
 
 
 @dataclass(frozen=True)
@@ -256,6 +258,13 @@ class ConsentChange:
     opted_in: bool
 
 
+@dataclass(frozen=True)
+class OrderStatusRequest:
+    provider_event_id: str
+    sender_external_id: str
+    order_number: str | None = None  # None: all of the customer's orders
+
+
 type InboundEvent = (
     CustomerMessage
     | ManagerAction
@@ -264,6 +273,7 @@ type InboundEvent = (
     | ConnectionUpdate
     | DeliveryStatusUpdate
     | ConsentChange
+    | OrderStatusRequest
 )
 
 _EVENT_TYPES: dict[type, InboundEventType] = {
@@ -274,6 +284,7 @@ _EVENT_TYPES: dict[type, InboundEventType] = {
     ConnectionUpdate: InboundEventType.CONNECTION_UPDATE,
     DeliveryStatusUpdate: InboundEventType.DELIVERY_STATUS,
     ConsentChange: InboundEventType.CONSENT_CHANGE,
+    OrderStatusRequest: InboundEventType.ORDER_STATUS_REQUEST,
 }
 _EVENT_CLASSES = {kind: cls for cls, kind in _EVENT_TYPES.items()}
 

@@ -7,6 +7,7 @@ import { catalogueRoutes } from "@/features/catalogue";
 import { connectionRoutes } from "@/features/connections";
 import { conversationRoutes } from "@/features/conversations";
 import { enquiryRoutes } from "@/features/enquiries";
+import { orderRoutes } from "@/features/orders";
 import { quotationRoutes } from "@/features/quotations";
 
 import { AppLayout, HomeRedirect, SignedInLayout } from "./layout/AppLayout";
@@ -33,6 +34,7 @@ export function createRouter() {
         { index: true, element: <HomeRedirect /> },
         ...quotationRoutes,
         ...enquiryRoutes,
+        ...orderRoutes,
         ...conversationRoutes,
         ...catalogueRoutes,
         ...connectionRoutes,

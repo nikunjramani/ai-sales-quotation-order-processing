@@ -279,6 +279,16 @@ class SqlResponseStore:
                 {"response_id": str(response_id)},
                 link.correlation_id,
             )
+            if response.outcome is ResponseOutcome.ACCEPTED:
+                # Phase 7 (Q1): the order follows in the same transaction as the acceptance;
+                # the job creates it only if the business chose automatic orders.
+                queue_job(
+                    connection,
+                    tenant_id,
+                    JobKind.CREATE_ORDER,
+                    {"quotation_id": str(offer.quotation_id)},
+                    link.correlation_id,
+                )
         return RecordedResponse(
             response_id=response_id,
             quotation_id=offer.quotation_id,

@@ -494,6 +494,7 @@ def routes_for(
     customer_actions: CustomerActionRoute | None = None,
     setup: ConnectionUpdateRoute | None = None,
     replies: "ManagerReplyService | None" = None,
+    orders: InboundRoute | None = None,
 ) -> Mapping[InboundEventType, InboundRoute]:
     """Manager actions (phase 1), consent changes (phase 4); phase 5 adds the business's own
     messages, customer buttons, setup events and written manager replies. Customer messages
@@ -507,6 +508,8 @@ def routes_for(
         InboundEventType.CUSTOMER_ACTION: customer_actions,
         InboundEventType.CONNECTION_UPDATE: setup,
         InboundEventType.MANAGER_REPLY: None if replies is None else ManagerReplyRoute(replies),
+        # Phase 7: "where is my order?" (application.orders.OrderStatusRoute).
+        InboundEventType.ORDER_STATUS_REQUEST: orders,
     }
     routes.update({kind: route for kind, route in optional.items() if route is not None})
     return routes

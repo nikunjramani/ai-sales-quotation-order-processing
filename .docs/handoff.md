@@ -1,5 +1,5 @@
 # Current handoff
-Updated: 2026-10-29 (phases 1-4 merged through PRs #6-#9; phase 5 framework + Telegram in progress on `feat/phase-5-providers`).
+Updated: 2026-10-29 (phases 1-5 merged through PRs #6-#10; phases 6-7 ERPNext and orders implemented on `feat/phase-6-7-erp-and-orders`).
 
 ## Current state
 - **M0-M6 are COMPLETE** (local and CI), all on origin/main:
@@ -402,7 +402,7 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   7. Enabling a chat that lost its address (after a downgrade/upgrade) assigns a new one.
 - **Next:** the user reviews PR #9 (deviations above, open points of phase 3 still open); click through the portal and the demo in a browser; then ask every open question for phase 5 first.
 
-## Phase 5 provider framework and Telegram (implemented, branch `feat/phase-5-providers`, draft PR #10)
+## Phase 5 provider framework and Telegram (complete, merged to main through PR #10, merge commit 3d0a928, 2026-10-29)
 - **User (2026-10-29):** "start working on phase 5, phase 4 has been merged". All open questions were asked in six rounds and the summary confirmed ("Yes, start"); see [phase 5 plan, user answers](plan/platform/implementation/phase-5-one-click-providers.md#user-answers-2026-10-29) and [07 decisions](plan/platform/07-decisions-needed.md) (D5, D9, D10).
 - **Scope (narrowed by the user):** the generic provider framework (platform webhooks, resume and pending actions, hosted provider pages, public media links, company-level provider settings, AI reading of manager replies with a "Yes" confirmation, signed approval link with sign-in, Enable cards and pending-action screens, Resend of failed customer messages, email parsing helpers) plus **Telegram** as the only real provider. No SendGrid, Twilio or Meta code. **No live accounts and no live run**: fixtures from the providers' documentation and fakes only.
 - One branch, one commit per work item, one draft PR at the end (user answer).
@@ -440,6 +440,65 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
   8. Telegram's rate limit is handled by retrying on 429; no shared limiter.
 - **Next:** the user reviews the draft PR; for a live Telegram run, create a bot and follow [provider setup](operations/provider-setup.md#telegram) with a tunnel; optionally run `scripts/evaluate_replies.py` with a model.
 
+## Phases 6 and 7: ERPNext product source and orders (implemented, branch `feat/phase-6-7-erp-and-orders`)
+- **User (2026-10-29):** "complete remaining phase 6 and 7. I have merged phase 6 PR". The merged PR was #10, phase 5; phases 6 and 7 had not started.
+- **Answered by the user in two rounds:**
+  - D21: ERPNext, sandbox only (no pilot business), local Docker;
+  - read mode: hybrid;
+  - sync interval per business;
+  - stock: a setting, default available;
+  - tax-inclusive prices refused;
+  - warehouses: a chosen list, summed;
+  - items: enabled sales items of chosen groups;
+  - one price list;
+  - one PR for both phases;
+  - Q1: creation is a per-business setting;
+  - Q2: operators, approvers and administrators manage orders;
+  - Q3: staff may enter the ERP customer;
+  - Q4: one order per quotation.
+- **Delegated:** during round three the user said "for this specific phase you will answer all questions, don't ask me". Claude decided Q5-Q16 and the phase 6 details; they are marked **(Claude)** in [ADR 0023](adr/0023-erpnext-product-source.md) and [ADR 0024](adr/0024-orders.md), and listed in the [plan's answers](plan/platform/implementation/phase-6-7-pilot-source-and-orders.md#answers-2026-10-29). The delegation covers this phase only; ask-before-building still applies afterwards.
+- **Built:**
+  - provider package `adapters/providers/erpnext` (one-form Enable, a synced copy for search, live prices and stock, an order writer with the reference in `po_no`);
+  - generic catalogue/order capabilities;
+  - one product source and order destination per business (replace and restore);
+  - the `sync_catalogue` job and runs;
+  - orders (domain, store, service, five job handlers, track my order, API, portal);
+  - migrations `0014_catalogue_sync` and `0015_orders`;
+  - a simulated writer with fault modes;
+  - the sandbox `infra/erpnext/compose.yaml` plus `scripts/seed_erpnext_sandbox.py`.
+  See [ERPNext](features/erpnext.md) and [orders](features/orders.md).
+- **Spike on the sandbox (plan §5.1), all five checks passed:**
+  - items, prices and Bins read;
+  - available = actual - reserved, and a submitted order reserves its stock;
+  - `po_no` lookup works;
+  - a second create with the same reference returns the same order;
+  - the accepted rate is kept.
+- **Found and fixed during checks:**
+  - enabling a new source updated the connection before switching the old one off, which hit the one-source index;
+  - a first "Sync now" design gave the API role read access to jobs, which a test forbids. It now uses a partial unique index (`uq_jobs_manual_sync`) instead.
+- **Final checks (2026-10-29):**
+  - ruff lint and format, strict mypy (335 files);
+  - 949 unit tests passed (13 skipped: sandbox and integration cases);
+  - `check_database.py --cycle`: 1110 passed, then downgrade to empty, upgrade, 1110 passed again (14 skipped: the sandbox cases);
+  - **live run against the local ERPNext sandbox** (`QUOTATION_TEST_ERPNEXT_*` set): 13 passed. `test_erpnext_live.py` covers Enable with the form, replacing the product list, the first copy, an enquiry priced live from ERPNext (`price_source erpnext`), approval, acceptance, the automatic order written once to ERPNext with `po_no = QO-…`, and the customer's pull view. The sandbox tests and the writer contract also passed;
+  - portal: typecheck, 124 tests, build (485 kB JS / 143 kB gzip).
+- **Not run:** the portal was not clicked through in a browser; no real business ERPNext (sandbox only, user answer).
+- **Choices for review (all in the ADRs):**
+  1. Full feed every run.
+  2. Typed products with an ERP SKU are adopted; products the ERP no longer offers are archived.
+  3. Production accepts only public https ERPNext addresses.
+  4. ERP orders arrive as drafts unless "Submit orders" is on; ERP writes are off by default.
+  5. No reservation by us.
+  6. A shortfall holds the order.
+  7. Look-ups every 5 minutes for 1 hour, then needs attention, with no message.
+  8. Fixed customer wording for confirmed, shipped, delivered and cancelled.
+  9. "Track my order" answers fixed phrases or an order number only.
+  10. Settings change by Disable and Enable.
+- **Next:**
+  - The user reviews; commit, push and the PR only with the user's permission (AGENTS.md).
+  - Click through the portal (Connections → ERPNext, Products → "Copy from your ERP", Orders) against the sandbox.
+  - When a pilot business exists, ask it the plan §5.6 questions.
+
 ## Next task
 - **Platform plan for review** (user request 2026-10-23): self-service businesses, generic connectors (WhatsApp, Telegram, Instagram, email, website chat...), product data sources, future orders/payments/inventory. [plan/platform/README.md](plan/platform/README.md); decisions in [07-decisions-needed.md](plan/platform/07-decisions-needed.md). Nothing built until the user answers. Detailed step-by-step plan per phase: [plan/platform/implementation/README.md](plan/platform/implementation/README.md) (shared contracts first).
 - Follow-up messages that continue the customer's open enquiry: planned, waiting for the user's confirmation ([plan/conversation-follow-ups.md](plan/conversation-follow-ups.md)).
@@ -449,5 +508,5 @@ Implemented on `feat/gemini-and-categories` ([ADR 0017](adr/0017-gemini-reader-a
    - Run `npm run dev` in portal/, plus the API and worker.
    - Visit http://localhost:5173/portal/.
    - Follow [setup](development/setup.md#approvals-and-portal-m4).
-2. Phase 5 is in progress (see above); after it, ask the user every open question for the next phase first (clarify-before-building).
+2. Phases 6-7 are implemented (see above); after review, ask the user every open question for the next phase first (clarify-before-building).
 - Update this handoff in every change; never mark milestones complete without evidence.

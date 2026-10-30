@@ -109,6 +109,17 @@ export function formFields(schema: JsonSchema | null): FormField[] {
   });
 }
 
+/** A form's starting values: each field's schema default (never for secret fields). */
+export function formDefaults(schema: JsonSchema | null): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const [name, field] of Object.entries(schema?.properties ?? {})) {
+    if (field.default !== undefined && !field.writeOnly && field.format !== "password") {
+      values[name] = field.default;
+    }
+  }
+  return values;
+}
+
 /** Disabling a tool needs its name typed exactly (it stops its messages at once). */
 export function disableConfirmed(typed: string, connection: Connection): boolean {
   return typed.trim() === connection.display_name;

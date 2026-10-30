@@ -43,8 +43,7 @@ def test_customer_messages_use_the_confirmed_wording() -> None:
         "date": "2026-11-04 10:00 UTC",
         "business": "Acme Industrial",
     }
-    texts = {key: render_template(key, params).text for key in CUSTOMER_WORDING}
-    assert texts == {
+    expected = {
         TemplateKey.ENQUIRY_RECEIVED: "Thanks, we are preparing your quotation.",
         TemplateKey.QUOTATION_READY: "Your quotation Q-1A2B3C4D (version 2) is ready: total "
         "10450.38 INR, valid until 2026-11-04 10:00 UTC.",
@@ -60,6 +59,45 @@ def test_customer_messages_use_the_confirmed_wording() -> None:
         "START to receive messages again.",
         TemplateKey.OPTED_IN: "You will receive messages from Acme Industrial again.",
     }
+    texts = {key: render_template(key, params).text for key in expected}
+    assert texts == expected
+    assert set(CUSTOMER_WORDING) - set(expected) == ORDER_TEMPLATES  # phase 7, tested below
+
+
+ORDER_TEMPLATES = {
+    TemplateKey.ORDER_CONFIRMED,
+    TemplateKey.ORDER_SHIPPED,
+    TemplateKey.ORDER_DELIVERED,
+    TemplateKey.ORDER_CANCELLED,
+    TemplateKey.ORDER_STATUS,
+    TemplateKey.ORDER_NONE,
+}
+
+
+def test_order_messages_have_fixed_wording() -> None:
+    params = {"order": "O-1A2B3C4D", "number": "Q-9F8E7D6C", "business": "Acme Industrial"}
+    texts = {
+        key: render_template(key, params).text
+        for key in ORDER_TEMPLATES - {TemplateKey.ORDER_STATUS}
+    }
+    assert texts == {
+        TemplateKey.ORDER_CONFIRMED: "Your order O-1A2B3C4D (quotation Q-9F8E7D6C) is confirmed.",
+        TemplateKey.ORDER_SHIPPED: "Your order O-1A2B3C4D has been shipped.",
+        TemplateKey.ORDER_DELIVERED: "Your order O-1A2B3C4D has been delivered. Thank you!",
+        TemplateKey.ORDER_CANCELLED: "Your order O-1A2B3C4D has been cancelled. Please contact "
+        "us if you have questions.",
+        TemplateKey.ORDER_NONE: "We could not find an order of yours with Acme Industrial.",
+    }
+
+
+def test_order_status_lists_each_order_on_its_own_line() -> None:
+    rendered = render_template(
+        TemplateKey.ORDER_STATUS,
+        {"business": "Acme\nIndustrial", "orders": ["O-1 (quotation Q-1): shipped", "O-2\nx"]},
+    )
+    assert rendered.text == (
+        "Your orders with Acme Industrial:\n- O-1 (quotation Q-1): shipped\n- O-2 x"
+    )
 
 
 def test_clarification_questions_list_each_question_on_its_own_line() -> None:

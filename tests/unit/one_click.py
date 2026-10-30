@@ -174,6 +174,7 @@ class MemoryLifecycle:
     routes: dict[tuple[str, str], Route] = field(default_factory=dict)
     events: list[tuple[UUID, str, str]] = field(default_factory=list)
     polls: list[tuple[UUID, datetime]] = field(default_factory=list)
+    changes: list[ConnectionChange] = field(default_factory=list)
 
     def create(
         self,
@@ -230,6 +231,7 @@ class MemoryLifecycle:
         )
         if change.poll_at is not None:
             self.polls.append((connection_id, change.poll_at))
+        self.changes.append(change)
         self.events.append((connection_id, change.event_kind, actor))
 
     def record_event(

@@ -9,6 +9,8 @@ GET  /api/v1/enquiries/{id}/quotation.pdf  its PDF; the first download is record
 POST /api/v1/enquiries/{id}/quotation/response  accept or decline that exact version (M6);
                         Idempotency-Key required. Accepting re-checks ERP prices first: any
                         change refuses it (409) and a revised version goes to manager approval.
+GET  /api/v1/enquiries/{id}/order          the order made from the accepted quotation (phase 7):
+                        number, status and total; 404 until there is one
 
 Only quotations that a manager approved and the delivery job made available are visible here;
 drafts, pending and rejected versions never are.
@@ -35,6 +37,7 @@ from quotation_app.application.acceptance import QuotationResponseService
 from quotation_app.application.api_keys import ApiKeyAuthenticator, AuthenticationFailed
 from quotation_app.application.documents import OfferedQuotation, QuotationDocumentService
 from quotation_app.application.intake import EnquiryIntakeService, IntakeResult
+from quotation_app.application.orders import OrderService
 from quotation_app.domain.acceptance import (
     CustomerStatus,
     NotCurrentOffer,
@@ -54,6 +57,7 @@ from quotation_app.domain.intake import (
     AttachmentUpload,
     EnquirySubmission,
 )
+from quotation_app.domain.quotations import quotation_number
 from quotation_app.domain.tenancy import PermissionDenied, TenantContext, accepts_intake
 from quotation_app.ports.erp import ErpError
 from quotation_app.ports.intake import EnquiryView, IdempotencyConflict
@@ -256,14 +260,28 @@ def _view(enquiry: EnquiryView) -> EnquiryOut:
 _NOT_ISSUED = "No quotation has been issued for this enquiry yet"
 
 
+class CustomerOrderOut(BaseModel):
+    """What a customer's system sees of its order: never ERP or staff details."""
+
+    order_number: str
+    quotation_number: str
+    version: int
+    status: str
+    currency: str
+    total: str
+    updated_at: datetime
+
+
 def build_enquiry_router(
     authenticator: ApiKeyAuthenticator,
     intake: EnquiryIntakeService,
     documents: QuotationDocumentService,
     responses: QuotationResponseService,
     statuses: TenantStatusReader | None = None,
+    orders: OrderService | None = None,
 ) -> APIRouter:
-    """statuses: when given, a suspended business's keys are refused (403, phase 2 Q13)."""
+    """statuses: when given, a suspended business's keys are refused (403, phase 2 Q13).
+    orders: when given, the customer's system can follow its order (phase 7)."""
     router = APIRouter(prefix="/api/v1/enquiries", tags=["enquiries"])
     bearer = HTTPBearer(auto_error=False, description="API key: qk_<id>_<secret>")
 
@@ -447,5 +465,23 @@ def build_enquiry_router(
     ) -> Response:
         own_quotation(context, enquiry_id)
         return pdf_response(guarded(lambda: documents.download(context, enquiry_id, PROVIDER_KEY)))
+
+    @router.get("/{enquiry_id}/order", response_model=CustomerOrderOut, responses={404: {}})
+    def enquiry_order(
+        enquiry_id: UUID, context: Annotated[TenantContext, Depends(authenticate)]
+    ) -> CustomerOrderOut:
+        own_quotation(context, enquiry_id)
+        found = None if orders is None else guarded(lambda: orders.for_enquiry(context, enquiry_id))
+        if found is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No order for this enquiry yet")
+        return CustomerOrderOut(
+            order_number=found.order_number,
+            quotation_number=quotation_number(found.quotation_id),
+            version=found.version,
+            status=found.status.value,
+            currency=found.currency,
+            total=str(found.total),
+            updated_at=found.updated_at,
+        )
 
     return router

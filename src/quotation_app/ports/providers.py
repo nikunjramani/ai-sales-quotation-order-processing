@@ -29,10 +29,11 @@ from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
+from quotation_app.domain.catalogue_sync import CatalogueFeed
 from quotation_app.domain.connections import Capabilities, Connection, Purpose
 from quotation_app.domain.intake import InboundEvent
 from quotation_app.ports.catalogue_admin import CatalogueReadStore
-from quotation_app.ports.erp import ErpReader
+from quotation_app.ports.erp import ErpReader, ErpWriter
 from quotation_app.ports.secrets import SecretStore
 
 
@@ -304,6 +305,17 @@ class Provider(Protocol):
         """The product source behind a connection with Purpose.CATALOGUE."""
         ...
 
+    def fetch_catalogue(self, conn: Connection, secrets: SecretStore) -> CatalogueFeed:
+        """The source's whole current catalogue in our words (capabilities.catalogue.sync).
+        Raises ErpError; never a partial feed presented as complete."""
+        ...
+
+    def order_writer(self, conn: Connection, secrets: SecretStore) -> ErpWriter:
+        """Where the orders of a connection with Purpose.ORDERS are written. Raises
+        OperationUnsupported when this connection does not write orders (then orders stay
+        with us, fulfilment local)."""
+        ...
+
 
 class ProviderDefaults:
     """Explicit "not supported" for every optional operation; providers subclass it."""
@@ -365,6 +377,12 @@ class ProviderDefaults:
 
     def catalogue_reader(self, conn: Connection, secrets: SecretStore) -> ErpReader:
         raise OperationUnsupported("This tool is not a product source")
+
+    def fetch_catalogue(self, conn: Connection, secrets: SecretStore) -> CatalogueFeed:
+        raise OperationUnsupported("This tool does not copy its catalogue")
+
+    def order_writer(self, conn: Connection, secrets: SecretStore) -> ErpWriter:
+        raise OperationUnsupported("This tool does not take orders")
 
 
 type ProviderFactory = Callable[[ProviderEnvironment], Provider]

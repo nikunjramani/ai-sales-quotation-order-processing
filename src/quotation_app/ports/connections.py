@@ -86,6 +86,12 @@ class ConnectionChange:
     remove_all_routes: bool = False
     poll_at: datetime | None = None
     detail: Mapping[str, object] = field(default_factory=dict)
+    # Phase 6: a business has one product source and one place its orders go. Becoming active
+    # for one of these purposes switches off the active connection that has it (event reason
+    # "replaced"); Disable switches the replaced ones back on if nothing else took their place.
+    exclusive_purposes: tuple[str, ...] = ()
+    restore_replaced: bool = False
+    jobs: tuple[tuple[str, Mapping[str, str]], ...] = ()  # (job kind, payload) queued with it
 
 
 class ConnectionLifecycleStore(Protocol):

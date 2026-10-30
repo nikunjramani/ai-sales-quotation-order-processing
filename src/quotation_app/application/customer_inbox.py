@@ -9,7 +9,8 @@ follow-up router), so a reply continues the customer's open enquiry. Rules (user
 - files: PDF, text, PNG, JPEG up to 5 MB, at most 5 per message and 20 a day per sender,
   downloaded from the tool into quarantine; other kinds (voice, video, stickers) are skipped
   and noted for staff;
-- STOP / START as the whole message are consent changes (D15);
+- STOP / START as the whole message are consent changes (D15); "where is my order?" (or an
+  order number) as the whole message asks for the customer's orders (phase 7);
 - a message the business itself typed on its own account is a staff message: kept in the
   conversation, never read as the customer's words or as a command;
 - nothing is taken from a suspended business.
@@ -35,7 +36,9 @@ from quotation_app.domain.intake import (
     EnquirySubmission,
     InboundEnvelope,
     InboundFile,
+    OrderStatusRequest,
 )
+from quotation_app.domain.orders import order_status_command
 from quotation_app.domain.tenancy import accepts_intake
 from quotation_app.ports.accounts import RateLimiter
 from quotation_app.ports.inbound import InboundStore
@@ -102,6 +105,12 @@ class CustomerInbox:
                 consent is ConsentStatus.OPTED_IN,
             )
             return self._inbound.record(connection, [change], now, queue_jobs=True)[0].new
+        query = order_status_command(message.text)
+        if query is not None and not message.files:
+            ask = OrderStatusRequest(
+                message.provider_event_id, message.sender_external_id, query.order_number
+            )
+            return self._inbound.record(connection, [ask], now, queue_jobs=True)[0].new
         sender = f"{connection.connection_id}:{message.sender_external_id}"
         held = not (
             self._allowed(self._rules.per_minute, sender, now)

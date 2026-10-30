@@ -4,7 +4,7 @@ import { ErrorMessage } from "@/shared/ui/QueryState";
 
 import { useOnceValues, useOneClick } from "../../hooks/useConnections";
 import type { Connection, PendingAction } from "../../model/types";
-import { formFields, stepTexts } from "../../services/connectionService";
+import { formDefaults, formFields, stepTexts } from "../../services/connectionService";
 
 /**
  * The one step a business still has to do for a tool (phase 5). Four kinds, all generic:
@@ -77,7 +77,9 @@ function ProviderPage({ connection, action }: { connection: Connection; action: 
 function FillForm({ connection, action }: { connection: Connection; action: PendingAction }) {
   const actions = useOneClick();
   const fields = formFields(action.form_schema);
-  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [values, setValues] = useState<Record<string, unknown>>(() =>
+    formDefaults(action.form_schema),
+  );
   const submit = (event: FormEvent) => {
     event.preventDefault();
     actions.resume.mutate({

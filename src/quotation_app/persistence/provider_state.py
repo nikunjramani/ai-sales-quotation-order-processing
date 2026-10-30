@@ -19,8 +19,13 @@ from sqlalchemy.dialects.postgresql import insert
 from quotation_app.domain.connections import ConnectionStatus
 from quotation_app.domain.jobs import JobKind, JobStatus
 from quotation_app.persistence.connections import record_event
-from quotation_app.persistence.jobs import MAX_JOB_ATTEMPTS
-from quotation_app.persistence.models import ConnectionRoute, ConnectionRow, Job
+from quotation_app.persistence.jobs import MAX_JOB_ATTEMPTS, queue_job
+from quotation_app.persistence.models import (
+    ConnectionEventRow,
+    ConnectionRoute,
+    ConnectionRow,
+    Job,
+)
 from quotation_app.persistence.tenancy import tenant_transaction
 from quotation_app.ports.connections import ConnectionChange, RouteTaken
 
@@ -84,6 +89,11 @@ class SqlConnectionLifecycle:
                 ):
                     # Raising rolls the whole step back: nothing half-applied.
                     raise RouteTaken("This account is already connected to another business")
+            if change.status is ConnectionStatus.ACTIVE and change.exclusive_purposes:
+                # First switch the old one off: one active product source per business.
+                _replace_others(
+                    connection, tenant_id, connection_id, change.exclusive_purposes, actor
+                )
             connection.execute(
                 update(ConnectionRow)
                 .where(ConnectionRow.tenant_id == tenant_id, ConnectionRow.id == connection_id)
@@ -98,6 +108,10 @@ class SqlConnectionLifecycle:
                     updated_at=text("now()"),
                 )
             )
+            if change.restore_replaced:
+                _restore_replaced(connection, tenant_id, connection_id, actor)
+            for kind, payload in change.jobs:
+                queue_job(connection, tenant_id, JobKind(kind), payload, uuid4())
             if change.poll_at is not None:
                 connection.execute(
                     insert(Job).values(
@@ -205,3 +219,83 @@ def _add_route(
         .returning(ConnectionRoute.id)
     ).scalar_one_or_none()
     return inserted is not None
+
+
+def _replace_others(
+    connection: DbConnection,
+    tenant_id: UUID,
+    connection_id: UUID,
+    purposes: Sequence[str],
+    actor: str,
+) -> None:
+    """Switch off the business's other active connections that share an exclusive purpose."""
+    others = connection.execute(
+        select(ConnectionRow.id)
+        .where(
+            ConnectionRow.tenant_id == tenant_id,
+            ConnectionRow.id != connection_id,
+            ConnectionRow.status == ConnectionStatus.ACTIVE.value,
+            ConnectionRow.purposes.overlap(list(purposes)),
+        )
+        .with_for_update()
+    ).scalars()
+    for other in list(others):
+        connection.execute(
+            update(ConnectionRow)
+            .where(ConnectionRow.tenant_id == tenant_id, ConnectionRow.id == other)
+            .values(status=ConnectionStatus.DISABLED.value, updated_at=text("now()"))
+        )
+        record_event(
+            connection,
+            tenant_id,
+            other,
+            "status_changed",
+            actor,
+            {"status": "disabled", "reason": "replaced", "by": str(connection_id)},
+        )
+
+
+def _restore_replaced(
+    connection: DbConnection, tenant_id: UUID, connection_id: UUID, actor: str
+) -> None:
+    """Switch the connections this one replaced back on, unless their purpose is taken."""
+    replaced = connection.execute(
+        select(ConnectionEventRow.connection_id)
+        .where(
+            ConnectionEventRow.tenant_id == tenant_id,
+            ConnectionEventRow.kind == "status_changed",
+            ConnectionEventRow.detail["reason"].astext == "replaced",
+            ConnectionEventRow.detail["by"].astext == str(connection_id),
+        )
+        .distinct()
+    ).scalars()
+    for other in list(replaced):
+        row = connection.execute(
+            select(ConnectionRow.status, ConnectionRow.purposes)
+            .where(ConnectionRow.tenant_id == tenant_id, ConnectionRow.id == other)
+            .with_for_update()
+        ).one_or_none()
+        if row is None or row.status != ConnectionStatus.DISABLED.value:
+            continue
+        taken = connection.execute(
+            select(ConnectionRow.id).where(
+                ConnectionRow.tenant_id == tenant_id,
+                ConnectionRow.status == ConnectionStatus.ACTIVE.value,
+                ConnectionRow.purposes.overlap(list(row.purposes)),
+            )
+        ).first()
+        if taken is not None:
+            continue
+        connection.execute(
+            update(ConnectionRow)
+            .where(ConnectionRow.tenant_id == tenant_id, ConnectionRow.id == other)
+            .values(status=ConnectionStatus.ACTIVE.value, updated_at=text("now()"))
+        )
+        record_event(
+            connection,
+            tenant_id,
+            other,
+            "status_changed",
+            actor,
+            {"status": "active", "reason": "restored", "after": str(connection_id)},
+        )

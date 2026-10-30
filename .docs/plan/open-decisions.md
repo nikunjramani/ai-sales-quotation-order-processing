@@ -4,13 +4,13 @@ These are implementation gates, not reasons to block documentation.
 | Decision | Working assumption | Resolve by |
 |---|---|---|
 | First business and goods category | Synthetic B2B industrial products | Before real ERP mapping in M7 |
-| First real ERP | Choose from pilot business's existing system | M7; inspect API, sandbox, idempotency, stock semantics |
+| First real ERP | Decided (user, 2026-10-29): ERPNext, sandbox only; spike passed (ADR 0023). Still open: the pilot business and its answers to phase 6-7 plan §5.6 (price lists, tax-inclusive prices, warehouses, freshness) | Pilot business |
 | Email provider | Deferred by the user (2026-10-23): managers approve in the portal for now; email is added as adapters ([adding channels](../development/adding-channels.md)). One sandbox integration first | M7 |
 | Model provider/model | Decided (user): free first (2026-10-22); generic reader (2026-10-23): no model = free rules; any LangChain chat model from `QUOTATION_MODEL`. First hosted model: Gemini free tier `gemini-3.5-flash-lite`, synthetic data only; wait-and-retry when unavailable ([ADR 0017](../adr/0017-gemini-reader-and-category-replies.md)). Live evaluation pending the user's key | Before pilot; re-evaluate with real enquiry samples |
 | Public demo portal | User idea (2026-10-22), not planned yet: GitHub Pages hosts static files only, so either a static demo with recorded sample data, or Pages plus a separately hosted API/database/worker; never put keys in a public page | The React portal exists (M4); decide before publishing anything |
 | Identity provider | Decided for now (user, 2026-10-22): provider-independent login; free dev sign-in (synthetic members, refused in production) implemented in M4; an OIDC adapter (Keycloak, Entra, Google, Auth0...) plugs in later (ADR 0013) | Before any non-development deployment |
 | Tax, delivery, discounts, currencies | M1 implements per-line rounding, one tenant tax rate on the subtotal, one currency, no discounts or unit conversion (ADR 0010); values are synthetic | Before pilot; may require per-line/multiple taxes or price lists |
-| Quote validity and reservations | Decided (user, 2026-10-23): per-business validity, default 7 days from delivery; no reservation in M6 (ADR 0016). Reservation open for the orders milestone | Orders milestone |
+| Quote validity and reservations | Decided (user, 2026-10-23): per-business validity, default 7 days from delivery; no reservation in M6 (ADR 0016). Orders (2026-10-29, Claude by delegation, ADR 0024): no reservation by us; a submitted ERPNext order reserves its own stock | Revisit with own inventory |
 | Customer acceptance verification | Decided (user, 2026-10-23): API key of the same business, naming version + content hash (ADR 0016). Links/other channels later | With each new customer channel |
 | Retention and data region | Minimize PII; no invented compliance promise | Before pilot data |
 | Hosting, expected volume and SLOs | Single-region initial deployment | M8 capacity testing |
@@ -29,8 +29,8 @@ These are implementation gates, not reasons to block documentation.
 | Validity setting screen | `quote_validity_days` is a database setting without a portal screen | When tenant settings are built |
 | Resending failed/unknown deliveries | M5 records `failed`/`unknown` with the reason but has no resend or "mark delivered" action; define who may resend and how duplicates are checked | Before pilot (with the first push channel) |
 | Quotation PDF content | Synthetic layout: business name, lines, totals, reference. Pilot needs letterhead, addresses, tax IDs, terms and validity date | M6 / pilot business |
-| Offer lifecycle | Decided for M6 (ADR 0016): expiry closes; staff withdrawal with reason; any price change refuses and auto-revises; stock ignored. Still open: partial acceptance (not supported) and ERP orders | Orders milestone; pilot business validates policy |
-| Human handoff | Define pause owner, authorized resume and post-order change/cancellation escalation | M4/M6 |
+| Offer lifecycle | Decided for M6 (ADR 0016) and orders (ADR 0024): one order per accepted quotation, stock re-checked at order time with a hold on shortfall; partial acceptance and partial delivery not supported | Pilot business validates policy |
+| Human handoff | Post-order (ADR 0024): staff cancel local orders before shipping with a reason; ERP orders are cancelled in the ERP; changes need a new quotation; an unknown ERP write goes to "needs attention" in the portal. Still open: pause owner, who is messaged about needs-attention orders | Pilot |
 
 ## Risks and mitigations
 Confirmed decisions: direct email reply approval is required; all future negotiated revisions require manager approval. AI must not negotiate autonomously, even within configured limits.
@@ -43,3 +43,5 @@ Confirmed decisions: direct email reply approval is required; all future negotia
 - Documentation drift: same-change updates and handoff requirements.
 - Overengineering: modular monolith with separate process roles; preserve interfaces before considering microservices.
 - Tool/session context loss: portable entry files; no dependence on private agent memory.
+| Order wording and notices | ADR 0024 (Claude, delegated): fixed wording; customers hear confirmed, shipped, delivered, cancelled. Open: editable wording, a per-business choice of statuses, PO numbers, delivery addresses and dates | Pilot business |
+| ERP connection settings changes | ADR 0023: change by Disable and Enable again (the form asks for the key once more). Open: an "edit settings" step that keeps the key | When a business needs it |

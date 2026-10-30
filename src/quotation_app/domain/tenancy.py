@@ -45,6 +45,10 @@ class Permission(StrEnum):
     MERGE_CONTACTS = "contacts:merge"
     # Send a failed customer message again (phase 5, user answer 2026-10-29).
     RESEND_MESSAGES = "messages:resend"
+    # Orders (phase 7, Q2): every staff role sees them; administrators, sales operators and
+    # approvers create, move, cancel and resolve them.
+    VIEW_ORDERS = "orders:view"
+    MANAGE_ORDERS = "orders:manage"
 
 
 # Administrators do not approve by default: approval is a separate, explicitly granted role.
@@ -65,6 +69,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_CONTACT_DETAILS,
                 Permission.MERGE_CONTACTS,
                 Permission.RESEND_MESSAGES,
+                Permission.VIEW_ORDERS,
+                Permission.MANAGE_ORDERS,
             }
         ),
         Role.SALES_OPERATOR: frozenset(
@@ -79,6 +85,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_CONTACT_DETAILS,
                 Permission.MERGE_CONTACTS,
                 Permission.RESEND_MESSAGES,
+                Permission.VIEW_ORDERS,
+                Permission.MANAGE_ORDERS,
             }
         ),
         Role.APPROVER: frozenset(
@@ -89,6 +97,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_CATALOGUE,
                 Permission.VIEW_CONVERSATIONS,
                 Permission.VIEW_CONTACT_DETAILS,
+                Permission.VIEW_ORDERS,
+                Permission.MANAGE_ORDERS,
             }
         ),
         Role.VIEWER: frozenset(
@@ -97,6 +107,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
                 Permission.VIEW_ENQUIRIES,
                 Permission.VIEW_CATALOGUE,
                 Permission.VIEW_CONVERSATIONS,
+                Permission.VIEW_ORDERS,
             }
         ),
         Role.INTAKE_SERVICE: frozenset(

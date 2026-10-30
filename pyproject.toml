@@ -34,6 +34,7 @@ simulated = "quotation_app.adapters.providers.simulated:build"
 local_catalogue = "quotation_app.adapters.providers.local_catalogue:build"
 web_chat = "quotation_app.adapters.providers.web_chat:build"
 telegram = "quotation_app.adapters.providers.telegram:build"
+erpnext = "quotation_app.adapters.providers.erpnext:build"
 
 [project.entry-points."quotation_app.secret_stores"]
 local = "quotation_app.adapters.secrets.local:build"

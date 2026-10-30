@@ -103,12 +103,14 @@ def test_a_product_cannot_use_another_businesss_category(runtime_engine: Engine)
         _new_product(store, category_id=other.category_id)
 
 
-def test_worker_only_reads_and_history_rows_never_change(
+def test_worker_changes_only_synced_columns_and_history_rows_never_change(
     runtime_engine: Engine, worker_engine: Engine, owner_engine: Engine
 ) -> None:
+    # Phase 6 (ADR 0023): the sync job may update what a sync changes, never the staff-only
+    # description or anything else.
     with pytest.raises(ProgrammingError), worker_engine.begin() as connection:
         connection.execute(text(f"SELECT set_config('app.tenant_id', '{LOCAL_TENANT}', true)"))
-        connection.execute(text("UPDATE catalogue_products SET name = 'x'"))
+        connection.execute(text("UPDATE catalogue_products SET description = 'x'"))
     for statement in ("UPDATE catalogue_prices SET note = 'x'", "DELETE FROM catalogue_stock"):
         with pytest.raises(ProgrammingError), runtime_engine.begin() as connection:
             connection.execute(text(f"SELECT set_config('app.tenant_id', '{LOCAL_TENANT}', true)"))

@@ -25,6 +25,7 @@ from quotation_app.application.acceptance import (
 from quotation_app.application.accounts import AccountEmailHandler
 from quotation_app.application.approvals import ApprovalService
 from quotation_app.application.catalogue_sources import CatalogueSourceResolver, TenantCatalogue
+from quotation_app.application.catalogue_sync import CatalogueSyncHandler
 from quotation_app.application.channel_actions import ChannelActionService
 from quotation_app.application.customer_actions import CustomerActionService, QuotationReadyHook
 from quotation_app.application.customer_messages import CustomerConsentHook, CustomerMessenger
@@ -49,6 +50,16 @@ from quotation_app.application.notifications import (
     ApprovalNotificationHandler,
     ApprovalRequestHook,
 )
+from quotation_app.application.orders import (
+    CreateOrderHandler,
+    ErpOrderOperationHandler,
+    OrderDestinations,
+    OrderNotificationHandler,
+    OrderService,
+    OrderStatusRoute,
+    ReconcileOrderOperationHandler,
+    RefreshOrderStatusHandler,
+)
 from quotation_app.application.plugins import load_named
 from quotation_app.application.preparation import EnquiryPreparationHandler
 from quotation_app.application.pricing import QuotationPricingService
@@ -62,6 +73,7 @@ from quotation_app.domain.messages import CUSTOMER_TEMPLATES, TemplateKey
 from quotation_app.persistence.acceptance import SqlResponseStore
 from quotation_app.persistence.accounts import SqlAccountEmailStore, SqlBusinessStore
 from quotation_app.persistence.catalogue import SqlCatalogueStore
+from quotation_app.persistence.catalogue_sync import SqlCatalogueSync
 from quotation_app.persistence.channels import SqlChannelStore, SqlNotificationStore
 from quotation_app.persistence.connections import SqlConnectionStore
 from quotation_app.persistence.conversations import SqlCustomerTargets, SqlStaffMessages
@@ -72,6 +84,7 @@ from quotation_app.persistence.intake import SqlPreparationStore
 from quotation_app.persistence.manager_replies import SqlReplyStore
 from quotation_app.persistence.media import SqlMediaLinks
 from quotation_app.persistence.messages import SqlMessageOutbox
+from quotation_app.persistence.orders import SqlOrderStore
 from quotation_app.persistence.provider_state import SqlConnectionLifecycle, SqlRouteWriter
 from quotation_app.persistence.quotations import SqlApprovalStore, SqlQuotationWorkflowStore
 from quotation_app.persistence.tenancy import SqlMembershipReader, SqlPricingPolicyReader
@@ -326,6 +339,9 @@ def build_job_handlers(
     lifecycle = ConnectionLifecycle(
         connections, SqlConnectionLifecycle(engine), runtime.registry, runtime.secrets
     )
+    # Orders (phase 7): created after acceptance, written to the ERP, followed and announced.
+    orders = SqlOrderStore(engine)
+    destinations = OrderDestinations(connections, runtime.registry, runtime.secrets)
     handlers: dict[JobKind, JobHandler] = {
         JobKind.PREPARE_ENQUIRY: EnquiryPreparationHandler(
             SqlPreparationStore(engine), storage, customers
@@ -385,10 +401,19 @@ def build_job_handlers(
                 ),
                 setup=ConnectionUpdateRoute(lifecycle),
                 replies=replies,
+                orders=OrderStatusRoute(orders, targets, customers),
             ),
         ),
         JobKind.POLL_CONNECTION: lifecycle.poll,
         JobKind.CLASSIFY_MANAGER_REPLY: replies.classify,
+        JobKind.CREATE_ORDER: CreateOrderHandler(OrderService(orders, catalogue, destinations)),
+        JobKind.ERP_ORDER_OPERATION: ErpOrderOperationHandler(orders, destinations),
+        JobKind.RECONCILE_ORDER_OPERATION: ReconcileOrderOperationHandler(orders, destinations),
+        JobKind.REFRESH_ORDER_STATUS: RefreshOrderStatusHandler(orders, destinations),
+        JobKind.NOTIFY_ORDER: OrderNotificationHandler(orders, customers),
+        JobKind.SYNC_CATALOGUE: CatalogueSyncHandler(
+            connections, runtime.registry, runtime.secrets, SqlCatalogueSync(engine)
+        ),
     }
     # A suspended business's jobs wait instead of running (phase 2, Q13).
     return {kind: PauseWhileSuspended(handler, statuses) for kind, handler in handlers.items()}

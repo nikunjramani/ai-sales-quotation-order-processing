@@ -39,7 +39,7 @@ The user answered most questions on 2026-10-23. **Decided** rows are binding. **
 | D19 | May we store a business's catalogue (change ADR 0003)? | **Decided by D18:** yes. Products entered in our portal are stored by us; an ERP stays the authority when one is connected later (ADR 0003 to be amended in phase 3) | Phase 3 |
 | D18-D19 details | Product fields, SKU, units, prices, stock, archive, permissions, default source | **Decided (user, 2026-10-28):** phase 3 Q1-Q23 all as proposed, see [phase 3 plan, user answers](implementation/phase-3-catalogue.md#user-answers-2026-10-28). Notable: only the four known units; prices > 0, excluding tax, one currency, now or future; 7-day stock age for new businesses; archived products cannot be quoted; administrators and sales operators edit | Phase 3 |
 | D20 | Product synonyms per business | **Open (user not sure).** Recommendation: later; start with built-in full-text and similarity search | — |
-| D21 | Which ERP or shop systems do businesses use? | **Open (user not sure).** Not needed until an ERP connector is wanted (D18) | Later |
+| D21 | Which ERP or shop systems do businesses use? | **Decided (user, 2026-10-29): ERPNext first**, sandbox only until a pilot business exists ([ADR 0023](../../adr/0023-erpnext-product-source.md)). Others are more provider packages | Phase 6 |
 
 ## Sequencing and hosting (not answered yet)
 | # | Question | Recommendation |

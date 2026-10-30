@@ -56,9 +56,10 @@ class InvalidCatalogueEntry(ValueError):
 
 
 class EntrySource(StrEnum):
-    """Where a row came from. Only typing it in exists now; import and sync come later (D18)."""
+    """Where a row came from: typed in, or copied from the business's ERP or shop (phase 6)."""
 
     MANUAL = "manual"
+    SYNC = "sync"
 
 
 class PriceState(StrEnum):

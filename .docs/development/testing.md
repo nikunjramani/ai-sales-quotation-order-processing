@@ -170,6 +170,20 @@ CI runs `check_database.py --cycle` on a fresh environment. Remote GitHub Action
 - **Portal:** `portal/tests/features/connections` (one-click rules, cards for an unknown tool, cost tick, steps with the code, forms with password fields), `portal/tests/features/approvals`, the conversation thread's Send again.
 - **Live:** none (no accounts, user answer). `scripts/evaluate_replies.py --model ...` evaluates a model on the reply set when the user wants a live run.
 
+### Phases 6 and 7: ERPNext and orders (ADR 0023, 0024)
+- **Unit:**
+  - `tests/unit/adapters/providers/erpnext/test_erpnext.py`, over a fake Frappe REST API: form and checks, production address rules, feed mapping (units, groups, tax, warehouses), live prices and stock, error mapping, writer (reference, accepted price, duplicates, unknown versus refused).
+  - `tests/unit/domain/test_catalogue_sync.py` and `test_orders.py`.
+  - `tests/unit/application/test_catalogue_sync.py` and `test_orders.py`: creation rules and the ERP write with chaos cases (timeout after commit gives exactly one ERP order, a worker stopped while sending, the window, no resend, and an unknown outcome never reaching the job runner as an error).
+  - `test_lifecycle.py` (replace and first copy); the provider contract sample for ERPNext.
+- **Writer contract:** `tests/unit/ports/test_erp_writer_contract.py`, with the simulated writer and the ERPNext sandbox (integration marker).
+- **PostgreSQL:**
+  - `tests/integration/persistence/test_catalogue_sync.py` (copy, change-only rows, currency issue, interrupted runs, "Sync now", replace and restore);
+  - `test_migrations_0015.py` (down to 0013 with phase 6/7 data);
+  - `test_provider_state.py` (an order question is not an enquiry);
+  - `tests/integration/workflows/test_orders.py` (automatic and staff creation, the customer's pull view, moves, a create race, compare-and-set steps, append-only history, grants, isolation).
+- **Sandbox (integration marker, needs `QUOTATION_TEST_ERPNEXT_*`):** `tests/unit/adapters/providers/erpnext/test_erpnext_sandbox.py` and the writer contract. See [provider setup](../operations/provider-setup.md#erpnext).
+
 ## Planned business suites
 - Domain unit tests: Decimal totals, rounding, quantity/unit validation, expiry, pricing policies, missing values.
 - PostgreSQL integration tests: real migrations, tenant policies, unique constraints, transactional inbox/outbox, job leases.
