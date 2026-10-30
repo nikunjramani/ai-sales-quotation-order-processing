@@ -3,14 +3,11 @@ import { ErrorMessage, QueryState } from "@/shared/ui/QueryState";
 import { usePricing } from "../../hooks/useBusiness";
 import { usePricingForm } from "../../hooks/useBusinessForms";
 import type { PricingPolicy, RoundingMode } from "../../model/types";
-import { SettingsNav } from "../components/SettingsNav";
 
 export function PricingSettingsPage() {
   const pricing = usePricing();
   return (
     <section>
-      <h1>Settings</h1>
-      <SettingsNav />
       <QueryState isLoading={pricing.isLoading} error={pricing.error}>
         {pricing.data && <PricingForm key={pricing.data.version} policy={pricing.data} />}
       </QueryState>

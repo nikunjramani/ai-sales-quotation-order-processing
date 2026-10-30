@@ -1,5 +1,4 @@
 import type { RouteObject } from "react-router";
-import { Navigate } from "react-router";
 
 import { ApiKeysPage } from "./ui/pages/ApiKeysPage";
 import { BusinessSettingsPage } from "./ui/pages/BusinessSettingsPage";
@@ -16,11 +15,12 @@ export const businessStartRoutes: RouteObject[] = [
 ];
 
 /** Inside the current business. */
-export const businessRoutes: RouteObject[] = [
-  { path: "setup", element: <SetupPage /> },
-  { path: "settings", element: <Navigate to="/settings/business" replace /> },
-  { path: "settings/business", element: <BusinessSettingsPage /> },
-  { path: "settings/pricing", element: <PricingSettingsPage /> },
-  { path: "settings/members", element: <MembersPage /> },
-  { path: "settings/api-keys", element: <ApiKeysPage /> },
+export const businessRoutes: RouteObject[] = [{ path: "setup", element: <SetupPage /> }];
+
+/** Settings sections (ADR 0025): the app mounts them under its settings frame (/settings/...). */
+export const businessSettingsRoutes: RouteObject[] = [
+  { path: "business", element: <BusinessSettingsPage /> },
+  { path: "pricing", element: <PricingSettingsPage /> },
+  { path: "members", element: <MembersPage /> },
+  { path: "api-keys", element: <ApiKeysPage /> },
 ];

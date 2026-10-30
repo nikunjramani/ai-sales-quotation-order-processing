@@ -6,11 +6,13 @@ import { quotationRepository } from "../api/quotationRepository";
 import type { DecisionRequest, QuotationStatus, RevisionRequest } from "../model/types";
 import { quotationKeys } from "./queryKeys";
 
-export function useQuotationList(statuses: readonly QuotationStatus[]) {
+/** `enabled: false` skips the request (the Home page only loads what the person may see). */
+export function useQuotationList(statuses: readonly QuotationStatus[], { enabled = true } = {}) {
   const tenantId = useTenantId();
   return useQuery({
     queryKey: quotationKeys.list(tenantId, statuses),
     queryFn: () => quotationRepository.list(tenantId, statuses),
+    enabled,
   });
 }
 

@@ -1,5 +1,7 @@
+import { UserRoundSearch } from "lucide-react";
 import { useSearchParams } from "react-router";
 
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { dateTime } from "@/shared/lib/format";
 import { FilterTabs } from "@/shared/ui/FilterTabs";
 import { QueryState } from "@/shared/ui/QueryState";
@@ -16,7 +18,11 @@ export function EnquiryListPage() {
 
   return (
     <section>
-      <h1>Enquiries</h1>
+      <PageHeader
+        icon={UserRoundSearch}
+        title="Customer requests"
+        hint="What customers asked for. Most become quotes by themselves; the ones here need a person to look."
+      />
       <FilterTabs tabs={ENQUIRY_FILTERS} selected={filter.id} onSelect={(id) => setParams({ filter: id })} />
       <QueryState isLoading={list.isLoading} error={list.error} isEmpty={list.data?.length === 0}>
         <ul className="list">

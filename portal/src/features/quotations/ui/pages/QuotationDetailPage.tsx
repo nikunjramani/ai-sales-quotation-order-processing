@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router";
 
 import { EnquiryThread } from "@/features/conversations";
@@ -27,7 +28,7 @@ export function QuotationDetailPage() {
   return (
     <article>
       <Link className="link" to="/quotations">
-        ← All quotations
+        <ArrowLeft size={18} aria-hidden="true" /> All quotes
       </Link>
       <QueryState isLoading={query.isLoading} error={query.error}>
         {detail && (

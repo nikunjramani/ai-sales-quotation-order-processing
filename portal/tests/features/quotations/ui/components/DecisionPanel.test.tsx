@@ -63,7 +63,7 @@ describe("DecisionPanel", () => {
     const { client } = renderWithProviders(<DecisionPanel task={TASK} />);
     const refresh = vi.spyOn(client, "invalidateQueries");
     await userEvent.type(screen.getByLabelText(/Reason/), "Out of stock");
-    await userEvent.click(screen.getByRole("button", { name: "Request revision" }));
+    await userEvent.click(screen.getByRole("button", { name: "Ask for changes" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Already decided");
     expect(refresh).toHaveBeenCalled();
   });

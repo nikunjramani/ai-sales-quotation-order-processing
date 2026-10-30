@@ -1,6 +1,8 @@
+import { Rocket } from "lucide-react";
 import { Link } from "react-router";
 
 import { useCurrentTenant } from "@/features/tenant";
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { isApiError } from "@/shared/api/httpClient";
 import { ErrorMessage, QueryState } from "@/shared/ui/QueryState";
 
@@ -16,7 +18,11 @@ export function SetupPage() {
   const missing = isApiError(goLive.error, 409) ? missingFrom(goLive.error.detail) : [];
   return (
     <section>
-      <h1>Set up your business</h1>
+      <PageHeader
+        icon={Rocket}
+        title="Get started"
+        hint="Finish these steps one by one. When the required ones are done, press Go live."
+      />
       <QueryState isLoading={checklist.isLoading} error={checklist.error}>
         {data && data.status === "active" && (
           <p className="card">Your business is live. Quotations can now reach customers.</p>

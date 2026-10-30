@@ -1,4 +1,6 @@
 import { LeaveBusinessCard } from "@/features/business";
+import { LinkedAccountsSection } from "@/features/connections";
+import { useCurrentTenant } from "@/features/tenant";
 import { ErrorMessage } from "@/shared/ui/QueryState";
 
 import { useChangePasswordForm, useProfileForm } from "../../hooks/useProfile";
@@ -13,6 +15,7 @@ export function ProfilePage() {
       <section>
         <h1>Your profile</h1>
         <p className="muted">Demo people signed in with the development sign-in have no profile.</p>
+        <ManagerAccounts />
       </section>
     );
   }
@@ -20,6 +23,7 @@ export function ProfilePage() {
     <section>
       <h1>Your profile</h1>
       <VerifyEmailBanner />
+      <ManagerAccounts />
       <form className="card" onSubmit={profile.submit}>
         <p className="muted small">Email: {profile.user.email} (cannot be changed yet)</p>
         <label htmlFor="profile-name">Name</label>
@@ -66,4 +70,11 @@ export function ProfilePage() {
       <LeaveBusinessCard />
     </section>
   );
+}
+
+/** Managers link their own phone or chat account here (moved from "Apps & channels", ADR 0025). */
+function ManagerAccounts() {
+  const { tenant, can } = useCurrentTenant();
+  if (!tenant || !can("quotations:approve")) return null;
+  return <LinkedAccountsSection />;
 }

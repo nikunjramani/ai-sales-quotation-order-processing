@@ -14,11 +14,12 @@ export const CHECK_EMAIL =
 
 export const INVALID_LINK = "This link is not valid any more. Ask for a new one.";
 
+// Same plain names as the business feature's People page (ADR 0025).
 export const ROLE_LABEL: Record<string, string> = {
-  administrator: "Administrator",
-  sales_operator: "Sales operator",
-  approver: "Approver",
-  viewer: "Viewer",
+  administrator: "Admin",
+  sales_operator: "Sales",
+  approver: "Manager",
+  viewer: "View only",
 };
 
 export function roleText(roles: string[]): string {

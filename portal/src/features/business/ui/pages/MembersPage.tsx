@@ -13,7 +13,6 @@ import {
 import type { Member } from "../../model/types";
 import { isLastAdministrator, ROLE_LABEL } from "../../services/memberRules";
 import { RoleCheckboxes } from "../components/RoleCheckboxes";
-import { SettingsNav } from "../components/SettingsNav";
 
 /** Colleagues and invitations (administrators only, Q10). */
 export function MembersPage() {
@@ -23,8 +22,6 @@ export function MembersPage() {
   const invite = useInviteForm();
   return (
     <section>
-      <h1>Settings</h1>
-      <SettingsNav />
       <h2>People</h2>
       <QueryState isLoading={members.isLoading} error={members.error}>
         <ul className="list">

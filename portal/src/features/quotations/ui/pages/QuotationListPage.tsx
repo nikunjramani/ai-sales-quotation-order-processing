@@ -1,5 +1,7 @@
+import { FileText } from "lucide-react";
 import { useSearchParams } from "react-router";
 
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { FilterTabs } from "@/shared/ui/FilterTabs";
 import { QueryState } from "@/shared/ui/QueryState";
 
@@ -15,7 +17,11 @@ export function QuotationListPage() {
 
   return (
     <section>
-      <h1>Quotations</h1>
+      <PageHeader
+        icon={FileText}
+        title="Quotes"
+        hint="A quote tells a customer what things cost. Check each one, then approve it so it can be sent."
+      />
       <FilterTabs tabs={QUOTATION_FILTERS} selected={filter.id} onSelect={(id) => setParams({ filter: id })} />
       <QueryState isLoading={list.isLoading} error={list.error} isEmpty={list.data?.length === 0}>
         <ul className="list">

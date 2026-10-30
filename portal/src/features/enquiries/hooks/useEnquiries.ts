@@ -9,10 +9,11 @@ export const enquiryKeys = {
     ["tenants", tenantId, "enquiries", "list", [...statuses]] as const,
 };
 
-export function useEnquiryList(statuses: readonly string[]) {
+export function useEnquiryList(statuses: readonly string[], { enabled = true } = {}) {
   const tenantId = useTenantId();
   return useQuery({
     queryKey: enquiryKeys.list(tenantId, statuses),
     queryFn: () => enquiryRepository.list(tenantId, statuses),
+    enabled,
   });
 }

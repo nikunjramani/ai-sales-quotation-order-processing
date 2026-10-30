@@ -1,6 +1,8 @@
+import { Hand } from "lucide-react";
 import { Link, Navigate } from "react-router";
 
 import { useSession } from "@/features/auth";
+import { PageHeader } from "@/shared/ui/PageHeader";
 
 /** For a signed-in person without a business: create one, or join through an invitation. */
 export function StartPage() {
@@ -9,7 +11,7 @@ export function StartPage() {
   const verified = session.data?.user?.email_verified ?? false;
   return (
     <section>
-      <h1>Welcome</h1>
+      <PageHeader icon={Hand} title="Welcome!" hint="Let's get you set up. It only takes a few minutes." />
       <div className="card">
         <h2>Create your business</h2>
         <p>Set up your business, invite colleagues and connect your website. Nothing is sent to

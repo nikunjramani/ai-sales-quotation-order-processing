@@ -1,6 +1,8 @@
+import { Package, Plus, Tags } from "lucide-react";
 import { useDeferredValue } from "react";
 import { Link } from "react-router";
 
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { useCanEditCatalogue, useCatalogueSummary, useCategories, useProducts } from "../../hooks/useCatalogue";
 import { useProductFilters } from "../../hooks/useProductFilters";
 import { CatalogueSourceBanner } from "../components/CatalogueSourceBanner";
@@ -20,19 +22,25 @@ export function ProductListPage() {
   const counts = summary.data;
   return (
     <section>
-      <div className="row-end">
-        <h1>Products</h1>
-        {canEdit && (
-          <div className="actions">
-            <Link className="button primary" to="/catalogue/new">
-              Add product
-            </Link>
-            <Link className="button" to="/catalogue/categories">
-              Categories
-            </Link>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        icon={Package}
+        title="Products"
+        hint="Everything you sell, with its price and stock. Quotes use these prices."
+        actions={
+          canEdit && (
+            <>
+              <Link className="button primary" to="/catalogue/new">
+                <Plus size={20} aria-hidden="true" />
+                Add product
+              </Link>
+              <Link className="button" to="/catalogue/categories">
+                <Tags size={20} aria-hidden="true" />
+                Categories
+              </Link>
+            </>
+          )
+        }
+      />
       {counts && <CatalogueSourceBanner summary={counts} />}
       <CatalogueSyncPanel />
       {counts && (

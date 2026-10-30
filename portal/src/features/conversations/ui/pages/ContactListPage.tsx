@@ -1,6 +1,8 @@
+import { Users } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { dateTime } from "@/shared/lib/format";
 import { QueryState } from "@/shared/ui/QueryState";
 
@@ -11,7 +13,7 @@ export function ContactListPage() {
   const contacts = useContacts(query);
   return (
     <section>
-      <h1>Contacts</h1>
+      <PageHeader icon={Users} title="Contacts" hint="The people and companies who have talked to you. Search by name, email or phone." />
       <input
         type="search"
         placeholder="Search name, email, phone, company"

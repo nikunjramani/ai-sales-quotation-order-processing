@@ -114,11 +114,12 @@ export function useUpdatePricing() {
   });
 }
 
-export function useSetupChecklist() {
+export function useSetupChecklist({ enabled = true } = {}) {
   const tenantId = useTenantId();
   return useQuery({
     queryKey: businessKeys.setup(tenantId),
     queryFn: () => businessRepository.setup(tenantId),
+    enabled,
   });
 }
 

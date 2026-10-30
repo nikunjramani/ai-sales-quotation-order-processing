@@ -1,3 +1,4 @@
+import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import { ErrorMessage } from "@/shared/ui/QueryState";
@@ -19,21 +20,21 @@ export function OneClickToolsCard({ connections }: { connections: Connection[] }
   return (
     <section className="card">
       <h2>Add a tool</h2>
-      <ul className="list">
+      <ul className="tool-grid">
         {tools.map((tool) => (
-          <li key={tool.provider_key} className="row static">
-            <span>
-              <strong>{tool.provider_name}</strong>
-              <br />
-              <span className="muted small">
-                {tool.purposes.map((purpose) => PURPOSE_LABEL[purpose] ?? purpose).join(", ")} ·{" "}
-                {tool.cost_note}
-              </span>
+          <li key={tool.provider_key} className="tool-card">
+            <strong>{tool.provider_name}</strong>
+            <span className="muted small">
+              {tool.purposes.map((purpose) => PURPOSE_LABEL[purpose] ?? purpose).join(", ")}
             </span>
+            <span className="muted small">{tool.cost_note}</span>
             {enabling === tool.provider_key ? (
               <EnableDialog tool={tool} />
             ) : (
-              <button onClick={() => open(tool.provider_key)}>Enable</button>
+              <button className="primary" onClick={() => open(tool.provider_key)}>
+                <Plus size={18} aria-hidden="true" />
+                Add {tool.provider_name}
+              </button>
             )}
           </li>
         ))}
@@ -48,7 +49,7 @@ function EnableDialog({ tool }: { tool: AvailableTool }) {
   const [accepted, setAccepted] = useState(false);
   const costs = needsCostTick(tool);
   return (
-    <div role="dialog" aria-label={`Enable ${tool.provider_name}`}>
+    <div role="dialog" className="enable-dialog" aria-label={`Enable ${tool.provider_name}`}>
       {costs && (
         <label>
           <input

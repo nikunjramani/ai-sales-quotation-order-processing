@@ -2,16 +2,18 @@ import { createHashRouter } from "react-router";
 
 import { accountPublicRoutes, accountRoutes } from "@/features/account";
 import { approvalRoutes } from "@/features/approvals";
-import { businessRoutes, businessStartRoutes } from "@/features/business";
+import { businessRoutes, businessSettingsRoutes, businessStartRoutes } from "@/features/business";
 import { catalogueRoutes } from "@/features/catalogue";
-import { connectionRoutes } from "@/features/connections";
+import { connectionRoutes, connectionSettingsRoutes } from "@/features/connections";
 import { conversationRoutes } from "@/features/conversations";
 import { enquiryRoutes } from "@/features/enquiries";
+import { homeRoutes } from "@/features/home";
 import { orderRoutes } from "@/features/orders";
 import { quotationRoutes } from "@/features/quotations";
 
 import { AppLayout, HomeRedirect, SignedInLayout } from "./layout/AppLayout";
 import { NotFoundPage } from "./layout/NotFoundPage";
+import { SettingsLayout } from "./layout/SettingsLayout";
 
 // The route table only combines what each feature exports. Adding a screen to an existing
 // feature needs no change here; a new feature adds one line.
@@ -32,6 +34,7 @@ export function createRouter() {
       element: <AppLayout />,
       children: [
         { index: true, element: <HomeRedirect /> },
+        ...homeRoutes,
         ...quotationRoutes,
         ...enquiryRoutes,
         ...orderRoutes,
@@ -39,6 +42,12 @@ export function createRouter() {
         ...catalogueRoutes,
         ...connectionRoutes,
         ...businessRoutes,
+        // Settings sections from several features share one frame (ADR 0025).
+        {
+          path: "settings",
+          element: <SettingsLayout />,
+          children: [...businessSettingsRoutes, ...connectionSettingsRoutes],
+        },
         { path: "*", element: <NotFoundPage /> },
       ],
     },

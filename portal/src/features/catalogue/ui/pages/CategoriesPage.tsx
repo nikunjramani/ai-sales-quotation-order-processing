@@ -1,6 +1,8 @@
+import { ArrowLeft, Tags } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { useCanEditCatalogue, useCategories } from "../../hooks/useCatalogue";
 import { useCategoryForms } from "../../hooks/useCatalogueForms";
 import type { Category } from "../../model/types";
@@ -13,14 +15,14 @@ export function CategoriesPage() {
   const forms = useCategoryForms();
   return (
     <section>
-      <p>
-        <Link to="/catalogue">← Products</Link>
-      </p>
-      <h1>Categories</h1>
-      <p className="muted small">
-        When a customer asks for something you do not sell, the reply lists your categories that
-        have active products.
-      </p>
+      <Link className="link" to="/catalogue">
+        <ArrowLeft size={18} aria-hidden="true" /> All products
+      </Link>
+      <PageHeader
+        icon={Tags}
+        title="Categories"
+        hint="Groups of products. When a customer asks for something you do not sell, the reply lists your categories that have active products."
+      />
       {canEdit && (
         <form className="card" onSubmit={forms.submit}>
           <label htmlFor="category-name">New category</label>

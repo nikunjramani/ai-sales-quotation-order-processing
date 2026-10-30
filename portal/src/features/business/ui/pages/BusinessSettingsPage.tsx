@@ -4,14 +4,11 @@ import { useDetailsForm, usePdfDetailsForm } from "../../hooks/useBusinessForms"
 import { useBusinessSettings, useLogo } from "../../hooks/useBusiness";
 import type { BusinessSettings } from "../../model/types";
 import { timeZones } from "../../services/regions";
-import { SettingsNav } from "../components/SettingsNav";
 
 export function BusinessSettingsPage() {
   const settings = useBusinessSettings();
   return (
     <section>
-      <h1>Settings</h1>
-      <SettingsNav />
       <QueryState isLoading={settings.isLoading} error={settings.error}>
         {settings.data && (
           // key: the forms start again from the saved values after each reload.
